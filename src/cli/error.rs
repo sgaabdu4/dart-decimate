@@ -47,6 +47,9 @@ pub enum CliError {
     /// Cross-language duplicate detection is JavaScript/TypeScript-specific in Fallow.
     #[error("dupes --cross-language is not supported for Dart-only analysis")]
     UnsupportedCrossLanguageDupes,
+    /// Browser opening only applies to HTML report output.
+    #[error("--open only supports HTML reports; use --open by itself or --format html --open")]
+    HtmlOpenRequiresHtml,
     /// User-level agent hook installation is intentionally not supported.
     #[error(
         "setup-hooks --user is not supported; Dart Decimate only manages repo-local agent hooks"

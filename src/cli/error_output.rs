@@ -3,7 +3,7 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 
-use super::{CliError, run_from};
+use super::{CliError, default_command, run_from};
 
 /// Run Dart Decimate from process arguments and return an exit code.
 #[must_use]
@@ -36,7 +36,15 @@ pub fn run_from_env() -> i32 {
 }
 
 fn format_json_requested(args: &[OsString]) -> bool {
-    let mut args = args.iter().skip(1).filter_map(|arg| arg.to_str());
+    if default_command::output_alias_help_requested(args) {
+        return false;
+    }
+    if default_command::json_output_alias_requested(args) {
+        return true;
+    }
+
+    let expanded_args = default_command::args_with_default_check(args.iter().cloned());
+    let mut args = expanded_args.iter().skip(1).filter_map(|arg| arg.to_str());
     while let Some(arg) = args.next() {
         if arg == "--format" && args.next().is_some_and(|value| value == "json") {
             return true;

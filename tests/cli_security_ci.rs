@@ -133,6 +133,67 @@ fn summary_omits_arrays_keeps_failure_code() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn security_summary_human_omits_details_without_pass_copy() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write_security_candidates(&fixture)?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "security",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "human",
+            "--summary",
+            "--surface",
+        ],
+        &mut output,
+    )?;
+
+    let text = String::from_utf8(output)?;
+    assert_eq!(code, 1);
+    assert!(text.contains("Dart Decimate security: FAIL"));
+    assert!(text.contains("Findings: 2"));
+    assert!(text.contains("2 findings were omitted from this summary output."));
+    assert!(!text.contains("No findings. The selected Dart graph checks passed."));
+
+    Ok(())
+}
+
+#[test]
+fn security_summary_html_omits_details_without_pass_copy() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write_security_candidates(&fixture)?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "security",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "html",
+            "--summary",
+            "--surface",
+        ],
+        &mut output,
+    )?;
+
+    let html = String::from_utf8(output)?;
+    assert_eq!(code, 1);
+    assert!(html.contains("<h1>security report</h1>"));
+    assert!(html.contains("2 findings were omitted from this summary output."));
+    assert!(!html.contains("No findings. The selected Dart graph checks passed."));
+
+    Ok(())
+}
+
+#[test]
 fn security_summary_does_not_change_passing_exit_code() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

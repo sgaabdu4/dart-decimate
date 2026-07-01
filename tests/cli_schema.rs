@@ -187,7 +187,7 @@ fn assert_manifest_metadata(json: &Value) {
     assert_eq!(json["manifest_version"], "dart-decimate.schema.v1");
     assert_eq!(
         json["output_formats"],
-        serde_json::json!(["human", "json", "sarif"])
+        serde_json::json!(["human", "html", "json", "sarif"])
     );
     assert!(json["global_flags"].as_array().is_some_and(|flags| {
         ["--root", "--format", "--config", "--quiet"]

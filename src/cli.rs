@@ -16,8 +16,8 @@ use crate::config::{
     apply_rules_to_report, load_dart_decimate_config,
 };
 use crate::output::{
-    ReportCommand, Verdict, build_json_report, filter_report_findings, render_human_report,
-    render_sarif_report,
+    ReportCommand, Verdict, build_json_report, filter_report_findings, render_html_report,
+    render_human_report, render_sarif_report,
 };
 use crate::scan::{ScanOptions, scan_project_with_options};
 use crate::{
@@ -45,6 +45,7 @@ mod fix_run;
 mod flags_args;
 mod health_args;
 mod hooks_run;
+mod html_open;
 mod impact_run;
 mod init_run;
 mod inspect_args;
@@ -283,6 +284,10 @@ fn run_request<W: Write>(request: &CommandRequest, mut writer: W) -> Result<i32,
 
     match request.format {
         ReportOutputFormat::Human => writer.write_all(render_human_report(&report).as_bytes())?,
+        ReportOutputFormat::HtmlOpen => {
+            html_open::write_and_open_html_report(&report, &mut writer)?;
+        }
+        ReportOutputFormat::Html => writer.write_all(render_html_report(&report).as_bytes())?,
         ReportOutputFormat::Json => {
             serde_json::to_writer_pretty(&mut writer, &report)?;
             writeln!(writer)?;
@@ -307,7 +312,43 @@ fn command() -> Command {
         .about("Rust-native Dart and Flutter module-graph intelligence")
         .subcommand_required(false)
         .arg_required_else_help(false);
-    schema_subcommands(support_subcommands(report_subcommands(command)))
+    schema_subcommands(support_subcommands(shortcut_subcommands(
+        report_subcommands(command),
+    )))
+}
+
+fn shortcut_subcommands(command: Command) -> Command {
+    command
+        .subcommand(output_shortcut_command(
+            "human",
+            "Shortcut for check with readable terminal output",
+        ))
+        .subcommand(output_shortcut_command(
+            "json",
+            "Shortcut for check with JSON output",
+        ))
+        .subcommand(
+            output_shortcut_command("html", "Shortcut for check with a browser HTML report").arg(
+                Arg::new("stdout")
+                    .long("stdout")
+                    .help("Print the HTML report instead of opening it in the browser")
+                    .action(ArgAction::SetTrue),
+            ),
+        )
+}
+
+fn output_shortcut_command(name: &'static str, about: &'static str) -> Command {
+    Command::new(name)
+        .about(about)
+        .after_help("All check flags can also be passed to this shortcut.")
+        .arg(common_args::root_arg())
+        .arg(
+            Arg::new("format")
+                .long("format")
+                .value_name("FORMAT")
+                .value_parser(common_args::REPORT_FORMAT_VALUES)
+                .hide(true),
+        )
 }
 
 fn report_subcommands(command: Command) -> Command {
@@ -432,11 +473,7 @@ fn request_from_matches(matches: &ArgMatches) -> Result<CommandRequest, CliError
     let root = root_path(subcommand);
     let config = load_config(&root, subcommand)?;
     let security_cli = security_cli_options(command, subcommand);
-    let format = if security_cli.ci {
-        ReportOutputFormat::Sarif
-    } else {
-        report_output_format(subcommand, &config)
-    };
+    let format = request_format(subcommand, &config, &security_cli)?;
     let entry_points = entry_points(subcommand, &config);
     let production = mode_args::production(subcommand, &config);
     let symbol_options = SymbolRequestOptions {
@@ -524,6 +561,33 @@ fn request_from_matches(matches: &ArgMatches) -> Result<CommandRequest, CliError
         ignore_dependency_overrides: config.ignore_dependency_overrides.clone(),
         rules: config.rules.clone(),
     })
+}
+
+fn request_format(
+    subcommand: &ArgMatches,
+    config: &DartDecimateConfig,
+    security_cli: &SecurityCliOptions,
+) -> Result<ReportOutputFormat, CliError> {
+    let open_html = subcommand
+        .try_get_one::<bool>("open")
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or_default();
+    let explicit_format = subcommand.value_source("format") == Some(ValueSource::CommandLine);
+    let format = if security_cli.ci {
+        ReportOutputFormat::Sarif
+    } else {
+        report_output_format(subcommand, config)
+    };
+
+    if !open_html {
+        return Ok(format);
+    }
+    if security_cli.ci || (explicit_format && format != ReportOutputFormat::Html) {
+        return Err(CliError::HtmlOpenRequiresHtml);
+    }
+    Ok(ReportOutputFormat::HtmlOpen)
 }
 
 fn validate_security_cli(

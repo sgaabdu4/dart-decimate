@@ -56,6 +56,9 @@ fn run_trace_file<W: Write>(
             serde_json::to_writer_pretty(&mut *writer, &report)?;
             writeln!(writer)?;
         }
+        ReportOutputFormat::Html | ReportOutputFormat::HtmlOpen => {
+            unreachable!("HTML is rejected before trace rendering")
+        }
         ReportOutputFormat::Sarif => unreachable!("SARIF is rejected before trace rendering"),
     }
     Ok(())
@@ -82,6 +85,9 @@ fn run_trace_symbol<W: Write>(
             serde_json::to_writer_pretty(&mut *writer, &report)?;
             writeln!(writer)?;
         }
+        ReportOutputFormat::Html | ReportOutputFormat::HtmlOpen => {
+            unreachable!("HTML is rejected before trace rendering")
+        }
         ReportOutputFormat::Sarif => unreachable!("SARIF is rejected before trace rendering"),
     }
     Ok(())
@@ -104,6 +110,9 @@ fn run_trace_dependency<W: Write>(
             serde_json::to_writer_pretty(&mut *writer, &report)?;
             writeln!(writer)?;
         }
+        ReportOutputFormat::Html | ReportOutputFormat::HtmlOpen => {
+            unreachable!("HTML is rejected before trace rendering")
+        }
         ReportOutputFormat::Sarif => unreachable!("SARIF is rejected before trace rendering"),
     }
     Ok(())
@@ -124,6 +133,9 @@ fn run_trace_clone<W: Write>(
         ReportOutputFormat::Json => {
             serde_json::to_writer_pretty(&mut *writer, &report)?;
             writeln!(writer)?;
+        }
+        ReportOutputFormat::Html | ReportOutputFormat::HtmlOpen => {
+            unreachable!("HTML is rejected before trace rendering")
         }
         ReportOutputFormat::Sarif => unreachable!("SARIF is rejected before trace rendering"),
     }

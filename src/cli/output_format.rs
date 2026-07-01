@@ -11,6 +11,8 @@ pub(super) enum OutputFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ReportOutputFormat {
     Human,
+    Html,
+    HtmlOpen,
     Json,
     Sarif,
 }
@@ -55,6 +57,7 @@ fn report_output_format_value(subcommand: &ArgMatches) -> ReportOutputFormat {
         .get_one::<String>("format")
         .map_or("human", String::as_str)
     {
+        "html" => ReportOutputFormat::Html,
         "json" => ReportOutputFormat::Json,
         "sarif" => ReportOutputFormat::Sarif,
         _ => ReportOutputFormat::Human,

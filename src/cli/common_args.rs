@@ -5,6 +5,9 @@ use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 
 use super::regression_args::regression_command;
 
+pub(super) const FORMAT_VALUES: [&str; 2] = ["human", "json"];
+pub(super) const REPORT_FORMAT_VALUES: [&str; 4] = ["human", "html", "json", "sarif"];
+
 pub(super) fn scan_command(command: Command) -> Command {
     scan_command_with_format(command, format_arg())
 }
@@ -13,6 +16,7 @@ pub(super) fn report_command(command: Command) -> Command {
     super::scope_args::report_command(super::summary_args::summary_command(
         scan_command_with_format(command, report_format_arg()),
     ))
+    .arg(open_arg())
 }
 
 fn scan_command_with_format(command: Command, format: Arg) -> Command {
@@ -70,11 +74,18 @@ pub(super) fn format_arg() -> Arg {
         .value_name("FORMAT")
         .help("Output format")
         .default_value("human")
-        .value_parser(["human", "json"])
+        .value_parser(FORMAT_VALUES)
 }
 
 fn report_format_arg() -> Arg {
-    format_arg().value_parser(["human", "json", "sarif"])
+    format_arg().value_parser(REPORT_FORMAT_VALUES)
+}
+
+fn open_arg() -> Arg {
+    Arg::new("open")
+        .long("open")
+        .help("Write an HTML report to a temporary file and open its file:// URL in the default browser")
+        .action(ArgAction::SetTrue)
 }
 
 pub(super) fn config_arg() -> Arg {

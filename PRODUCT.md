@@ -120,7 +120,15 @@ Phase 4 exposes the CLI and agent output contract:
 - `dart-decimate config`
 - `dart-decimate config-schema`
 - `dart-decimate report-schema`
+- `dart-decimate human`, `dart-decimate json`, and `dart-decimate html` are
+  shortcuts for `dart-decimate check`; `html` opens a browser report by default
+  unless `--stdout` is passed
 - analysis commands with `--format json` emit `dart-decimate.report.v1`
+- report commands with `--format html` emit a browser-ready static HTML report
+- report commands with `--open` write an HTML report to a private temporary file
+  and open its `file://` URL in the default browser
+- human reports strip terminal control characters from user-derived paths and
+  messages; HTML reports escape user-derived content
 - trace commands with `--format json` emit `dart-decimate.trace.v1`
 - `dart-decimate inspect --format json` emits `dart-decimate.inspect.v1`
 - `dart-decimate schema --format json` emits `dart-decimate.schema.v1` with commands,
@@ -421,11 +429,15 @@ Current implemented parity:
 - CLI JSON output for `check`, `audit`, `dead-code`, `cycles`, `dupes`,
   `health`, `flags`, `security`, `list`, `workspaces`, `explain`, `fix`,
   `config`, `config-schema`, and `report-schema`
+- concise human report details plus browser-ready HTML report output for report
+  commands via `--format html`, `--open`, and `dart-decimate human|json|html`
+  shortcuts; human output strips terminal control characters and HTML output
+  escapes user-derived content
 - SARIF 2.1.0 output for report commands via `--format sarif`, suitable for
   code-scanning upload after the same suppression, rule, baseline, and `--top`
   filtering used by JSON reports; security `--sarif-file PATH` writes SARIF
-  while keeping stdout on the selected human or JSON format; `--gate new` with
+  while keeping stdout on the selected report format; `--gate new` with
   `--changed-since`, `--diff-file`, or `--diff-stdin` narrows both JSON and
   SARIF to candidates introduced by added diff lines; security `--ci` emits
   SARIF and fails on candidates, while `--summary` keeps counts without item
-  arrays for human and JSON output
+  arrays for human, HTML, and JSON output

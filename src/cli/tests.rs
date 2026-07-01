@@ -240,6 +240,65 @@ fn check_command_reports_duplicate_exports() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn check_command_emits_html_report() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/a.dart", "import 'b.dart';\nclass A {}\n")?;
+    write(&fixture, "lib/b.dart", "import 'a.dart';\nclass B {}\n")?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "html",
+        ],
+        &mut output,
+    )?;
+
+    let html = String::from_utf8(output)?;
+    assert_eq!(code, 1);
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("<h1>check report</h1>"));
+    assert!(html.contains("Circular dependency"));
+    assert!(html.contains("Why"));
+    assert!(html.contains("Best"));
+    assert!(html.contains("lib/a.dart"));
+
+    Ok(())
+}
+
+#[test]
+fn open_html_rejects_explicit_non_html_format() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    let mut output = Vec::new();
+
+    let result = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--open",
+        ],
+        &mut output,
+    );
+    let Err(error) = result else {
+        panic!("json reports cannot be opened as HTML");
+    };
+
+    assert!(matches!(error, CliError::HtmlOpenRequiresHtml));
+    assert!(output.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn check_command_reports_boundaries_and_unresolved_imports()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -503,6 +562,37 @@ fn check_command_treats_public_library_files_as_default_entry_points()
     assert_eq!(code, 1);
     assert_eq!(json["summary"]["dead_files"], 1);
     assert_eq!(findings[0]["path"], "lib/src/dead.dart");
+
+    Ok(())
+}
+
+#[test]
+fn output_alias_commands_run_check_formats() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/a.dart", "import 'b.dart';\nclass A {}\n")?;
+    write(&fixture, "lib/b.dart", "import 'a.dart';\nclass B {}\n")?;
+    let root = fixture.path().to_str().unwrap_or(".");
+
+    let mut output = Vec::new();
+    let code = run_from(["dart-decimate", "json", root], &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 1);
+    assert_eq!(json["command"], "check");
+    assert_eq!(json["summary"]["cycles"], 1);
+
+    output.clear();
+    let code = run_from(["dart-decimate", "html", root, "--stdout"], &mut output)?;
+    let html = String::from_utf8(std::mem::take(&mut output))?;
+    assert_eq!(code, 1);
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("Circular dependency"));
+
+    let code = run_from(["dart-decimate", "human", root], &mut output)?;
+    let human = String::from_utf8(output)?;
+    assert_eq!(code, 1);
+    assert!(human.contains("Dart Decimate check"));
+    assert!(human.contains("Why"));
 
     Ok(())
 }

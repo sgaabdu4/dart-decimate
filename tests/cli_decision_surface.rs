@@ -197,6 +197,35 @@ fn audit_brief_emits_review_contract_and_never_fails() -> Result<(), Box<dyn std
     Ok(())
 }
 
+#[test]
+fn audit_brief_emits_html_report() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = changed_dependency_fixture()?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "audit",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "html",
+            "--base",
+            "HEAD",
+            "--brief",
+        ],
+        &mut output,
+    )?;
+
+    let html = String::from_utf8(output)?;
+    assert_eq!(code, 0);
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("<h1>audit --brief decision surface</h1>"));
+    assert!(html.contains("pubspec.yaml"));
+    assert!(html.contains("dependency"));
+
+    Ok(())
+}
+
 fn has_category(json: &Value, category: &str) -> bool {
     json["decisions"].as_array().is_some_and(|decisions| {
         decisions

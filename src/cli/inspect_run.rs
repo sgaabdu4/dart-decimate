@@ -35,6 +35,9 @@ pub(super) fn run_inspect_request<W: Write>(
             serde_json::to_writer_pretty(&mut writer, &report)?;
             writeln!(writer)?;
         }
+        ReportOutputFormat::Html | ReportOutputFormat::HtmlOpen => {
+            unreachable!("HTML is rejected before inspect rendering")
+        }
         ReportOutputFormat::Sarif => unreachable!("SARIF is rejected before inspect rendering"),
     }
 

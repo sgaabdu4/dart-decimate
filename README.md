@@ -36,7 +36,7 @@ It answers practical questions:
 Inside any Dart or Flutter project, run this:
 
 ```bash
-npx --yes dart-decimate check . --format json --summary
+npx --yes dart-decimate human .
 ```
 
 That is the easiest command. It checks the whole repo for dead code, circular
@@ -44,14 +44,14 @@ dependencies, duplicated code, complex functions, dependency hygiene,
 architecture drift, Flutter graph issues, security candidates, and PR-risk
 signals.
 
-For a shorter human-readable report:
+For JSON output that agents and CI can parse:
 
 ```bash
-npx --yes dart-decimate check .
+npx --yes dart-decimate json .
 ```
 
-If the report says `"verdict": "fail"`, Dart Decimate worked. It means it found
-error-level issues. It does not mean the tool crashed.
+If the human report says `FAIL`, or JSON says `"verdict": "fail"`, Dart Decimate
+worked. It means it found error-level issues. It does not mean the tool crashed.
 
 Exit codes:
 
@@ -65,7 +65,7 @@ Exit codes:
 You do not need to install anything permanently. Use `npx`:
 
 ```bash
-npx --yes dart-decimate check . --format json --summary
+npx --yes dart-decimate human .
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -73,10 +73,10 @@ Add this to `package.json` if you want a short project command:
 ```json
 {
   "scripts": {
-    "dart-decimate": "dart-decimate check . --format json --summary"
+    "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.5"
+    "dart-decimate": "^0.0.6"
   }
 }
 ```
@@ -130,13 +130,32 @@ install.
 Check everything:
 
 ```bash
-npx --yes dart-decimate check . --format json --summary
+npx --yes dart-decimate human .
 ```
 
-Human-readable output:
+Machine-readable JSON:
 
 ```bash
-npx --yes dart-decimate check .
+npx --yes dart-decimate json .
+```
+
+Open the HTML report in your browser:
+
+```bash
+npx --yes dart-decimate html .
+```
+
+The `html` shortcut opens the report by default. On report commands, use
+`--format html` to print static HTML or `--open` to write a private temporary
+file and open it in the default browser.
+
+Human terminal reports strip control characters from user-derived paths and
+messages; HTML reports escape user-derived content.
+
+Print the HTML report instead:
+
+```bash
+npx --yes dart-decimate html . --stdout > dart-decimate-report.html
 ```
 
 To run the GitHub version directly:
@@ -575,7 +594,7 @@ Add Dart Decimate to CI so every PR gets the same repo health check:
 
 ```yaml
 - name: Dart Decimate
-  run: npx --yes dart-decimate check . --format json --summary
+  run: npx --yes dart-decimate json .
 ```
 
 That is the easiest CI command. It checks everything Dart Decimate knows how to
@@ -593,7 +612,7 @@ You can also put the full check in a git hook:
 mkdir -p .git/hooks
 cat > .git/hooks/pre-commit <<'SH'
 #!/usr/bin/env sh
-npx --yes dart-decimate check . --format json --summary
+npx --yes dart-decimate json .
 SH
 chmod +x .git/hooks/pre-commit
 ```
@@ -656,7 +675,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.5`.
+Current version: `0.0.6`.
 
 After the first public release, changes should go through pull requests.
 

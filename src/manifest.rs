@@ -35,7 +35,7 @@ pub fn dart_decimate_schema() -> Value {
         "default_command": "check",
         "default_behavior": "Bare dart-decimate invocations default to dart-decimate check against the provided root.",
         "global_flags": ["--root", "--format", "--config", "--quiet"],
-        "output_formats": ["human", "json", "sarif"],
+        "output_formats": ["human", "html", "json", "sarif"],
         "plugins": plugins(),
         "environment_variables": environment_variables(),
         "mcp_tools": mcp_tools(),
@@ -122,18 +122,39 @@ fn append_commands(commands: &mut Vec<Value>, values: Value) {
 fn analysis_commands() -> Value {
     json!([
         {
+            "name": "human",
+            "kind": "shortcut",
+            "description": "Shortcut for check with readable terminal output.",
+            "schema": SCHEMA_VERSION,
+            "flags": ["ROOT"]
+        },
+        {
+            "name": "json",
+            "kind": "shortcut",
+            "description": "Shortcut for check with JSON output.",
+            "schema": SCHEMA_VERSION,
+            "flags": ["ROOT"]
+        },
+        {
+            "name": "html",
+            "kind": "shortcut",
+            "description": "Shortcut for check with a browser HTML report.",
+            "schema": SCHEMA_VERSION,
+            "flags": ["ROOT", "--stdout"]
+        },
+        {
             "name": "check",
             "kind": "combined",
             "description": "Run all enabled graph, symbol, dependency, duplicate, health, flag, and security checks.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks", "--unused-files", "--unused-exports", "--unused-types", "--unused-deps", "--unlisted-deps", "--private-src-imports", "--duplicate-exports", "--circular-deps", "--re-export-cycles", "--boundary-violations", "--unused-enum-members", "--unused-class-members", "--unresolved-imports", "--stale-suppressions", "--unused-dependency-overrides", "--misconfigured-dependency-overrides"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks", "--unused-files", "--unused-exports", "--unused-types", "--unused-deps", "--unlisted-deps", "--private-src-imports", "--duplicate-exports", "--circular-deps", "--re-export-cycles", "--boundary-violations", "--unused-enum-members", "--unused-class-members", "--unresolved-imports", "--stale-suppressions", "--unused-dependency-overrides", "--misconfigured-dependency-overrides"]
         },
         {
             "name": "audit",
             "kind": "audit",
             "description": "Run changed-code graph checks scoped from a Git base ref.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--brief", "--base", "--gate", "--dead-code-baseline", "--health-baseline", "--dupes-baseline", "--max-decisions", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks"]
+            "flags": ["--root", "--brief", "--base", "--gate", "--dead-code-baseline", "--health-baseline", "--dupes-baseline", "--max-decisions", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks"]
         },
         {
             "name": "review",
@@ -154,42 +175,42 @@ fn analysis_commands() -> Value {
             "kind": "dead-code",
             "description": "Find unreachable Dart files and conservative symbol-level dead code.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--include-entry-exports", "--private-type-leaks", "--unused-files", "--unused-exports", "--unused-types", "--unused-deps", "--unlisted-deps", "--private-src-imports", "--duplicate-exports", "--unused-enum-members", "--unused-class-members", "--unresolved-imports", "--stale-suppressions", "--unused-dependency-overrides", "--misconfigured-dependency-overrides"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--include-entry-exports", "--private-type-leaks", "--unused-files", "--unused-exports", "--unused-types", "--unused-deps", "--unlisted-deps", "--private-src-imports", "--duplicate-exports", "--unused-enum-members", "--unused-class-members", "--unresolved-imports", "--stale-suppressions", "--unused-dependency-overrides", "--misconfigured-dependency-overrides"]
         },
         {
             "name": "cycles",
             "kind": "cycles",
             "description": "Find import/export/part/augment dependency cycles.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline"]
         },
         {
             "name": "dupes",
             "kind": "dupes",
             "description": "Find duplicated Dart code blocks.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports"]
         },
         {
             "name": "health",
             "kind": "health",
             "description": "Find complex functions, coverage gaps, hotspots, and refactoring targets.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--top"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--top"]
         },
         {
             "name": "flags",
             "kind": "flags",
             "description": "Inventory Dart and Flutter feature flag patterns.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--top"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--top"]
         },
         {
             "name": "security",
             "kind": "security",
             "description": "Surface local deterministic security review candidates.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--top", "--surface", "--sarif-file", "--ci", "--fail-on-issues", "--summary", "--gate", "--diff-file", "--diff-stdin", "--changed-since"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--top", "--surface", "--sarif-file", "--ci", "--fail-on-issues", "--summary", "--gate", "--diff-file", "--diff-stdin", "--changed-since"]
         },
         {
             "name": "impact",

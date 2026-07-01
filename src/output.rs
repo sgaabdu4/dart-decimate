@@ -7,7 +7,9 @@ mod feature_flag_findings;
 mod format;
 mod graph_findings;
 mod health_findings;
+mod html;
 mod human;
+mod human_details;
 mod next_steps;
 mod route_findings;
 mod runtime_coverage;
@@ -44,6 +46,7 @@ use health_findings::{
     add_health_findings, json_complexity, json_file_scores, json_hotspots,
     json_refactoring_targets, json_threshold_overrides,
 };
+pub use html::{render_decision_surface_html_report, render_html_report};
 pub use human::render_human_report;
 use next_steps::next_steps;
 use route_findings::add_route_findings;
