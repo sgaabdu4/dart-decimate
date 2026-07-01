@@ -32,9 +32,15 @@ fn npm_package_exposes_dart_decimate_bin() -> Result<(), Box<dyn std::error::Err
             .as_str()
             .is_some_and(|script| script.contains("npm/scripts/test-npx-mcp-local.js"))
     );
+    assert!(
+        package["scripts"]["test:postinstall:prebuilt"]
+            .as_str()
+            .is_some_and(|script| script.contains("npm/scripts/test-postinstall-prebuilt.js"))
+    );
     assert!(Path::new("npm/bin/dart-decimate.js").is_file());
     assert!(Path::new("npm/bin/dart-decimate-mcp.js").is_file());
     assert!(Path::new("npm/scripts/postinstall.js").is_file());
+    assert!(Path::new("npm/scripts/test-postinstall-prebuilt.js").is_file());
     assert!(Path::new("npm/scripts/test-npx-local.js").is_file());
     assert!(Path::new("npm/scripts/test-npx-mcp-local.js").is_file());
     let mcp_script = fs::read_to_string("npm/scripts/test-npx-mcp-local.js")?;

@@ -57,5 +57,6 @@ jobs:
       - name: Check npm package
         run: |
           npm run pack:check
+          npm run test:postinstall:prebuilt
           npm run test:npx:local
           npm run test:npx:mcp:local

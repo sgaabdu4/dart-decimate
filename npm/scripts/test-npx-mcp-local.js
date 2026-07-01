@@ -31,7 +31,11 @@ try {
   const result = spawnSync(
     "npx",
     ["--yes", "--package", tarball, "--", "dart-decimate-mcp"],
-    { input: initialize, encoding: "utf8" },
+    {
+      input: initialize,
+      encoding: "utf8",
+      env: { ...process.env, DART_DECIMATE_SKIP_DOWNLOAD: "1" },
+    },
   );
   if (result.stdout) {
     process.stdout.write(result.stdout);

@@ -17,8 +17,64 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build-assets:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: dart-decimate-linux-x64.tar.gz
+            exe_ext: ""
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: dart-decimate-darwin-x64.tar.gz
+            exe_ext: ""
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: dart-decimate-darwin-arm64.tar.gz
+            exe_ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: dart-decimate-windows-x64.tar.gz
+            exe_ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add "${{ matrix.target }}"
+
+      - name: Build archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "${{ matrix.target }}" --bin dart-decimate --bin dart-decimate-mcp
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/dart-decimate${{ matrix.exe_ext }}" dist/
+          cp "target/${{ matrix.target }}/release/dart-decimate-mcp${{ matrix.exe_ext }}" dist/
+          if [ "${{ matrix.exe_ext }}" = "" ]; then
+            chmod +x dist/dart-decimate dist/dart-decimate-mcp
+          fi
+          tar -czf "${{ matrix.asset }}" -C dist .
+
+      - name: Upload archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
   release:
     name: Tag and publish
+    needs: build-assets
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -36,8 +92,9 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
       - name: Prepare trusted npm publishing
         run: |
@@ -54,6 +111,19 @@ jobs:
           cargo clippy --all-targets -- -D warnings
           cargo test --all-targets
           npm run pack:check
+          npm run test:postinstall:prebuilt
+
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release-assets
+
+      - name: Flatten release assets
+        run: |
+          mkdir -p dist-assets
+          find release-assets -type f -name 'dart-decimate-*' -exec cp {} dist-assets/ \;
+          test "$(find dist-assets -type f | wc -l)" -eq 4
+          ls -la dist-assets
 
       - name: Resolve version
         id: version
@@ -80,10 +150,6 @@ jobs:
             echo "npm_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish to npm
-        if: steps.state.outputs.npm_exists == 'false'
-        run: npm publish --access public --provenance
-
       - name: Create and push tag
         if: steps.state.outputs.tag_exists == 'false'
         env:
@@ -94,14 +160,18 @@ jobs:
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists"
+            gh release upload "$TAG" dist-assets/* --clobber
           else
-            gh release create "$TAG" --title "$TAG" --notes "Dart Decimate $VERSION"
+            gh release create "$TAG" dist-assets/* --title "$TAG" --notes "Dart Decimate $VERSION"
           fi
+
+      - name: Publish to npm
+        if: steps.state.outputs.npm_exists == 'false'
+        run: npm publish --access public --provenance

@@ -29,7 +29,7 @@ try {
   const result = spawnSync(
     "npx",
     ["--yes", "--package", tarball, "--", "dart-decimate", "--help"],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: { ...process.env, DART_DECIMATE_SKIP_DOWNLOAD: "1" } },
   );
   if (result.stdout) {
     process.stdout.write(result.stdout);
@@ -51,4 +51,3 @@ try {
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
-

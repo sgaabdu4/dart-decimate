@@ -33,6 +33,7 @@
     "pack:check": "npm pack --dry-run",
     "test:npm": "node npm/bin/dart-decimate.js --help",
     "test:npm:mcp": "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\"}}\\n' | node npm/bin/dart-decimate-mcp.js",
+    "test:postinstall:prebuilt": "node npm/scripts/test-postinstall-prebuilt.js",
     "test:npx:local": "node npm/scripts/test-npx-local.js",
     "test:npx:mcp:local": "node npm/scripts/test-npx-mcp-local.js"
   },
