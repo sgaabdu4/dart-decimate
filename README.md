@@ -33,16 +33,21 @@ It answers practical questions:
 
 ## Start Here
 
-Inside any Dart or Flutter project:
+Inside any Dart or Flutter project, run this:
 
 ```bash
-dart-decimate check . --format json --summary | jq .summary
+npx --yes dart-decimate check . --format json --summary
 ```
 
-If you do not want JSON:
+That is the easiest command. It checks the whole repo for dead code, circular
+dependencies, duplicated code, complex functions, dependency hygiene,
+architecture drift, Flutter graph issues, security candidates, and PR-risk
+signals.
+
+For a shorter human-readable report:
 
 ```bash
-dart-decimate check .
+npx --yes dart-decimate check .
 ```
 
 If the report says `"verdict": "fail"`, Dart Decimate worked. It means it found
@@ -57,7 +62,32 @@ Exit codes:
 
 ## Install
 
-From GitHub:
+You do not need to install anything permanently. Use `npx`:
+
+```bash
+npx --yes dart-decimate check . --format json --summary
+```
+
+Add this to `package.json` if you want a short project command:
+
+```json
+{
+  "scripts": {
+    "dart-decimate": "dart-decimate check . --format json --summary"
+  },
+  "devDependencies": {
+    "dart-decimate": "^0.0.2"
+  }
+}
+```
+
+Then run:
+
+```bash
+npm run dart-decimate
+```
+
+If you prefer Cargo:
 
 ```bash
 cargo install --git https://github.com/sgaabdu4/dart-decimate
@@ -94,10 +124,19 @@ dart-decimate check . --format json
 
 ## npx
 
-The npm package name is `dart-decimate`.
+The npm package name is `dart-decimate`. These commands do not require a global
+install.
+
+Check everything:
 
 ```bash
-npx dart-decimate check . --format json
+npx --yes dart-decimate check . --format json --summary
+```
+
+Human-readable output:
+
+```bash
+npx --yes dart-decimate check .
 ```
 
 To run the GitHub version directly:
@@ -532,10 +571,31 @@ missing-suppression-reason
 
 ## CI
 
-Use this in CI to review only changed code:
+Add Dart Decimate to CI so every PR gets the same repo health check:
+
+```yaml
+- name: Dart Decimate
+  run: npx --yes dart-decimate check . --format json --summary
+```
+
+That is the easiest CI command. It checks everything Dart Decimate knows how to
+check in one pass.
+
+For PR-only regression checks, use:
 
 ```bash
-dart-decimate audit . --base origin/main --format json --fail-on-regression
+npx --yes dart-decimate audit . --base origin/main --format json --summary --gate new-only
+```
+
+You can also put the full check in a git hook:
+
+```bash
+mkdir -p .git/hooks
+cat > .git/hooks/pre-commit <<'SH'
+#!/usr/bin/env sh
+npx --yes dart-decimate check . --format json --summary
+SH
+chmod +x .git/hooks/pre-commit
 ```
 
 This repository already runs:
@@ -596,7 +656,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.1`.
+Current version: `0.0.2`.
 
 After the first public release, changes should go through pull requests.
 
