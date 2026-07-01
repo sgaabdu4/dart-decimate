@@ -76,7 +76,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate check . --format json --summary"
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.4"
+    "dart-decimate": "^0.0.5"
   }
 }
 ```
@@ -656,7 +656,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.4`.
+Current version: `0.0.5`.
 
 After the first public release, changes should go through pull requests.
 
