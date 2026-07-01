@@ -33,7 +33,7 @@ jobs:
 
       - name: Cargo audit
         run: |
-          cargo install cargo-audit --locked
+          cargo install cargo-audit --version 0.22.2 --locked
           cargo audit
 
       - name: Install Node

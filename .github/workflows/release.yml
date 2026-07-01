@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 env:
   RUST_TOOLCHAIN: stable
@@ -77,6 +76,9 @@ jobs:
     needs: build-assets
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
       - name: Checkout

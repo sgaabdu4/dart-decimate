@@ -1,6 +1,6 @@
 [package]
 name = "dart-decimate"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2024"
 rust-version = "1.85"
 description = "Rust-native codebase intelligence for Dart and Flutter module graphs."
