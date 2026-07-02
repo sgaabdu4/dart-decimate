@@ -1,4 +1,4 @@
-use std::fmt::Write as _;
+use std::{collections::HashMap, fmt::Write as _, mem};
 
 use crate::decision_surface::{
     DecisionSurfaceCategory, DecisionSurfaceDecision, DecisionSurfaceReport,
@@ -261,10 +261,14 @@ struct FindingGroup<'a> {
 
 fn grouped_findings(findings: &[Finding]) -> Vec<FindingGroup<'_>> {
     let mut groups: Vec<FindingGroup<'_>> = Vec::new();
+    let mut group_indices = HashMap::<mem::Discriminant<FindingKind>, usize>::new();
     for (index, finding) in findings.iter().enumerate() {
-        if let Some(group) = groups.iter_mut().find(|group| group.kind == finding.kind) {
+        let kind_key = mem::discriminant(&finding.kind);
+        if let Some(group_index) = group_indices.get(&kind_key).copied() {
+            let group = &mut groups[group_index];
             group.push(index + 1, finding);
         } else {
+            group_indices.insert(kind_key, groups.len());
             groups.push(FindingGroup::new(index + 1, finding));
         }
     }

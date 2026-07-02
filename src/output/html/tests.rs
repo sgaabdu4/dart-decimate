@@ -219,6 +219,73 @@ fn group_headers_render_unique_rule_ids_only_when_concise() {
 }
 
 #[test]
+fn grouped_findings_preserves_first_seen_order_for_repeated_types() {
+    let findings = vec![
+        finding(
+            FindingKind::UnresolvedDependency,
+            "dart-decimate/unresolved-dependency",
+            "Missing local import lib/missing_a.dart",
+            "lib/a.dart",
+        ),
+        finding(
+            FindingKind::UnusedWidgetParam,
+            "dart-decimate/unused-widget-param",
+            "Widget constructor parameter is never read",
+            "lib/widget.dart",
+        ),
+        finding(
+            FindingKind::UnresolvedDependency,
+            "dart-decimate/unresolved-dependency",
+            "Missing local import lib/missing_b.dart",
+            "lib/b.dart",
+        ),
+        finding(
+            FindingKind::PolicyViolation,
+            "dart-decimate/policy/mobile/no-dart-io",
+            "dart:io is not allowed",
+            "lib/io.dart",
+        ),
+        finding(
+            FindingKind::UnusedWidgetParam,
+            "dart-decimate/unused-widget-param",
+            "Second widget constructor parameter is never read",
+            "lib/second_widget.dart",
+        ),
+    ];
+
+    let groups = grouped_findings(&findings);
+
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].kind, FindingKind::UnresolvedDependency);
+    assert_eq!(
+        groups[0]
+            .entries
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>(),
+        vec![1, 3]
+    );
+    assert_eq!(groups[1].kind, FindingKind::UnusedWidgetParam);
+    assert_eq!(
+        groups[1]
+            .entries
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>(),
+        vec![2, 5]
+    );
+    assert_eq!(groups[2].kind, FindingKind::PolicyViolation);
+    assert_eq!(
+        groups[2]
+            .entries
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>(),
+        vec![4]
+    );
+}
+
+#[test]
 fn escapes_control_characters_from_user_values() {
     let report = JsonReport {
         schema_version: "dart-decimate.report.v1".to_owned(),
