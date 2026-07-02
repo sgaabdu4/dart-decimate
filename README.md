@@ -44,6 +44,21 @@ dependencies, duplicated code, complex functions, dependency hygiene,
 architecture drift, Flutter graph issues, security candidates, and PR-risk
 signals.
 
+To open the same report in your browser:
+
+```bash
+npx --yes dart-decimate html .
+```
+
+To review only files changed from another branch or ref:
+
+```bash
+npx --yes dart-decimate html . --compare origin/main
+```
+
+`--compare REF` aliases `--changed-since REF`. If the ref is not found,
+Dart Decimate suggests similar local or remote branches.
+
 For JSON output that agents and CI can parse:
 
 ```bash

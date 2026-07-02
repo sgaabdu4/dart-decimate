@@ -68,6 +68,50 @@ fn compare_alias_scopes_dead_code_to_changed_files() -> Result<(), Box<dyn std::
 }
 
 #[test]
+fn compare_scopes_app_subdirectory_in_git_repo() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write(&fixture, "apps/demo/pubspec.yaml", "name: demo\n")?;
+    write(
+        &fixture,
+        "apps/demo/lib/main.dart",
+        "import 'live.dart';\nvoid main() { live(); }\n",
+    )?;
+    write(&fixture, "apps/demo/lib/live.dart", "void live() {}\n")?;
+    write(&fixture, "tools/other.dart", "void helper() {}\n")?;
+    commit_all(&fixture)?;
+    write(
+        &fixture,
+        "apps/demo/lib/new_dead.dart",
+        "class NewDead {}\n",
+    )?;
+    let app_root = fixture.path().join("apps/demo");
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dead-code",
+            app_root.to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+            "--compare",
+            "HEAD",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    let paths = finding_paths(&json);
+    assert_eq!(code, 1);
+    assert_eq!(paths, vec!["lib/new_dead.dart"]);
+    assert_eq!(json["summary"]["dead_files"], 1);
+
+    Ok(())
+}
+
+#[test]
 fn changed_since_errors_for_invalid_base() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = git_fixture()?;
     write_project(&fixture)?;

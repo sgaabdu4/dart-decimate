@@ -43,7 +43,13 @@ jobs:
 
       - name: Check release version
         if: github.event_name == 'pull_request'
-        run: npm run release:check
+        run: |
+          git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF"
+          if git diff --quiet "origin/$GITHUB_BASE_REF" -- Cargo.toml package.json; then
+            echo "Package versions unchanged; skipping release version check."
+            exit 0
+          fi
+          npm run release:check
 
       - name: Check formatting
         run: cargo fmt --check
