@@ -333,6 +333,7 @@ fn trace_steps(
 const fn cwe_ids(category: SecurityCategory) -> &'static [&'static str] {
     match category {
         SecurityCategory::HardcodedSecret => &["CWE-798"],
+        SecurityCategory::FirebaseApiKey => &["CWE-200"],
         SecurityCategory::InsecureTransport => &["CWE-319"],
         SecurityCategory::TlsBypass => &["CWE-295"],
         SecurityCategory::WebViewRisk => &["CWE-749"],
@@ -345,6 +346,7 @@ const fn cwe_ids(category: SecurityCategory) -> &'static [&'static str] {
 const fn source_label(category: SecurityCategory) -> &'static str {
     match category {
         SecurityCategory::HardcodedSecret => "source-code-literal",
+        SecurityCategory::FirebaseApiKey => "firebase-options-api-key",
         SecurityCategory::InsecureTransport => "http-url-literal",
         SecurityCategory::TlsBypass => "tls-callback-or-context",
         SecurityCategory::WebViewRisk => "webview-configuration",
@@ -357,6 +359,7 @@ const fn source_label(category: SecurityCategory) -> &'static str {
 const fn boundary_label(category: SecurityCategory) -> &'static str {
     match category {
         SecurityCategory::HardcodedSecret => "source-control",
+        SecurityCategory::FirebaseApiKey => "firebase-client-config",
         SecurityCategory::InsecureTransport => "network-transport",
         SecurityCategory::TlsBypass => "tls-validation",
         SecurityCategory::WebViewRisk => "embedded-webview",
@@ -368,7 +371,7 @@ const fn boundary_label(category: SecurityCategory) -> &'static str {
 
 const fn trace_role(category: SecurityCategory) -> &'static str {
     match category {
-        SecurityCategory::HardcodedSecret => "source",
+        SecurityCategory::HardcodedSecret | SecurityCategory::FirebaseApiKey => "source",
         SecurityCategory::TlsBypass | SecurityCategory::WebViewRisk => "boundary",
         SecurityCategory::InsecureTransport
         | SecurityCategory::ProcessExecution
@@ -380,6 +383,7 @@ const fn trace_role(category: SecurityCategory) -> &'static str {
 const fn category_name(category: SecurityCategory) -> &'static str {
     match category {
         SecurityCategory::HardcodedSecret => "hardcoded secret",
+        SecurityCategory::FirebaseApiKey => "Firebase API key",
         SecurityCategory::InsecureTransport => "insecure transport",
         SecurityCategory::TlsBypass => "TLS bypass",
         SecurityCategory::WebViewRisk => "WebView risk",

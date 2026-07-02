@@ -358,6 +358,7 @@ fn security_category_schema() -> Value {
         "type": "string",
         "enum": [
             "hardcoded-secret",
+            "firebase-api-key",
             "insecure-transport",
             "tls-bypass",
             "web-view-risk",

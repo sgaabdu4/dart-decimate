@@ -416,7 +416,7 @@ fn security_gate_new_requires_diff_file() -> Result<(), Box<dyn std::error::Erro
 
     assert_eq!(
         error.to_string(),
-        "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, or --changed-since REF"
+        "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, --changed-since REF, or --compare REF"
     );
     assert!(output.is_empty());
 
@@ -448,7 +448,7 @@ fn security_gate_newly_reachable_requires_diff_file() -> Result<(), Box<dyn std:
 
     assert_eq!(
         error.to_string(),
-        "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, or --changed-since REF"
+        "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, --changed-since REF, or --compare REF"
     );
     assert!(output.is_empty());
 

@@ -16,6 +16,7 @@ const REPORT_SCOPE_KEYS: &[&str] = &[
     "workspace",
     "changed_workspaces",
     "changed_since",
+    "compare",
     "production",
 ];
 const LIST_SCOPE_KEYS: &[&str] = &[
@@ -163,7 +164,7 @@ fn extend_analyze_allowed(allowed: &mut Vec<&'static str>) {
 }
 
 fn extend_check_changed_allowed(allowed: &mut Vec<&'static str>) {
-    allowed.extend(["since", "changed_since"]);
+    allowed.extend(["since", "changed_since", "compare"]);
     allowed.extend(BASELINE_KEYS);
     allowed.extend(["dart_platform", "production"]);
 }
@@ -295,6 +296,7 @@ fn analyze_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), 
 fn check_changed_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
     let since = string_arg(args, "since")?
         .or(string_arg(args, "changed_since")?)
+        .or(string_arg(args, "compare")?)
         .ok_or_else(|| "check_changed requires since".to_owned())?;
     cli.extend(["--changed-since".to_owned(), since]);
     push_baseline_args(cli, args)?;
@@ -603,6 +605,7 @@ fn push_report_scope_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> R
     push_string_flags(cli, args, "workspace", "--workspace")?;
     push_string_flag(cli, args, "changed_workspaces", "--changed-workspaces")?;
     push_string_flag(cli, args, "changed_since", "--changed-since")?;
+    push_string_flag(cli, args, "compare", "--compare")?;
     push_bool_mode(cli, args, "production", "--production", "--no-production")?;
     Ok(())
 }

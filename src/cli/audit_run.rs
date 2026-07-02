@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use clap::{Arg, ArgMatches};
 
 use crate::baseline::baseline_from_report;
-use crate::changed_scope::{changed_file_scope_from_changed, changed_files};
+use crate::changed_scope::{RefSuggestions, changed_file_scope_from_changed, changed_files};
 use crate::config::apply_rules_to_report;
 use crate::graph::normalize_path;
 use crate::output::{
@@ -284,6 +284,7 @@ where
     Err(crate::changed_scope::ChangedScopeError::GitDiff {
         base: base.to_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        suggestions: RefSuggestions::default(),
     }
     .into())
 }

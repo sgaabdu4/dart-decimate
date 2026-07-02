@@ -18,6 +18,7 @@ pub(super) fn report_command(command: Command) -> Command {
         .arg(workspace_arg())
         .arg(changed_workspaces_arg())
         .arg(changed_since_arg())
+        .arg(compare_arg())
 }
 
 pub(super) fn file_arg() -> Arg {
@@ -53,6 +54,15 @@ pub(super) fn changed_since_arg() -> Arg {
         .long("changed-since")
         .value_name("REF")
         .help("Scope findings to files changed since a Git ref")
+        .conflicts_with("compare")
+}
+
+pub(super) fn compare_arg() -> Arg {
+    Arg::new("compare")
+        .long("compare")
+        .value_name("REF")
+        .help("Alias for --changed-since; scope findings to files changed since a Git ref")
+        .conflicts_with("changed-since")
 }
 
 pub(super) fn workspace_patterns(command: ReportCommand, subcommand: &ArgMatches) -> Vec<String> {
@@ -90,7 +100,10 @@ pub(super) fn changed_workspaces(
 
 pub(super) fn changed_since(command: ReportCommand, subcommand: &ArgMatches) -> Option<String> {
     if supports_report_scope(command) {
-        subcommand.get_one::<String>("changed-since").cloned()
+        subcommand
+            .get_one::<String>("changed-since")
+            .or_else(|| subcommand.get_one::<String>("compare"))
+            .cloned()
     } else {
         None
     }

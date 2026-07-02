@@ -58,6 +58,8 @@ pub struct SecurityCandidate {
 pub enum SecurityCategory {
     /// Secret-shaped literal or secret-named assignment.
     HardcodedSecret,
+    /// Firebase client API key in `FirebaseOptions`.
+    FirebaseApiKey,
     /// Remote cleartext HTTP transport.
     InsecureTransport,
     /// TLS validation bypass.
@@ -76,6 +78,7 @@ impl SecurityCategory {
     const fn rule_id(self) -> &'static str {
         match self {
             Self::HardcodedSecret => "dart-decimate/security-hardcoded-secret",
+            Self::FirebaseApiKey => "dart-decimate/security-firebase-api-key",
             Self::InsecureTransport => "dart-decimate/security-insecure-transport",
             Self::TlsBypass => "dart-decimate/security-tls-bypass",
             Self::WebViewRisk => "dart-decimate/security-webview-risk",
@@ -347,6 +350,9 @@ const fn verification_prompt(category: SecurityCategory) -> &'static str {
     match category {
         SecurityCategory::HardcodedSecret => {
             "Verify whether this literal is a real secret and rotate it if confirmed."
+        }
+        SecurityCategory::FirebaseApiKey => {
+            "Verify it is Firebase-provisioned, restricted to Firebase APIs, and covered by Security Rules and App Check."
         }
         SecurityCategory::InsecureTransport => {
             "Verify whether this remote HTTP endpoint can expose sensitive traffic."

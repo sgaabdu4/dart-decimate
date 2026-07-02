@@ -85,9 +85,9 @@ Phase 3 runs graph intelligence algorithms:
 - feature flag inventory for Dart compile-time environment reads, native
   process-environment gates, Firebase Remote Config calls, and LaunchDarkly-style
   variation calls
-- unverified security candidate inventory for hardcoded secrets, cleartext
-  transport, TLS bypasses, risky WebView surfaces, process execution, dynamic
-  SQL, and plain secret storage
+- unverified security candidate inventory for hardcoded secrets, Firebase client
+  API keys, cleartext transport, TLS bypasses, risky WebView surfaces, process
+  execution, dynamic SQL, and plain secret storage
 
 Phase 4 exposes the CLI and agent output contract:
 
@@ -169,7 +169,8 @@ Phase 4 exposes the CLI and agent output contract:
   introduced/pre-existing attribution; `--gate new-only` fails only on
   introduced error findings while keeping related pre-existing findings visible
 - JSON findings include paths, line/column locations, `safe_to_delete`, and `actions`
-- JSON reports include read-only `next_steps` for trace-before-delete workflows
+- JSON reports include read-only `next_steps` for trace-before-delete and
+  grouped security-surface review workflows
 - `dart-decimate audit --base REF` runs full graph analysis and reports only findings
   anchored to files changed since the Git ref or their related files
 - findings respect `// dart-decimate-ignore-next-line ...` inline suppressions
@@ -217,7 +218,8 @@ Parity areas:
   broader rule-pack controls.
 - Onboarding: local init flows for config, CI, and agent instructions.
 - Security candidates: deterministic local review candidates for Dart/Flutter
-  sinks and hardcoded secrets, never verified vulnerability claims.
+  sinks, Firebase client keys, and hardcoded secrets, never verified
+  vulnerability claims.
 - Runtime coverage: local Dart/Flutter coverage ingestion for hot paths,
   cleanup confidence, coverage gaps, and read-only MCP runtime slices;
   cloud/runtime agent capture remains future work.
@@ -365,20 +367,24 @@ Current implemented parity:
   Firebase Remote Config `get*` calls, and LaunchDarkly-style `*Variation` calls,
   with `--top`, grouped `feature_flags`, occurrence locations, and
   non-autofixable `dart-decimate/feature-flag` findings
-- `dart-decimate security` inventory for hardcoded secret-shaped literals, remote
-  `http://` network sinks, certificate-validation bypasses, unrestricted or
-  file-backed WebView surfaces, shell/dynamic process execution, dynamic raw SQL,
-  and secret-like writes to plain local storage, with `--top`, `--surface`,
-  `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`, `--summary`,
-  `--gate new --changed-since REF`, `--diff-file PATCH`, `--diff-stdin`,
-  grouped `security_candidates`, config-level `security.categories` filtering,
-  redacted evidence, and non-autofixable `dart-decimate/security-*` findings;
-  changed-line gates exit `8` when new review-required candidates are present
+- `dart-decimate security` inventory for hardcoded secret-shaped literals,
+  `FirebaseOptions.apiKey` client keys, remote `http://` network sinks,
+  certificate-validation bypasses, unrestricted or file-backed WebView surfaces,
+  shell/dynamic process execution, dynamic raw SQL, JavaScript password autofill
+  literals, and secret-like writes to plain local storage, with `--top`,
+  `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,
+  `--summary`, `--gate new|newly-reachable`, `--changed-since REF`,
+  `--compare REF`, `--diff-file PATCH`, `--diff-stdin`, grouped
+  `security_candidates`, config-level `security.categories` filtering, redacted
+  evidence, benign password-route/copy filtering, and non-autofixable
+  `dart-decimate/security-*` findings; security gates exit `8` when new
+  review-required candidates are present
 - `dart-decimate check` and `dart-decimate audit` include feature flag and security
   candidate findings in the same report envelope, with focused commands still
   available for targeted inventories
-- inline `dart-decimate-ignore-next-line` suppressions for agent findings, including
-  `security-sink` and `hardcoded-secret` security aliases
+- inline `dart-decimate-ignore-next-line` suppressions for agent findings,
+  including `security-sink`, `hardcoded-secret`, and `firebase-api-key` security
+  aliases
 - `dart-decimate/stale-suppression` findings for unused Dart Decimate inline
   suppressions, with a safe remove action
 - `dart-decimate audit --base REF` changed-file gating for the existing check stack,
@@ -389,10 +395,10 @@ Current implemented parity:
 - Fallow-style `--file PATH` report scoping for exact Dart files, keeping
   full-graph analysis while filtering JSON findings, fix previews, list
   metadata, and scoped detail arrays
-- Fallow-style `--changed-since REF` report scoping that derives changed Dart
-  files from Git, includes untracked files, hard-errors on invalid refs, and
-  keeps full-graph analysis while filtering JSON findings and scoped detail
-  arrays
+- Fallow-style `--changed-since REF` report scoping and `--compare REF` alias
+  that derive changed Dart files from Git, include untracked files, hard-error
+  on invalid refs with similar-ref suggestions, and keep full-graph analysis
+  while filtering JSON findings and scoped detail arrays
 - Fallow-style `--production` reachability mode for `check`, `audit`,
   `dead-code`, `trace-file`, `trace-symbol`, `list`, `workspaces`, and `fix`,
   using only production Dart entry heuristics while keeping full graph parsing;
@@ -436,8 +442,9 @@ Current implemented parity:
 - SARIF 2.1.0 output for report commands via `--format sarif`, suitable for
   code-scanning upload after the same suppression, rule, baseline, and `--top`
   filtering used by JSON reports; security `--sarif-file PATH` writes SARIF
-  while keeping stdout on the selected report format; `--gate new` with
-  `--changed-since`, `--diff-file`, or `--diff-stdin` narrows both JSON and
-  SARIF to candidates introduced by added diff lines; security `--ci` emits
-  SARIF and fails on candidates, while `--summary` keeps counts without item
-  arrays for human, HTML, and JSON output
+  while keeping stdout on the selected report format; security gates with
+  `--changed-since`, `--compare`, `--diff-file`, or `--diff-stdin` narrow both
+  JSON and SARIF to added-line candidates for `--gate new` or reachable changed
+  candidates for `--gate newly-reachable`; security `--ci` emits SARIF and
+  fails on candidates, while `--summary` keeps counts without item arrays for
+  human, HTML, and JSON output

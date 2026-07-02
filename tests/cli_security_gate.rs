@@ -1,4 +1,5 @@
 use std::fs;
+use std::process::Command;
 
 use dart_decimate::cli::run_from;
 use serde_json::Value;
@@ -48,6 +49,84 @@ fn security_gate_newly_reachable_keeps_downstream_reachable_candidate()
         "lib/src/target.dart"
     );
     assert_eq!(json["findings"][0]["path"], "lib/src/target.dart");
+
+    Ok(())
+}
+
+#[test]
+fn security_gate_newly_reachable_compare_keeps_downstream_reachable_candidate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "lib/src/target.dart",
+        "const accessToken = 'dart_decimate_fixture_value_1234567890';\nvoid target() => print(accessToken);\n",
+    )?;
+    commit_all(&fixture)?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/target.dart';\nvoid main() => target();\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "security",
+        fixture.path().to_str().unwrap_or("."),
+        "--format",
+        "json",
+        "--gate",
+        "newly-reachable",
+        "--compare",
+        "HEAD",
+    ])?;
+
+    assert_eq!(code, 8);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["security_candidates"], 1);
+    assert_eq!(json["summary"]["security_candidate_occurrences"], 1);
+    assert_eq!(
+        json["security_candidates"][0]["occurrences"][0]["path"],
+        "lib/src/target.dart"
+    );
+    assert_eq!(json["findings"][0]["path"], "lib/src/target.dart");
+
+    Ok(())
+}
+
+#[test]
+fn security_gate_newly_reachable_compare_suggests_similar_branch()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    commit_all(&fixture)?;
+    git(&fixture, ["update-ref", "refs/remotes/origin/main", "HEAD"])?;
+    let mut output = Vec::new();
+
+    let error = match run_from(
+        [
+            "dart-decimate",
+            "security",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--gate",
+            "newly-reachable",
+            "--compare",
+            "orign/main",
+        ],
+        &mut output,
+    ) {
+        Ok(code) => panic!("invalid git base should fail, got exit code {code}"),
+        Err(error) => error,
+    };
+
+    let message = error.to_string();
+    assert!(message.contains("orign/main"));
+    assert!(message.contains("Did you mean origin/main?"));
 
     Ok(())
 }
@@ -115,6 +194,40 @@ fn write_changed_import_diff(fixture: &TempDir) -> Result<(), std::io::Error> {
 @@ -0,0 +1,1 @@\n\
 +import 'src/target.dart';\n",
     )
+}
+
+fn git_fixture() -> Result<TempDir, Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    git(&fixture, ["init", "-q"])?;
+    git(
+        &fixture,
+        ["config", "user.email", "dart-decimate@example.com"],
+    )?;
+    git(&fixture, ["config", "user.name", "Dart Decimate Tests"])?;
+    Ok(fixture)
+}
+
+fn commit_all(fixture: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
+    git(fixture, ["add", "."])?;
+    git(fixture, ["commit", "-m", "initial", "-q"])
+}
+
+fn git<const N: usize>(
+    fixture: &TempDir,
+    args: [&str; N],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(fixture.path())
+        .output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "git failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+    .into())
 }
 
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {

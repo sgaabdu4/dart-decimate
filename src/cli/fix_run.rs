@@ -74,8 +74,9 @@ pub(super) fn run_fix<W: Write>(subcommand: &ArgMatches, mut writer: W) -> Resul
             conditional_environment: super::common_args::conditional_environment(subcommand),
         },
     )?;
+    let command = ReportCommand::Check;
     let request = CommandRequest {
-        command: ReportCommand::Check,
+        command,
         root,
         format: match format {
             OutputFormat::Human => super::ReportOutputFormat::Human,
@@ -94,16 +95,10 @@ pub(super) fn run_fix<W: Write>(subcommand: &ArgMatches, mut writer: W) -> Resul
         policy_packs: Vec::new(),
         audit_base: None,
         audit_gate: super::audit_run::AuditGate::default(),
-        file_paths: subcommand
-            .get_many::<std::path::PathBuf>("file")
-            .map(|values| values.cloned().collect())
-            .unwrap_or_default(),
-        workspace_patterns: subcommand
-            .get_many::<String>("workspace")
-            .map(|values| values.cloned().collect())
-            .unwrap_or_default(),
-        changed_workspaces: subcommand.get_one::<String>("changed-workspaces").cloned(),
-        changed_since: subcommand.get_one::<String>("changed-since").cloned(),
+        file_paths: super::scope_args::file_paths(command, subcommand),
+        workspace_patterns: super::scope_args::workspace_patterns(command, subcommand),
+        changed_workspaces: super::scope_args::changed_workspaces(command, subcommand),
+        changed_since: super::scope_args::changed_since(command, subcommand),
         baseline_paths: Vec::new(),
         security_sarif_file: None,
         security_gate: None,

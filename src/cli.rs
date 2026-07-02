@@ -497,7 +497,7 @@ fn request_from_matches(matches: &ArgMatches) -> Result<CommandRequest, CliError
     let file_paths = scope_args::file_paths(command, subcommand);
     let workspace_patterns = scope_args::workspace_patterns(command, subcommand);
     let changed_workspaces = scope_args::changed_workspaces(command, subcommand);
-    let changed_since = scope_args::changed_since(command, subcommand);
+    let changed_since = report_changed_since(command, subcommand, &security_cli);
     let baseline_paths = baseline_paths(command, subcommand);
     let save_baseline = if supports_global_baseline(command) {
         subcommand.get_one::<PathBuf>("save-baseline").cloned()
@@ -602,6 +602,21 @@ fn validate_security_cli(
         return Err(CliError::UnsupportedSecurityTopScope);
     }
     Ok(())
+}
+
+fn report_changed_since(
+    command: ReportCommand,
+    subcommand: &ArgMatches,
+    security_cli: &SecurityCliOptions,
+) -> Option<String> {
+    let changed_since = scope_args::changed_since(command, subcommand);
+    if command == ReportCommand::Security
+        && security_cli.gate == Some(SecurityGateMode::NewlyReachable)
+    {
+        None
+    } else {
+        changed_since
+    }
 }
 
 fn baseline_paths(command: ReportCommand, subcommand: &ArgMatches) -> Vec<PathBuf> {

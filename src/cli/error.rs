@@ -41,7 +41,7 @@ pub enum CliError {
     Widgets(#[from] WidgetAnalysisError),
     /// Security top truncation cannot safely run before changed-line scoping.
     #[error(
-        "security --top cannot be combined with --gate, --diff-file, --diff-stdin, or --changed-since"
+        "security --top cannot be combined with --gate, --diff-file, --diff-stdin, --changed-since, or --compare"
     )]
     UnsupportedSecurityTopScope,
     /// Cross-language duplicate detection is JavaScript/TypeScript-specific in Fallow.

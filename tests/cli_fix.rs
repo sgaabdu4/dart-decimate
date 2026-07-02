@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::process::Command;
 
 use dart_decimate::cli::run_from;
 use dart_decimate::output::{Finding, FindingAction, FindingKind, Severity};
@@ -127,6 +128,38 @@ fn fix_command_applies_with_fallow_yes_alias() -> Result<(), Box<dyn std::error:
     assert_eq!(json["summary"]["planned"], 2);
     assert_eq!(json["summary"]["applied"], 2);
     assert!(!fixture.path().join("lib/dead.dart").exists());
+
+    Ok(())
+}
+
+#[test]
+fn fix_command_applies_compare_scope_to_changed_files() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "lib/old_dead.dart", "void oldDead() {}\n")?;
+    commit_all(&fixture)?;
+    write(&fixture, "lib/new_dead.dart", "void newDead() {}\n")?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "fix",
+        fixture.path().to_str().unwrap_or("."),
+        "--format",
+        "json",
+        "--entry",
+        "lib/main.dart",
+        "--compare",
+        "HEAD",
+        "--apply",
+        "--confirm",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["planned"], 1);
+    assert_eq!(json["summary"]["applied"], 1);
+    assert!(fixture.path().join("lib/old_dead.dart").exists());
+    assert!(!fixture.path().join("lib/new_dead.dart").exists());
 
     Ok(())
 }
@@ -496,6 +529,40 @@ fn run_json<const N: usize>(args: [&str; N]) -> Result<(i32, Value), Box<dyn std
     let mut output = Vec::new();
     let code = run_from(args, &mut output)?;
     Ok((code, serde_json::from_slice::<Value>(&output)?))
+}
+
+fn git_fixture() -> Result<TempDir, Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    git(&fixture, ["init", "-q"])?;
+    git(
+        &fixture,
+        ["config", "user.email", "dart-decimate@example.com"],
+    )?;
+    git(&fixture, ["config", "user.name", "Dart Decimate Tests"])?;
+    Ok(fixture)
+}
+
+fn commit_all(fixture: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
+    git(fixture, ["add", "."])?;
+    git(fixture, ["commit", "-m", "initial", "-q"])
+}
+
+fn git<const N: usize>(
+    fixture: &TempDir,
+    args: [&str; N],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(fixture.path())
+        .output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "git failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+    .into())
 }
 
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {

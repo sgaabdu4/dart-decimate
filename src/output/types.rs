@@ -168,6 +168,13 @@ pub struct JsonReport {
     pub next_steps: Vec<NextStep>,
 }
 
+impl JsonReport {
+    pub(crate) fn has_hidden_security_candidate_occurrences(&self) -> bool {
+        !self.security_candidates.is_empty()
+            && self.summary.security_candidate_occurrences > self.security_candidates.len()
+    }
+}
+
 /// Report summary.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportSummary {

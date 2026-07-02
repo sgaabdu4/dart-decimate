@@ -644,6 +644,7 @@ const ISSUES: &[IssueExplanation] = &[
             "security-candidates",
             "security-sink",
             "hardcoded-secret",
+            "firebase-api-key",
             "insecure-transport",
             "tls-bypass",
             "webview-risk",

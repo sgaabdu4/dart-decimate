@@ -378,6 +378,10 @@ pub fn apply_baseline_to_report(report: &mut JsonReport, baseline: &Baseline) {
         .retain(|finding| !known.contains(finding_identity(finding).as_str()));
     filter_detail_sections(report);
     recompute_summary(report);
+    let has_hidden_security_surface = report.has_hidden_security_candidate_occurrences();
+    report
+        .next_steps
+        .retain(|step| next_step_live(&step.id, &report.findings, has_hidden_security_surface));
     report.verdict = if report
         .findings
         .iter()
@@ -435,9 +439,6 @@ fn filter_detail_sections(report: &mut JsonReport) {
     report
         .attack_surface
         .retain(|entry| attack_surface_live(entry, &report.security_candidates));
-    report
-        .next_steps
-        .retain(|step| next_step_live(&step.id, &remaining));
 }
 
 fn clone_group_live(
@@ -500,21 +501,25 @@ fn attack_surface_live(
         .any(|candidate| candidate.category == entry.category)
 }
 
-fn next_step_live(id: &str, remaining: &[(FindingKind, String, Option<String>)]) -> bool {
+fn next_step_live(id: &str, findings: &[Finding], has_hidden_security_surface: bool) -> bool {
     match id {
-        "trace-unused-export" => has_kind(remaining, FindingKind::UnusedExport),
-        "trace-unused-type" => has_kind(remaining, FindingKind::UnusedType),
-        "trace-unused-dependency" => remaining
+        "trace-unused-export" => has_finding_kind(findings, FindingKind::UnusedExport),
+        "trace-unused-type" => has_finding_kind(findings, FindingKind::UnusedType),
+        "trace-unused-dependency" => findings
             .iter()
-            .any(|(kind, _, _)| is_dependency_hygiene_kind(*kind)),
-        "trace-code-duplication" => has_kind(remaining, FindingKind::CodeDuplication),
-        "complexity-breakdown" => remaining.iter().any(|(kind, _, _)| complexity_kind(*kind)),
+            .any(|finding| is_dependency_hygiene_kind(finding.kind)),
+        "trace-code-duplication" => has_finding_kind(findings, FindingKind::CodeDuplication),
+        "complexity-breakdown" => findings.iter().any(|finding| complexity_kind(finding.kind)),
+        "review-security-surface" => {
+            has_hidden_security_surface
+                && has_finding_kind(findings, FindingKind::SecurityCandidate)
+        }
         _ => true,
     }
 }
 
-fn has_kind(remaining: &[(FindingKind, String, Option<String>)], expected: FindingKind) -> bool {
-    remaining.iter().any(|(kind, _, _)| *kind == expected)
+fn has_finding_kind(findings: &[Finding], expected: FindingKind) -> bool {
+    findings.iter().any(|finding| finding.kind == expected)
 }
 
 fn complexity_kind(kind: FindingKind) -> bool {

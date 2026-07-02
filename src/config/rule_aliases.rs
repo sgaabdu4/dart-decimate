@@ -18,6 +18,11 @@ pub(super) fn aliases(rule_id: &str, kind: FindingKind) -> Vec<&'static str> {
             "security-hardcoded-secret",
             "hardcoded-secret",
         ],
+        "security-firebase-api-key" => vec![
+            "dart-decimate/security-firebase-api-key",
+            "security-firebase-api-key",
+            "firebase-api-key",
+        ],
         "security-insecure-transport" => vec![
             "dart-decimate/security-insecure-transport",
             "security-insecure-transport",
@@ -92,6 +97,9 @@ fn all_security_aliases() -> Vec<&'static str> {
         "dart-decimate/security-hardcoded-secret",
         "security-hardcoded-secret",
         "hardcoded-secret",
+        "dart-decimate/security-firebase-api-key",
+        "security-firebase-api-key",
+        "firebase-api-key",
         "dart-decimate/security-insecure-transport",
         "security-insecure-transport",
         "insecure-transport",

@@ -39,6 +39,35 @@ fn changed_since_scopes_dead_code_to_changed_files() -> Result<(), Box<dyn std::
 }
 
 #[test]
+fn compare_alias_scopes_dead_code_to_changed_files() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write_project(&fixture)?;
+    commit_all(&fixture)?;
+    write(&fixture, "lib/new_dead.dart", "class NewDead {}\n")?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "html",
+            fixture.path().to_str().unwrap_or("."),
+            "--stdout",
+            "--entry",
+            "lib/main.dart",
+            "--compare",
+            "HEAD",
+        ],
+        &mut output,
+    )?;
+
+    let html = String::from_utf8(output)?;
+    assert_eq!(code, 1);
+    assert!(html.contains("lib/new_dead.dart"));
+
+    Ok(())
+}
+
+#[test]
 fn changed_since_errors_for_invalid_base() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = git_fixture()?;
     write_project(&fixture)?;
@@ -68,6 +97,38 @@ fn changed_since_errors_for_invalid_base() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
+fn compare_suggests_similar_branch_for_invalid_base() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write_project(&fixture)?;
+    commit_all(&fixture)?;
+    git(&fixture, ["update-ref", "refs/remotes/origin/main", "HEAD"])?;
+    let mut output = Vec::new();
+
+    let error = match run_from(
+        [
+            "dart-decimate",
+            "dead-code",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+            "--compare",
+            "orign/main",
+        ],
+        &mut output,
+    ) {
+        Ok(code) => panic!("invalid git base should fail, got exit code {code}"),
+        Err(error) => error,
+    };
+
+    let message = error.to_string();
+    assert!(message.contains("orign/main"));
+    assert!(message.contains("Did you mean origin/main?"));
+    Ok(())
+}
+
+#[test]
 fn changed_since_is_listed_for_report_commands() -> Result<(), Box<dyn std::error::Error>> {
     let mut output = Vec::new();
 
@@ -89,6 +150,10 @@ fn changed_since_is_listed_for_report_commands() -> Result<(), Box<dyn std::erro
         assert!(
             flags.contains(&"--changed-since"),
             "{name} should publish --changed-since"
+        );
+        assert!(
+            flags.contains(&"--compare"),
+            "{name} should publish --compare"
         );
     }
     assert_eq!(code, 0);

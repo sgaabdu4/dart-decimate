@@ -143,7 +143,10 @@ pub(super) fn security_cli_options(
         sarif_file: matches.get_one::<PathBuf>("sarif-file").cloned(),
         gate: security_gate_mode(matches),
         diff: security_diff(matches),
-        changed_since: matches.get_one::<String>("changed-since").cloned(),
+        changed_since: matches
+            .get_one::<String>("changed-since")
+            .or_else(|| matches.get_one::<String>("compare"))
+            .cloned(),
         ci: matches.get_flag("ci"),
         fail_on_issues: matches.get_flag("fail-on-issues"),
         summary: matches.get_flag("summary"),

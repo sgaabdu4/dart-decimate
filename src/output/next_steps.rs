@@ -88,5 +88,16 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
         }
     }
 
+    if results.security.as_ref().is_some_and(|report| {
+        report.total_occurrences > report.candidates.len() && !report.candidates.is_empty()
+    }) {
+        steps.push(NextStep {
+            id: "review-security-surface".to_owned(),
+            command: "dart-decimate security . --format json --surface".to_owned(),
+            reason: "List all security candidate occurrences behind representative findings"
+                .to_owned(),
+        });
+    }
+
     steps
 }

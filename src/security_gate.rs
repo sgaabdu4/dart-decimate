@@ -6,6 +6,7 @@ use std::process::Command;
 use petgraph::visit::EdgeRef;
 use thiserror::Error;
 
+use crate::changed_scope::RefSuggestions;
 use crate::graph::normalize_against;
 use crate::output::{FindingKind, JsonReport, JsonSecurityOccurrence, Severity, Verdict};
 use crate::{ModuleGraph, find_dead_code};
@@ -33,7 +34,7 @@ pub(crate) enum SecurityDiffSource {
 pub enum SecurityGateError {
     /// Security gates need an explicit diff.
     #[error(
-        "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, or --changed-since REF"
+        "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, --changed-since REF, or --compare REF"
     )]
     MissingDiffFile,
     /// Diff file could not be read.
@@ -51,12 +52,14 @@ pub enum SecurityGateError {
         source: std::io::Error,
     },
     /// Git returned a non-zero status.
-    #[error("git diff failed for security gate base {base:?}: {stderr}")]
+    #[error("git diff failed for security gate base {base:?}: {stderr}{suggestions}")]
     GitDiff {
         /// Base revision passed by the caller.
         base: String,
         /// Stderr from git.
         stderr: String,
+        /// Similar refs found in the local repository.
+        suggestions: RefSuggestions,
     },
     /// Untracked file scope could not be read.
     #[error("failed to read untracked file {path}: {source}")]
@@ -129,6 +132,7 @@ pub(crate) fn changed_lines_from_git(
         return Err(SecurityGateError::GitDiff {
             base: base.to_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            suggestions: RefSuggestions::for_base(root, base),
         });
     }
 
@@ -268,6 +272,7 @@ fn add_untracked_lines(
         return Err(SecurityGateError::GitDiff {
             base: base.to_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            suggestions: RefSuggestions::default(),
         });
     }
 

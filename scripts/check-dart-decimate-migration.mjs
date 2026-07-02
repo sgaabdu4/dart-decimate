@@ -10,6 +10,7 @@ const skippedDirs = new Set([
   "npm/bin-cache",
   ".cargo-home",
   ".rustup-home",
+  ".codebase-memory",
 ]);
 const extensions = new Set([
   ".rs",

@@ -99,11 +99,12 @@ pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Res
     report
         .attack_surface
         .retain(|entry| security_surface_enabled(entry, &rules));
-    report
-        .next_steps
-        .retain(|step| next_step_enabled(&step.id, &report.findings));
 
     recompute_summary(report);
+    let has_hidden_security_surface = report.has_hidden_security_candidate_occurrences();
+    report
+        .next_steps
+        .retain(|step| next_step_enabled(&step.id, &report.findings, has_hidden_security_surface));
     report.verdict = if report
         .findings
         .iter()
@@ -246,6 +247,7 @@ fn complexity_kind(rule_id: &str) -> FindingKind {
 fn security_surface_enabled(entry: &JsonAttackSurfaceEntry, rules: &RuleMatcher) -> bool {
     let rule_id = match entry.category {
         SecurityCategory::HardcodedSecret => "dart-decimate/security-hardcoded-secret",
+        SecurityCategory::FirebaseApiKey => "dart-decimate/security-firebase-api-key",
         SecurityCategory::InsecureTransport => "dart-decimate/security-insecure-transport",
         SecurityCategory::TlsBypass => "dart-decimate/security-tls-bypass",
         SecurityCategory::WebViewRisk => "dart-decimate/security-webview-risk",
@@ -256,7 +258,7 @@ fn security_surface_enabled(entry: &JsonAttackSurfaceEntry, rules: &RuleMatcher)
     rules.level(rule_id, FindingKind::SecurityCandidate) != RuleLevel::Off
 }
 
-fn next_step_enabled(id: &str, findings: &[Finding]) -> bool {
+fn next_step_enabled(id: &str, findings: &[Finding], has_hidden_security_surface: bool) -> bool {
     match id {
         "trace-unused-export" => has_kind(findings, FindingKind::UnusedExport),
         "trace-unused-type" => has_kind(findings, FindingKind::UnusedType),
@@ -273,6 +275,9 @@ fn next_step_enabled(id: &str, findings: &[Finding]) -> bool {
                     | FindingKind::HighCrapScore
             )
         }),
+        "review-security-surface" => {
+            has_hidden_security_surface && has_kind(findings, FindingKind::SecurityCandidate)
+        }
         _ => true,
     }
 }
