@@ -1,6 +1,6 @@
 {
   "name": "dart-decimate",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Rust-native codebase intelligence for Dart and Flutter module graphs.",
   "license": "MIT",
   "bin": {
@@ -28,6 +28,7 @@
   "scripts": {
     "postinstall": "node npm/scripts/postinstall.js",
     "version:check": "node scripts/check-version-sync.mjs",
+    "version:bump:check": "node scripts/check-pr-version-bump.mjs",
     "release:check": "node scripts/check-release-version.mjs",
     "migration:check": "node scripts/check-dart-decimate-migration.mjs",
     "pack:check": "npm pack --dry-run",

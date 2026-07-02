@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.7"
+    "dart-decimate": "^0.0.8"
   }
 }
 ```
@@ -614,7 +614,9 @@ This repository already runs:
 - Rust format, clippy, and tests
 - npm package checks
 - version sync between `Cargo.toml` and `package.json`
-- a release-version gate so published versions cannot be reused
+- a PR version-bump gate requiring both package files to increase to an
+  unpublished version
+- release guards that reject reused npm versions or tags on different commits
 - migration checks that block previous package, command, schema, and MCP names
 - Dependabot and weekly dependency/security audits
 
@@ -658,6 +660,7 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 npm run version:check
+npm run version:bump:check -- origin/main
 npm run release:check
 npm run migration:check
 npm run pack:check
@@ -667,18 +670,24 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.7`.
+Current version: `0.0.8`.
 
-After the first public release, changes should go through pull requests.
+After the first public release, changes should go through pull requests. Every
+PR to `main` must bump both `Cargo.toml` and `package.json` above the base
+branch and to an unpublished npm version.
 
 To release a new version:
 
-1. Update both `Cargo.toml` and `package.json`.
+1. Update both `Cargo.toml` and `package.json` to the same unpublished version.
 2. Open a PR.
 3. Let CI pass.
 4. Merge to `main`.
 5. GitHub Actions publishes `dart-decimate` to npm, creates tag `vX.Y.Z`, and
    creates the GitHub release.
+
+Release reruns for the same commit may update GitHub release assets. If the npm
+package already exists for that commit, the publish step is skipped; a reused tag
+or npm version from another commit fails.
 
 Local hooks block stale package names, mismatched versions, reused npm versions,
 and direct pushes to `main`.

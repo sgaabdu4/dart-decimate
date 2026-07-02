@@ -105,6 +105,58 @@ jobs:
             sed -i '/_authToken/d' "$npmrc"
           fi
 
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check existing release state
+        id: state
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag_commit="$(git rev-list -n 1 "$TAG" 2>/dev/null || true)"
+          if [ -n "$tag_commit" ]; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$tag_commit" = "$GITHUB_SHA" ]; then
+            echo "tag_points_at_head=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_points_at_head=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if npm view "dart-decimate@$VERSION" version >/dev/null 2>&1; then
+            echo "npm_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reject reused release tag
+        if: steps.state.outputs.tag_exists == 'true' && steps.state.outputs.tag_points_at_head == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          echo "$TAG already exists on a different commit; bump Cargo.toml and package.json"
+          exit 1
+
+      - name: Reject reused package version
+        if: steps.state.outputs.npm_exists == 'true' && steps.state.outputs.tag_points_at_head == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "dart-decimate@$VERSION is already published; bump Cargo.toml and package.json"
+          exit 1
+
+      - name: Check release version
+        if: steps.state.outputs.npm_exists == 'false'
+        run: npm run release:check
+
       - name: Validate release candidate
         run: |
           npm run version:check
@@ -127,31 +179,6 @@ jobs:
           find release-assets -type f -name 'dart-decimate-*' -exec cp {} dist-assets/ \;
           test "$(find dist-assets -type f | wc -l)" -eq 4
           ls -la dist-assets
-
-      - name: Resolve version
-        id: version
-        run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Check existing release state
-        id: state
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if npm view "dart-decimate@$VERSION" version >/dev/null 2>&1; then
-            echo "npm_exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "npm_exists=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Create and push tag
         if: steps.state.outputs.tag_exists == 'false'
