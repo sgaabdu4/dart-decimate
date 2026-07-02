@@ -125,6 +125,9 @@ Phase 4 exposes the CLI and agent output contract:
   unless `--stdout` is passed
 - analysis commands with `--format json` emit `dart-decimate.report.v1`
 - report commands with `--format html` emit a browser-ready static HTML report
+- finding HTML reports group visible findings by issue type in numbered,
+  collapsible sections with search and type filters; search never opens groups
+  automatically, and a type filter opens only the selected group
 - report commands with `--open` write an HTML report to a private temporary file
   and open its `file://` URL in the default browser
 - human reports strip terminal control characters from user-derived paths and
@@ -435,8 +438,9 @@ Current implemented parity:
 - CLI JSON output for `check`, `audit`, `dead-code`, `cycles`, `dupes`,
   `health`, `flags`, `security`, `list`, `workspaces`, `explain`, `fix`,
   `config`, `config-schema`, and `report-schema`
-- concise human report details plus browser-ready HTML report output for report
-  commands via `--format html`, `--open`, and `dart-decimate human|json|html`
+- concise human report details plus browser-ready HTML report output with
+  issue-type grouping, search, and type filters for report commands via
+  `--format html`, `--open`, and `dart-decimate human|json|html`
   shortcuts; human output strips terminal control characters and HTML output
   escapes user-derived content
 - SARIF 2.1.0 output for report commands via `--format sarif`, suitable for

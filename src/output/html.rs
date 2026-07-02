@@ -11,9 +11,14 @@ use super::{
     types::{Finding, FindingEdge, FindingKind, JsonReport, Severity, Verdict},
 };
 
-const MAX_RELATED_FILES: usize = 12;
+mod assets;
 
-/// Render a browser-ready static report for humans.
+use assets::{render_interaction_script, render_style};
+
+const MAX_RELATED_FILES: usize = 12;
+const MAX_GROUP_RULE_IDS: usize = 3;
+
+/// Render a browser-ready static report with grouped finding navigation.
 #[must_use]
 pub fn render_html_report(report: &JsonReport) -> String {
     let mut html = String::new();
@@ -72,60 +77,6 @@ fn render_decision_surface_document_start(html: &mut String, report: &DecisionSu
     render_style(html);
     let _ = writeln!(html, "</head>");
     let _ = writeln!(html, "<body>");
-}
-
-fn render_style(html: &mut String) {
-    let _ = writeln!(
-        html,
-        "<style>
-:root {{
-  color-scheme: dark;
-  --bg: #070707;
-  --panel: #111111;
-  --line: #2b2b2b;
-  --text: #f1f1f1;
-  --muted: #a6a6a6;
-  --accent: #8fdcff;
-  --error: #ff5c5c;
-  --warn: #ffd166;
-  --pass: #5ee091;
-}}
-* {{ box-sizing: border-box; }}
-body {{
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;
-}}
-main {{ max-width: 1180px; margin: 0 auto; padding: 40px 24px 56px; }}
-h1, h2, h3, p {{ margin: 0; }}
-h1 {{ font-size: clamp(32px, 5vw, 60px); letter-spacing: 0; line-height: 1; }}
-h2 {{ margin-top: 36px; font-size: 22px; }}
-.topline {{ color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }}
-.hero {{ border-bottom: 1px solid var(--line); padding-bottom: 28px; }}
-.verdict {{ display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; }}
-.pass {{ color: var(--pass); }}
-.fail, .error {{ color: var(--error); }}
-.warning {{ color: var(--warn); }}
-.metrics, .groups {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 24px; }}
-.metric, .group, .finding, .step {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }}
-.metric span, .group span, .label {{ color: var(--muted); display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }}
-.metric strong, .group strong {{ display: block; margin-top: 4px; font-size: 24px; }}
-.group p {{ margin-top: 8px; color: var(--text); }}
-.findings {{ display: grid; gap: 14px; margin-top: 14px; }}
-.finding header {{ display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; }}
-.finding h3 {{ font-size: 18px; }}
-.rule, .location, .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
-.rule {{ color: var(--muted); font-size: 13px; }}
-.section {{ margin-top: 12px; }}
-.section p {{ margin-top: 3px; }}
-.evidence {{ margin: 8px 0 0; padding-left: 18px; color: var(--text); }}
-.evidence li {{ margin: 3px 0; }}
-.command {{ overflow-wrap: anywhere; color: var(--accent); }}
-a {{ color: var(--accent); text-decoration: none; }}
-a:hover {{ text-decoration: underline; }}
-</style>"
-    );
 }
 
 fn render_summary(html: &mut String, report: &JsonReport) {
@@ -286,17 +237,172 @@ fn render_findings(html: &mut String, report: &JsonReport) {
         return;
     }
 
-    let _ = writeln!(html, "<div class=\"findings\">");
-    for (index, finding) in report.findings.iter().enumerate() {
-        render_finding(html, index + 1, finding);
+    let groups = grouped_findings(&report.findings);
+    render_finding_controls(html, &groups);
+    let _ = writeln!(
+        html,
+        "<p class=\"empty-results\" data-empty-results hidden>No findings match the current filters.</p>"
+    );
+    let _ = writeln!(html, "<div class=\"finding-groups\">");
+    for (group_index, group) in groups.iter().enumerate() {
+        render_finding_group(html, group_index, group);
     }
     let _ = writeln!(html, "</div>");
     let _ = writeln!(html, "</section>");
 }
 
+struct FindingGroup<'a> {
+    kind: FindingKind,
+    rule_ids: Vec<&'a str>,
+    entries: Vec<(usize, &'a Finding)>,
+    error_count: usize,
+    warning_count: usize,
+}
+
+fn grouped_findings(findings: &[Finding]) -> Vec<FindingGroup<'_>> {
+    let mut groups: Vec<FindingGroup<'_>> = Vec::new();
+    for (index, finding) in findings.iter().enumerate() {
+        if let Some(group) = groups.iter_mut().find(|group| group.kind == finding.kind) {
+            group.push(index + 1, finding);
+        } else {
+            groups.push(FindingGroup::new(index + 1, finding));
+        }
+    }
+    groups
+}
+
+impl<'a> FindingGroup<'a> {
+    fn new(index: usize, finding: &'a Finding) -> Self {
+        let mut group = Self {
+            kind: finding.kind,
+            rule_ids: Vec::new(),
+            entries: Vec::new(),
+            error_count: 0,
+            warning_count: 0,
+        };
+        group.push(index, finding);
+        group
+    }
+
+    fn push(&mut self, index: usize, finding: &'a Finding) {
+        match finding.severity {
+            Severity::Error => self.error_count += 1,
+            Severity::Warning => self.warning_count += 1,
+        }
+        let rule_id = finding.rule_id.as_str();
+        if !self.rule_ids.contains(&rule_id) {
+            self.rule_ids.push(rule_id);
+        }
+        self.entries.push((index, finding));
+    }
+}
+
+fn render_finding_controls(html: &mut String, groups: &[FindingGroup<'_>]) {
+    let total = groups
+        .iter()
+        .map(|group| group.entries.len())
+        .sum::<usize>();
+    let _ = writeln!(html, "<div class=\"finding-tools\" data-finding-controls>");
+    let _ = writeln!(
+        html,
+        "<label>Search<input type=\"search\" placeholder=\"Path, message, rule, evidence\" data-finding-search></label>"
+    );
+    let _ = writeln!(
+        html,
+        "<div class=\"filter-set\" role=\"group\" aria-label=\"Filter findings by type\">"
+    );
+    let _ = writeln!(html, "<span class=\"filter-label\">Type</span>");
+    let _ = writeln!(html, "<div class=\"filter-buttons\">");
+    let _ = writeln!(
+        html,
+        "<button class=\"type-filter\" type=\"button\" data-finding-filter data-kind=\"\" aria-pressed=\"true\">All types</button>"
+    );
+    for (index, group) in groups.iter().enumerate() {
+        let label = kind_label(group.kind);
+        let _ = writeln!(
+            html,
+            "<button class=\"type-filter\" type=\"button\" data-finding-filter data-kind=\"{}\" aria-pressed=\"false\">{}. {} ({})</button>",
+            escape(label),
+            index + 1,
+            escape(label),
+            group.entries.len()
+        );
+    }
+    let _ = writeln!(html, "</div></div>");
+    let _ = writeln!(
+        html,
+        "<p class=\"finding-status\" data-finding-status data-total=\"{total}\" aria-live=\"polite\">Showing {total} of {total} findings in {} {}.</p>",
+        groups.len(),
+        plural(groups.len(), "type", "types")
+    );
+    let _ = writeln!(html, "</div>");
+}
+
+fn render_finding_group(html: &mut String, group_index: usize, group: &FindingGroup<'_>) {
+    let label = kind_label(group.kind);
+    let open = if group_index == 0 { " open" } else { "" };
+    let _ = writeln!(
+        html,
+        "<details class=\"finding-group\" data-finding-group data-kind=\"{}\"{}>",
+        escape(label),
+        open
+    );
+    let _ = writeln!(html, "<summary>");
+    let rule_summary = group_rule_summary(group);
+    let rule_html = rule_summary.map_or_else(String::new, |rule_ids| {
+        format!("<span class=\"rule\">{}</span>", escape(&rule_ids))
+    });
+    let _ = writeln!(
+        html,
+        "<span class=\"summary-title\"><span class=\"group-number\">{}.</span><span class=\"summary-text\"><strong>{}</strong>{}</span></span>",
+        group_index + 1,
+        escape(label),
+        rule_html
+    );
+    let _ = writeln!(
+        html,
+        "<span class=\"summary-right\"><span class=\"summary-meta\">{}</span><span class=\"chevron\" aria-hidden=\"true\"></span></span>",
+        escape(&group_summary(group))
+    );
+    let _ = writeln!(html, "</summary>");
+    let _ = writeln!(html, "<div class=\"findings\">");
+    for (index, finding) in &group.entries {
+        render_finding(html, *index, finding);
+    }
+    let _ = writeln!(html, "</div>");
+    let _ = writeln!(html, "</details>");
+}
+
+fn group_rule_summary(group: &FindingGroup<'_>) -> Option<String> {
+    if group.rule_ids.is_empty() || group.rule_ids.len() > MAX_GROUP_RULE_IDS {
+        return None;
+    }
+    Some(group.rule_ids.join(", "))
+}
+
+fn group_summary(group: &FindingGroup<'_>) -> String {
+    let total = group.entries.len();
+    let mut parts = vec![format!("{total} {}", plural(total, "finding", "findings"))];
+    if group.error_count > 0 {
+        parts.push(format!(
+            "{} {}",
+            group.error_count,
+            plural(group.error_count, "error", "errors")
+        ));
+    }
+    if group.warning_count > 0 {
+        parts.push(format!(
+            "{} {}",
+            group.warning_count,
+            plural(group.warning_count, "warning", "warnings")
+        ));
+    }
+    parts.join(" | ")
+}
+
 fn render_finding(html: &mut String, index: usize, finding: &Finding) {
     let severity_class = severity_class(finding.severity);
-    let _ = writeln!(html, "<article class=\"finding\">");
+    let _ = writeln!(html, "<article class=\"finding\" data-finding>");
     let _ = writeln!(html, "<header>");
     let _ = writeln!(
         html,
@@ -394,6 +500,7 @@ fn render_next_steps(html: &mut String, report: &JsonReport) {
 
 fn render_document_end(html: &mut String) {
     let _ = writeln!(html, "</main>");
+    render_interaction_script(html);
     let _ = writeln!(html, "</body>");
     let _ = writeln!(html, "</html>");
 }
@@ -489,6 +596,10 @@ fn related_files_preview(files: &[String]) -> String {
     visible.join(", ")
 }
 
+const fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 { singular } else { plural }
+}
+
 fn escape(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
@@ -508,184 +619,4 @@ fn escape(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::output::{FindingAction, FindingEdge, NextStep, ReportCommand, ReportSummary};
-
-    #[test]
-    fn renders_browser_ready_report_with_escaped_evidence() {
-        let report = JsonReport {
-            schema_version: "dart-decimate.report.v1".to_owned(),
-            kind: "combined".to_owned(),
-            tool: "dart-decimate".to_owned(),
-            command: ReportCommand::Check,
-            verdict: Verdict::Fail,
-            summary: ReportSummary {
-                files: 3,
-                edges: 2,
-                findings: 1,
-                cycles: 1,
-                ..ReportSummary::default()
-            },
-            findings: vec![Finding {
-                rule_id: "dart-decimate/circular-dependency".to_owned(),
-                fingerprint: Some("cycle:<unsafe>".to_owned()),
-                kind: FindingKind::CircularDependency,
-                severity: Severity::Error,
-                message: "Circular dependency spans 3 Dart files".to_owned(),
-                path: "lib/a.dart".to_owned(),
-                line: 1,
-                column: 0,
-                safe_to_delete: false,
-                files: vec![
-                    "lib/a.dart".to_owned(),
-                    "lib/b.dart".to_owned(),
-                    "lib/c.dart".to_owned(),
-                ],
-                edge: None,
-                actions: vec![
-                    FindingAction::new(
-                        "break-cycle",
-                        "Move shared dependencies inward or invert one import edge",
-                        false,
-                    )
-                    .with_dart_decimate_args([
-                        "inspect",
-                        "--format",
-                        "json",
-                        "--file",
-                        "lib/a.dart",
-                    ]),
-                ],
-            }],
-            clone_groups: Vec::new(),
-            complexity: Vec::new(),
-            file_scores: Vec::new(),
-            hotspots: Vec::new(),
-            refactoring_targets: Vec::new(),
-            threshold_overrides: Vec::new(),
-            feature_flags: Vec::new(),
-            security_candidates: Vec::new(),
-            attack_surface: Vec::new(),
-            runtime_coverage: None,
-            next_steps: Vec::new(),
-        };
-
-        let rendered = render_html_report(&report);
-
-        assert!(rendered.starts_with("<!doctype html>"));
-        assert!(rendered.contains("<h1>check report</h1>"));
-        assert!(rendered.contains("Architecture"));
-        assert!(rendered.contains("1 circular dependency"));
-        assert!(rendered.contains("Why"));
-        assert!(rendered.contains("cycle:&lt;unsafe&gt;"));
-        assert!(rendered.contains("lib/a.dart -&gt; lib/b.dart -&gt; lib/c.dart -&gt; lib/a.dart"));
-    }
-
-    #[test]
-    fn escapes_control_characters_from_user_values() {
-        let report = JsonReport {
-            schema_version: "dart-decimate.report.v1".to_owned(),
-            kind: "combined".to_owned(),
-            tool: "dart-decimate".to_owned(),
-            command: ReportCommand::Check,
-            verdict: Verdict::Fail,
-            summary: ReportSummary {
-                files: 2,
-                edges: 1,
-                findings: 1,
-                cycles: 1,
-                ..ReportSummary::default()
-            },
-            findings: vec![Finding {
-                rule_id: "dart-decimate/circular-dependency".to_owned(),
-                fingerprint: Some("cycle:\x1bunsafe".to_owned()),
-                kind: FindingKind::CircularDependency,
-                severity: Severity::Error,
-                message: "Circular dependency includes \x07bell".to_owned(),
-                path: "lib/\x1b[31mbad.dart".to_owned(),
-                line: 1,
-                column: 0,
-                safe_to_delete: false,
-                files: vec![
-                    "lib/\x1b[31mbad.dart".to_owned(),
-                    "lib/\x07bell.dart".to_owned(),
-                ],
-                edge: Some(FindingEdge {
-                    from: "lib/\x1b[31mbad.dart".to_owned(),
-                    to: "lib/\x07bell.dart".to_owned(),
-                    specifier: "package:app/\x1bbad.dart".to_owned(),
-                    kind: "import".to_owned(),
-                }),
-                actions: vec![
-                    FindingAction::new("inspect-control", "Inspect \x07bell", false)
-                        .with_dart_decimate_args([
-                            "inspect",
-                            "--format",
-                            "json",
-                            "--file",
-                            "lib/\x1b[31mbad.dart",
-                        ]),
-                ],
-            }],
-            clone_groups: Vec::new(),
-            complexity: Vec::new(),
-            file_scores: Vec::new(),
-            hotspots: Vec::new(),
-            refactoring_targets: Vec::new(),
-            threshold_overrides: Vec::new(),
-            feature_flags: Vec::new(),
-            security_candidates: Vec::new(),
-            attack_surface: Vec::new(),
-            runtime_coverage: None,
-            next_steps: vec![NextStep {
-                id: "inspect-control".to_owned(),
-                command: "dart-decimate inspect --file lib/\x1b[31mbad.dart".to_owned(),
-                reason: "Review \x07bell evidence".to_owned(),
-            }],
-        };
-
-        let rendered = render_html_report(&report);
-
-        assert!(!rendered.contains('\x1b'));
-        assert!(!rendered.contains('\x07'));
-        assert!(rendered.contains("lib/&#x1B;[31mbad.dart"));
-        assert!(rendered.contains("&#x7;bell"));
-    }
-
-    #[test]
-    fn renders_omitted_details_for_summary_only_failures() {
-        let mut report = JsonReport {
-            schema_version: "dart-decimate.report.v1".to_owned(),
-            kind: "combined".to_owned(),
-            tool: "dart-decimate".to_owned(),
-            command: ReportCommand::Security,
-            verdict: Verdict::Fail,
-            summary: ReportSummary {
-                files: 1,
-                findings: 2,
-                security_candidates: 2,
-                ..ReportSummary::default()
-            },
-            findings: Vec::new(),
-            clone_groups: Vec::new(),
-            complexity: Vec::new(),
-            file_scores: Vec::new(),
-            hotspots: Vec::new(),
-            refactoring_targets: Vec::new(),
-            threshold_overrides: Vec::new(),
-            feature_flags: Vec::new(),
-            security_candidates: Vec::new(),
-            attack_surface: Vec::new(),
-            runtime_coverage: None,
-            next_steps: Vec::new(),
-        };
-        report.findings.clear();
-
-        let rendered = render_html_report(&report);
-
-        assert!(rendered.contains("<h1>security report</h1>"));
-        assert!(rendered.contains("2 findings were omitted from this summary output."));
-        assert!(!rendered.contains("No findings. The selected Dart graph checks passed."));
-    }
-}
+mod tests;
