@@ -117,6 +117,10 @@ fn collect_interpolation_body_references(
             b'}' if brace_depth == 0 => return Some(index),
             b'}' => brace_depth -= 1,
             b'{' => brace_depth += 1,
+            b'r' | b'R' if raw_quoted_segment_start(bytes, index).is_some() => {
+                index = raw_quoted_segment_end(bytes, index);
+                continue;
+            }
             b'\'' | b'"' => {
                 index = quoted_segment_end(bytes, index);
                 continue;
@@ -135,6 +139,35 @@ fn collect_interpolation_body_references(
         index += 1;
     }
     None
+}
+
+fn raw_quoted_segment_start(bytes: &[u8], start: usize) -> Option<usize> {
+    let quote_start = start + 1;
+    matches!(bytes.get(quote_start), Some(b'\'' | b'"')).then_some(quote_start)
+}
+
+fn raw_quoted_segment_end(bytes: &[u8], start: usize) -> usize {
+    let Some(quote_start) = raw_quoted_segment_start(bytes, start) else {
+        return start + 1;
+    };
+    let quote = bytes[quote_start];
+    let is_triple =
+        bytes.get(quote_start + 1) == Some(&quote) && bytes.get(quote_start + 2) == Some(&quote);
+    let mut index = quote_start + if is_triple { 3 } else { 1 };
+    while index < bytes.len() {
+        if is_triple {
+            if bytes[index] == quote
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
+            {
+                return index + 3;
+            }
+        } else if bytes[index] == quote {
+            return index + 1;
+        }
+        index += 1;
+    }
+    bytes.len()
 }
 
 fn quoted_segment_end(bytes: &[u8], start: usize) -> usize {

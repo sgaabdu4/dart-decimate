@@ -601,6 +601,31 @@ void boot(Config config) {
 }
 
 #[test]
+fn extracts_interpolation_references_without_raw_string_prefixes() -> Result<(), ExtractError> {
+    let source = r#"
+void boot(String suffix, String escaped) {
+  print('$suffix ${suffix.toUpperCase()} ${r"raw literal"} \$escaped');
+}
+"#;
+
+    let extracted = extract_dart_source("lib/interpolation.dart", source)?;
+    let references = extracted
+        .references
+        .iter()
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(references.contains(&"suffix"));
+    assert!(references.contains(&"toUpperCase"));
+    assert!(!references.contains(&"r"));
+    assert!(!references.contains(&"raw"));
+    assert!(!references.contains(&"literal"));
+    assert!(!references.contains(&"escaped"));
+
+    Ok(())
+}
+
+#[test]
 fn extracts_references_from_annotations_generics_and_patterns() -> Result<(), ExtractError> {
     let source = "\
 @Route(path: '/home')
