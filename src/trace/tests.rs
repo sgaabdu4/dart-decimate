@@ -6,8 +6,8 @@ use super::*;
 use crate::{find_dead_code, scan_project};
 
 #[test]
-fn traces_file_dependencies_importers_exports_and_declarations()
--> Result<(), Box<dyn std::error::Error>> {
+fn traces_file_dependencies_importers_exports_and_declarations(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(

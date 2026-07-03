@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{DetectedSecurityCandidate, SecurityCategory, SecurityConfidence, SecurityOccurrence};
-use crate::Location;
 use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
+use crate::Location;
 
 pub(super) fn detect_in_source(path: &Path, source: &str) -> Vec<DetectedSecurityCandidate> {
     let mut candidates = Vec::new();

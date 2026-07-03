@@ -5,11 +5,11 @@ use crate::generated::is_generated_dart_path;
 use crate::output::{AnalysisResults, ReportCommand};
 use crate::scan::ScannedProject;
 use crate::{
-    SymbolAnalysisOptions, analyze_dependency_hygiene, analyze_health, analyze_security,
-    analyze_widgets, check_architecture_boundaries, detect_boundary_call_violations,
-    detect_boundary_coverage, detect_cycles, detect_duplicates, detect_feature_flags,
-    detect_policy_violations, detect_re_export_cycles, detect_route_collisions, find_dead_code,
-    load_policy_pack, missing_suppression_reasons_enabled,
+    analyze_dependency_hygiene, analyze_health, analyze_security, analyze_widgets,
+    check_architecture_boundaries, detect_boundary_call_violations, detect_boundary_coverage,
+    detect_cycles, detect_duplicates, detect_feature_flags, detect_policy_violations,
+    detect_re_export_cycles, detect_route_collisions, find_dead_code, load_policy_pack,
+    missing_suppression_reasons_enabled, SymbolAnalysisOptions,
 };
 
 use super::entry_points::{entry_points_for_check, entry_points_for_dead_code};

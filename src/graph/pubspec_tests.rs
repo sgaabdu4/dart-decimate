@@ -7,8 +7,8 @@ use super::*;
 use crate::{DartFile, DartImport, Location};
 
 #[test]
-fn pubspec_overrides_dependency_overrides_drive_package_resolution()
--> Result<(), Box<dyn std::error::Error>> {
+fn pubspec_overrides_dependency_overrides_drive_package_resolution(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write(
         "pubspec.yaml",

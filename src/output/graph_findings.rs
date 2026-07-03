@@ -1,9 +1,9 @@
 use super::format::{dependency_kind, display_path};
 use super::{Finding, FindingAction, FindingEdge, FindingKind, Severity};
 use crate::{
-    BoundaryCallViolation, BoundaryCoverageGap, BoundaryViolation, DeadCodeReport, DependencyCycle,
-    InvalidPartReason, InvalidPartRelationship, PolicySeverity, PolicyViolation, ReExportCycle,
-    UnresolvedDependency, scan::ScannedProject,
+    scan::ScannedProject, BoundaryCallViolation, BoundaryCoverageGap, BoundaryViolation,
+    DeadCodeReport, DependencyCycle, InvalidPartReason, InvalidPartRelationship, PolicySeverity,
+    PolicyViolation, ReExportCycle, UnresolvedDependency,
 };
 
 pub(super) fn add_dead_code_findings(
@@ -25,16 +25,14 @@ pub(super) fn add_dead_code_findings(
             safe_to_delete: false,
             files: Vec::new(),
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "fix-entry-point",
-                    "Pass an existing Dart entry point with --entry",
-                    false,
-                )
-                .with_target_path(path.clone())
-                .with_config_key("entry")
-                .with_value_schema("array of Dart entry point paths"),
-            ],
+            actions: vec![FindingAction::new(
+                "fix-entry-point",
+                "Pass an existing Dart entry point with --entry",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_config_key("entry")
+            .with_value_schema("array of Dart entry point paths")],
         });
     }
 
@@ -52,15 +50,19 @@ pub(super) fn add_dead_code_findings(
             safe_to_delete: dead_file.safe_to_delete,
             files: Vec::new(),
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "delete-file",
-                    "Delete the unreachable Dart file after confirming no dynamic entry point uses it",
-                    dead_file.safe_to_delete,
-                )
-                .with_target_path(path.clone())
-                .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()]),
-            ],
+            actions: vec![FindingAction::new(
+                "delete-file",
+                "Delete the unreachable Dart file after confirming no dynamic entry point uses it",
+                dead_file.safe_to_delete,
+            )
+            .with_target_path(path.clone())
+            .with_dart_decimate_args([
+                "inspect",
+                "--format",
+                "json",
+                "--file",
+                path.as_str(),
+            ])],
         });
     }
 }
@@ -132,21 +134,19 @@ pub(super) fn add_re_export_cycle_findings(
             safe_to_delete: false,
             files,
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "break-re-export-cycle",
-                    "Remove or redirect one barrel export so public API propagation is acyclic",
-                    false,
-                )
-                .with_target_path(path.clone())
-                .with_dart_decimate_args([
-                    "inspect",
-                    "--format",
-                    "json",
-                    "--file",
-                    path.as_str(),
-                ]),
-            ],
+            actions: vec![FindingAction::new(
+                "break-re-export-cycle",
+                "Remove or redirect one barrel export so public API propagation is acyclic",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_dart_decimate_args([
+                "inspect",
+                "--format",
+                "json",
+                "--file",
+                path.as_str(),
+            ])],
         });
     }
 }
@@ -176,16 +176,14 @@ pub(super) fn add_boundary_findings(
                 specifier: violation.specifier.clone(),
                 kind: dependency_kind(violation.kind),
             }),
-            actions: vec![
-                FindingAction::new(
-                    "repair-boundary",
-                    "Move the dependency behind an allowed boundary or invert the ownership",
-                    false,
-                )
-                .with_target_path(from.clone())
-                .with_dart_decimate_args(["inspect", "--format", "json", "--file", from.as_str()])
-                .with_suppression_comment("// dart-decimate-ignore-next-line boundary-violation"),
-            ],
+            actions: vec![FindingAction::new(
+                "repair-boundary",
+                "Move the dependency behind an allowed boundary or invert the ownership",
+                false,
+            )
+            .with_target_path(from.clone())
+            .with_dart_decimate_args(["inspect", "--format", "json", "--file", from.as_str()])
+            .with_suppression_comment("// dart-decimate-ignore-next-line boundary-violation")],
         });
     }
 }
@@ -214,17 +212,15 @@ pub(super) fn add_boundary_coverage_findings(
             safe_to_delete: false,
             files: zones,
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "assign-boundary",
-                    "Move the file into a configured boundary or add an intentional boundary zone",
-                    false,
-                )
-                .with_target_path(path.clone())
-                .with_config_key("boundary")
-                .with_value_schema("array of FROM:DISALLOW architecture boundary rules")
-                .with_suppression_comment("// dart-decimate-ignore-next-line boundary-violation"),
-            ],
+            actions: vec![FindingAction::new(
+                "assign-boundary",
+                "Move the file into a configured boundary or add an intentional boundary zone",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_config_key("boundary")
+            .with_value_schema("array of FROM:DISALLOW architecture boundary rules")
+            .with_suppression_comment("// dart-decimate-ignore-next-line boundary-violation")],
         });
     }
 }
@@ -251,17 +247,15 @@ pub(super) fn add_boundary_call_findings(
             safe_to_delete: false,
             files: vec![display_path(root, &violation.from_boundary)],
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "repair-boundary-call",
-                    "Move the call behind an allowed boundary or replace it with an owned abstraction",
-                    false,
-                )
-                .with_target_path(path.clone())
-                .with_config_key("boundary_calls")
-                .with_value_schema("array of FROM:PATTERN forbidden direct call rules")
-                .with_suppression_comment("// dart-decimate-ignore-next-line boundary-call-violation"),
-            ],
+            actions: vec![FindingAction::new(
+                "repair-boundary-call",
+                "Move the call behind an allowed boundary or replace it with an owned abstraction",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_config_key("boundary_calls")
+            .with_value_schema("array of FROM:PATTERN forbidden direct call rules")
+            .with_suppression_comment("// dart-decimate-ignore-next-line boundary-call-violation")],
         });
     }
 }
@@ -291,20 +285,18 @@ pub(super) fn add_policy_findings(
             safe_to_delete: false,
             files: Vec::new(),
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "repair-policy-violation",
-                    "Change the import or call so it complies with the owning rule pack",
-                    false,
-                )
-                .with_target_path(path.clone())
-                .with_config_key("rulePacks")
-                .with_value_schema("array of declarative policy pack paths")
-                .with_suppression_comment(format!(
-                    "// dart-decimate-ignore-next-line policy-violation {}",
-                    violation.rule_id
-                )),
-            ],
+            actions: vec![FindingAction::new(
+                "repair-policy-violation",
+                "Change the import or call so it complies with the owning rule pack",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_config_key("rulePacks")
+            .with_value_schema("array of declarative policy pack paths")
+            .with_suppression_comment(format!(
+                "// dart-decimate-ignore-next-line policy-violation {}",
+                violation.rule_id
+            ))],
         });
     }
 }
@@ -373,16 +365,14 @@ fn unresolved_finding(root: &std::path::Path, dependency: &UnresolvedDependency)
             specifier: dependency.specifier.clone(),
             kind: dependency_kind(dependency.kind),
         }),
-        actions: vec![
-            FindingAction::new(
-                "fix-import",
-                "Update the dependency URI or add the missing Dart file",
-                false,
-            )
-            .with_target_path(from.clone())
-            .with_dart_decimate_args(["inspect", "--format", "json", "--file", from.as_str()])
-            .with_suppression_comment("// dart-decimate-ignore-next-line unresolved-dependency"),
-        ],
+        actions: vec![FindingAction::new(
+            "fix-import",
+            "Update the dependency URI or add the missing Dart file",
+            false,
+        )
+        .with_target_path(from.clone())
+        .with_dart_decimate_args(["inspect", "--format", "json", "--file", from.as_str()])
+        .with_suppression_comment("// dart-decimate-ignore-next-line unresolved-dependency")],
     }
 }
 
@@ -414,16 +404,14 @@ fn part_of_finding(root: &std::path::Path, relationship: &InvalidPartRelationshi
             specifier: relationship.specifier.clone(),
             kind: "part".to_owned(),
         }),
-        actions: vec![
-            FindingAction::new(
-                "repair-part-of",
-                "Update the library part directive or the part file's part of directive",
-                false,
-            )
-            .with_target_path(part.clone())
-            .with_dart_decimate_args(["inspect", "--format", "json", "--file", part.as_str()])
-            .with_suppression_comment("// dart-decimate-ignore-next-line part-of-violation"),
-        ],
+        actions: vec![FindingAction::new(
+            "repair-part-of",
+            "Update the library part directive or the part file's part of directive",
+            false,
+        )
+        .with_target_path(part.clone())
+        .with_dart_decimate_args(["inspect", "--format", "json", "--file", part.as_str()])
+        .with_suppression_comment("// dart-decimate-ignore-next-line part-of-violation")],
     }
 }
 

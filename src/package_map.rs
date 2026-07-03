@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_yaml_ng::{Mapping, Value};
 
-use crate::graph::{GraphError, normalize_path};
+use crate::graph::{normalize_path, GraphError};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PackageMap {
@@ -546,8 +546,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn skips_missing_path_dependencies_from_nested_pubspec_overrides()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn skips_missing_path_dependencies_from_nested_pubspec_overrides(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let fixture = TempDir::new()?;
         write(&fixture, "pubspec.yaml", "name: hydrated_bloc\n")?;
         write(
@@ -564,15 +564,13 @@ mod tests {
         let packages = PackageMap::discover(fixture.path())?;
 
         assert_eq!(packages.names(), vec!["example", "hydrated_bloc"]);
-        assert!(
-            packages
-                .resolve_from(
-                    &fixture.path().join("lib/hydrated_bloc.dart"),
-                    "bloc",
-                    "bloc.dart"
-                )
-                .is_none()
-        );
+        assert!(packages
+            .resolve_from(
+                &fixture.path().join("lib/hydrated_bloc.dart"),
+                "bloc",
+                "bloc.dart"
+            )
+            .is_none());
 
         Ok(())
     }

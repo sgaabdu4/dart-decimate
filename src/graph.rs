@@ -13,8 +13,8 @@ mod conditionals;
 mod parts;
 
 use conditionals::{selected_exports, selected_imports};
-pub use parts::{InvalidPartReason, InvalidPartRelationship};
 use parts::{add_orphan_part_relationships, add_part_dependency};
+pub use parts::{InvalidPartReason, InvalidPartRelationship};
 
 /// A directed dependency graph where nodes are Dart files.
 pub type DependencyGraph = DiGraph<ModuleNode, DependencyEdge>;

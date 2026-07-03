@@ -124,8 +124,8 @@ fn check_counts_flutter_tool_config_dependencies_as_used() -> Result<(), Box<dyn
 }
 
 #[test]
-fn check_counts_private_members_used_in_string_interpolation()
--> Result<(), Box<dyn std::error::Error>> {
+fn check_counts_private_members_used_in_string_interpolation(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -145,8 +145,8 @@ fn check_counts_private_members_used_in_string_interpolation()
 }
 
 #[test]
-fn security_reports_firebase_api_keys_as_warning_candidates()
--> Result<(), Box<dyn std::error::Error>> {
+fn security_reports_firebase_api_keys_as_warning_candidates(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -170,8 +170,8 @@ fn security_reports_firebase_api_keys_as_warning_candidates()
 }
 
 #[test]
-fn security_rule_promotes_firebase_candidate_detail_to_error()
--> Result<(), Box<dyn std::error::Error>> {
+fn security_rule_promotes_firebase_candidate_detail_to_error(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
         &fixture,

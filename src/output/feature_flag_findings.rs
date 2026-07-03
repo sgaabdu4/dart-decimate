@@ -97,17 +97,15 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
         safe_to_delete: false,
         files,
         edge: None,
-        actions: vec![
-            FindingAction::new(
-                "review-feature-flag",
-                "Verify the flag owner, rollout state, and stale-code cleanup path",
-                false,
-            )
-            .with_target_path(path.clone())
-            .with_target_symbol(flag.name.clone())
-            .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()])
-            .with_suppression_comment("// dart-decimate-ignore-next-line feature-flag"),
-        ],
+        actions: vec![FindingAction::new(
+            "review-feature-flag",
+            "Verify the flag owner, rollout state, and stale-code cleanup path",
+            false,
+        )
+        .with_target_path(path.clone())
+        .with_target_symbol(flag.name.clone())
+        .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()])
+        .with_suppression_comment("// dart-decimate-ignore-next-line feature-flag")],
     }
 }
 

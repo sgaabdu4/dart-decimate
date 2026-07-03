@@ -7,8 +7,8 @@ use super::*;
 use crate::{DartFile, DartImport};
 
 #[test]
-fn resolves_package_imports_using_ancestor_package_config_from_member_root()
--> Result<(), Box<dyn std::error::Error>> {
+fn resolves_package_imports_using_ancestor_package_config_from_member_root(
+) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
         &fixture,
