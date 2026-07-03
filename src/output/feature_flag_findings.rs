@@ -86,7 +86,7 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
         rule_id: "dart-decimate/feature-flag".to_owned(),
         fingerprint: Some(feature_flag_fingerprint(flag)),
         kind: FindingKind::FeatureFlag,
-        severity: Severity::Error,
+        severity: feature_flag_severity(flag),
         message: format!(
             "Feature flag {} is referenced via {}",
             flag.name, flag.provider
@@ -109,6 +109,34 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
             .with_suppression_comment("// dart-decimate-ignore-next-line feature-flag"),
         ],
     }
+}
+
+fn feature_flag_severity(flag: &FeatureFlag) -> Severity {
+    if flag.source == FeatureFlagSource::CompileTimeEnvironment
+        && flag.occurrences.iter().all(|occurrence| {
+            let path = occurrence.path.as_path();
+            is_dev_or_test_path(path)
+        })
+    {
+        Severity::Warning
+    } else {
+        Severity::Error
+    }
+}
+
+fn is_dev_or_test_path(path: &Path) -> bool {
+    let file_name = path.file_name().and_then(|name| name.to_str());
+    file_name.is_some_and(|name| {
+        name.contains("_dev.")
+            || name.contains("_debug.")
+            || name.starts_with("dev_")
+            || name.starts_with("debug_")
+    }) || path.components().any(|component| {
+        matches!(
+            component.as_os_str().to_str(),
+            Some("test" | "integration_test" | "test_driver" | "tool" | "scripts")
+        )
+    })
 }
 
 fn feature_flag_fingerprint(flag: &FeatureFlag) -> String {

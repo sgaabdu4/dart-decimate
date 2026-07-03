@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{DetectedSecurityCandidate, SecurityCategory, SecurityConfidence, SecurityOccurrence};
 use crate::Location;
-use crate::generated::is_generated_dart_path;
+use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
 
 pub(super) fn detect_in_source(path: &Path, source: &str) -> Vec<DetectedSecurityCandidate> {
     let mut candidates = Vec::new();
@@ -24,7 +24,7 @@ pub(super) fn is_ignored_path(path: &Path) -> bool {
     }) {
         return true;
     }
-    is_generated_dart_path(path)
+    is_generated_dart_path(path) && !is_flutterfire_options_path(path)
 }
 
 fn detect_hardcoded_secrets(
@@ -1141,13 +1141,21 @@ fn literal_looks_like_user_facing_copy(value: &str) -> bool {
             .any(|word| lower.contains(word))
         && [
             "change password",
+            "current password",
+            "new password",
             "invalid email or password",
             "forgot password",
+            "forgot your password",
             "reset password",
+            "password reset",
             "enter password",
             "confirm password",
             "password must",
             "password is",
+            "password should",
+            "password cannot",
+            "password field",
+            "password requirements",
             "token expired",
             "invalid token",
         ]

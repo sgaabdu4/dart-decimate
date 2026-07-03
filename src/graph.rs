@@ -547,7 +547,7 @@ pub(super) fn resolve_local_uri(
         let (package, path) = rest.split_once('/')?;
         let path = percent_decode_uri_path(path);
         return packages
-            .resolve(package, &path)
+            .resolve_from(from_path, package, &path)
             .map(|resolution| ResolvedTarget {
                 path: resolution.path,
                 local: resolution.local,

@@ -9,14 +9,17 @@ use crate::graph::{GraphError, normalize_path};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PackageMap {
-    by_name: BTreeMap<String, PackageRoot>,
+    by_name: BTreeMap<String, Vec<PackageRoot>>,
+    by_owner_dependency: BTreeMap<PathBuf, BTreeMap<String, PackageRoot>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PackageRoot {
+    name: String,
     root: PathBuf,
     package_path: PathBuf,
     local: bool,
+    from_package_config: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,11 +31,11 @@ pub(crate) struct PackageResolution {
 impl PackageMap {
     pub(crate) fn discover(root: &Path) -> Result<Self, GraphError> {
         if let Some(config) = PackageConfigFile::read(root)? {
-            return Ok(Self::from_package_config(
-                root,
-                &config.config_dir,
-                &config.config,
-            ));
+            let mut packages = Self::from_package_config(root, &config.config_dir, &config.config);
+            let mut visited = BTreeSet::new();
+            packages.discover_pubspec(root, &mut visited)?;
+            packages.discover_nested_pubspecs(root, &mut visited)?;
+            return Ok(packages);
         }
 
         let mut packages = Self::default();
@@ -49,16 +52,65 @@ impl PackageMap {
     pub(crate) fn local_roots(&self) -> BTreeSet<PathBuf> {
         self.by_name
             .values()
+            .flatten()
             .filter(|package| package.local)
             .map(|package| package.root.clone())
             .collect()
     }
 
-    pub(crate) fn resolve(&self, package: &str, path: &str) -> Option<PackageResolution> {
-        self.by_name.get(package).map(|root| PackageResolution {
-            path: normalize_path(&root.package_path.join(path)),
-            local: root.local,
-        })
+    pub(crate) fn resolve_from(
+        &self,
+        from_path: &Path,
+        package: &str,
+        path: &str,
+    ) -> Option<PackageResolution> {
+        let roots = self.by_name.get(package)?;
+        let owner_package = self.owner_package(from_path);
+        let owner_root = owner_package.map(|package| package.root.as_path());
+        if let Some(owner_package) = owner_package {
+            if owner_package.name == package {
+                return Some(package_resolution(owner_package, path));
+            }
+        }
+        let configured_root = roots.iter().find(|root| root.from_package_config);
+        if owner_package.is_some_and(|package| package.from_package_config) {
+            if let Some(root) = configured_root {
+                return Some(package_resolution(root, path));
+            }
+        }
+        if let Some(owner_root) = owner_root {
+            if let Some(root) = self
+                .by_owner_dependency
+                .get(owner_root)
+                .and_then(|dependencies| dependencies.get(package))
+            {
+                return Some(package_resolution(root, path));
+            }
+        }
+        if let Some(root) = configured_root {
+            return Some(package_resolution(root, path));
+        }
+        if roots.len() == 1 {
+            return roots.first().map(|root| package_resolution(root, path));
+        }
+
+        owner_root
+            .and_then(|owner_root| {
+                roots
+                    .iter()
+                    .filter(|candidate| candidate.root.starts_with(owner_root))
+                    .min_by_key(|candidate| candidate.root.components().count())
+            })
+            .or_else(|| roots.first())
+            .map(|root| package_resolution(root, path))
+    }
+
+    fn owner_package(&self, path: &Path) -> Option<&PackageRoot> {
+        self.by_name
+            .values()
+            .flatten()
+            .filter(|package| path.starts_with(&package.root))
+            .max_by_key(|package| package.root.components().count())
     }
 
     fn from_package_config(root: &Path, config_dir: &Path, config: &PackageConfig) -> Self {
@@ -75,16 +127,21 @@ impl PackageMap {
                     is_local_package_config_root(root, config_root, root_uri, &package_root);
                 Some((
                     package.name.clone(),
-                    PackageRoot {
+                    vec![PackageRoot {
+                        name: package.name.clone(),
                         root: package_root,
                         package_path,
                         local,
-                    },
+                        from_package_config: true,
+                    }],
                 ))
             })
             .collect();
 
-        Self { by_name }
+        Self {
+            by_name,
+            by_owner_dependency: BTreeMap::new(),
+        }
     }
 
     fn discover_pubspec(
@@ -102,7 +159,7 @@ impl PackageMap {
         };
 
         if let Some(name) = pubspec.name {
-            self.insert(name, package_root.clone(), PathBuf::from("lib"));
+            self.insert(name, &package_root, PathBuf::from("lib"));
         }
 
         for dependency in pubspec.path_dependencies {
@@ -110,11 +167,15 @@ impl PackageMap {
             if !dependency_root.join("pubspec.yaml").is_file() {
                 continue;
             }
-            self.insert(
-                dependency.name,
-                dependency_root.clone(),
+            let package = self.insert(
+                dependency.name.clone(),
+                &dependency_root,
                 PathBuf::from("lib"),
             );
+            self.by_owner_dependency
+                .entry(package_root.clone())
+                .or_default()
+                .insert(dependency.name, package);
             self.discover_pubspec(&dependency_root, visited)?;
         }
 
@@ -165,15 +226,29 @@ impl PackageMap {
         Ok(())
     }
 
-    fn insert(&mut self, name: String, root: PathBuf, package_uri: PathBuf) {
-        self.by_name.insert(
+    fn insert(&mut self, name: String, root: &Path, package_uri: PathBuf) -> PackageRoot {
+        let packages = self.by_name.entry(name.clone()).or_default();
+        let root = normalize_path(root);
+        if let Some(package) = packages.iter().find(|package| package.root == root) {
+            return package.clone();
+        }
+        let package = PackageRoot {
             name,
-            PackageRoot {
-                package_path: normalize_path(&root.join(package_uri)),
-                root,
-                local: true,
-            },
-        );
+            package_path: normalize_path(&root.join(package_uri)),
+            root,
+            local: true,
+            from_package_config: false,
+        };
+        packages.push(package.clone());
+        packages.sort_by(|left, right| left.root.cmp(&right.root));
+        package
+    }
+}
+
+fn package_resolution(root: &PackageRoot, path: &str) -> PackageResolution {
+    PackageResolution {
+        path: normalize_path(&root.package_path.join(path)),
+        local: root.local,
     }
 }
 
@@ -363,9 +438,17 @@ fn path_dependencies(value: &Value, overrides: Option<&Value>) -> Vec<PathDepend
         .filter_map(|section| mapping_field(value, section))
         .flat_map(path_dependencies_from_mapping)
         .collect::<Vec<_>>();
+
     let override_source = overrides
         .filter(|value| has_top_level_field(value, "dependency_overrides"))
         .unwrap_or(value);
+    if let Some(overrides) = mapping_field(override_source, "dependency_overrides") {
+        let override_names = overrides
+            .keys()
+            .filter_map(Value::as_str)
+            .collect::<BTreeSet<_>>();
+        dependencies.retain(|dependency| !override_names.contains(dependency.name.as_str()));
+    }
     dependencies.extend(
         mapping_field(override_source, "dependency_overrides")
             .into_iter()
@@ -481,7 +564,15 @@ mod tests {
         let packages = PackageMap::discover(fixture.path())?;
 
         assert_eq!(packages.names(), vec!["example", "hydrated_bloc"]);
-        assert!(packages.resolve("bloc", "bloc.dart").is_none());
+        assert!(
+            packages
+                .resolve_from(
+                    &fixture.path().join("lib/hydrated_bloc.dart"),
+                    "bloc",
+                    "bloc.dart"
+                )
+                .is_none()
+        );
 
         Ok(())
     }

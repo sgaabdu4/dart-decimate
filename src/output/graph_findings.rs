@@ -92,7 +92,7 @@ pub(super) fn add_cycle_findings(
             actions: vec![
                 FindingAction::new(
                     "break-cycle",
-                    "Move shared dependencies inward or invert one import edge",
+                    "Inspect the cycle edge; split barrels or move shared ownership before expanding imports",
                     false,
                 )
                 .with_target_path(path.clone())

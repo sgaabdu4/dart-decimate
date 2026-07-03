@@ -1,0 +1,313 @@
+use std::fs;
+
+use dart_decimate::cli::run_from;
+use serde_json::Value;
+use tempfile::TempDir;
+
+#[test]
+fn check_ignores_generated_l10n_cycles() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'l10n/app_localizations.dart';\nvoid main() { AppLocalizations(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/l10n/app_localizations.dart",
+        "import 'app_localizations_en.dart';\nclass AppLocalizations { AppLocalizationsEn? en; }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/l10n/app_localizations_en.dart",
+        "import 'app_localizations.dart';\nclass AppLocalizationsEn extends AppLocalizations {}\n",
+    )?;
+
+    let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
+    assert_no_rule(&json, "dart-decimate/dead-file");
+    Ok(())
+}
+
+#[test]
+fn check_resolves_copied_nested_path_packages_by_owner() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart_tool/package_config.json",
+        r#"{"configVersion":2,"packages":[{"name":"app","rootUri":"../","packageUri":"lib/"}]}"#,
+    )?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    for function in ["function_a", "function_b"] {
+        write(
+            &fixture,
+            &format!("functions/{function}/pubspec.yaml"),
+            "name: function_app\ndependencies:\n  shared:\n    path: shared\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/lib/main.dart"),
+            "import 'package:shared/http.dart';\nvoid main() { sharedHttp(); }\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/pubspec.yaml"),
+            "name: shared\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/lib/http.dart"),
+            "String sharedHttp() {\n  final headers = <String, String>{\n    'accept': 'application/json',\n    'content-type': 'application/json',\n    'x-client': 'function-client',\n  };\n  final values = ['alpha', 'beta', 'gamma', headers.keys.join('|')];\n  final normalized = values.map((value) => value.trim().toLowerCase()).where((value) => value.isNotEmpty).toList();\n  return normalized.join(',');\n}\n",
+        )?;
+    }
+
+    let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/dead-file",
+        "functions/function_a/shared/lib/http.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/dead-file",
+        "functions/function_b/shared/lib/http.dart",
+    );
+    assert_no_rule(&json, "dart-decimate/code-duplication");
+    Ok(())
+}
+
+#[test]
+fn check_treats_scripts_as_dynamic_entry_points() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "scripts/check_something.dart",
+        "void main() { print('checked'); }\n",
+    )?;
+
+    let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/dead-file",
+        "scripts/check_something.dart",
+    );
+    Ok(())
+}
+
+#[test]
+fn check_counts_flutter_tool_config_dependencies_as_used() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\ndev_dependencies:\n  flutter_launcher_icons: ^0.14.0\n",
+    )?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "flutter_launcher_icons.yaml",
+        "flutter_launcher_icons:\n  android: launcher_icon\n  ios: true\n",
+    )?;
+
+    let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_no_dependency(&json, "flutter_launcher_icons");
+    Ok(())
+}
+
+#[test]
+fn check_counts_private_members_used_in_string_interpolation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "abstract final class Keys {\n  static const String _prefix = 'item:';\n  static String item(String id) => '$_prefix$id';\n}\nvoid main() { Keys.item('42'); }\n",
+    )?;
+
+    let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_no_symbol(&json, "dart-decimate/unused-class-member", "_prefix");
+    Ok(())
+}
+
+#[test]
+fn security_reports_firebase_api_keys_as_warning_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "const options = FirebaseOptions(apiKey: 'DartDecimateFirebaseKeyValue123456789');\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "security",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_finding_severity(&json, "dart-decimate/security-firebase-api-key", "warning");
+    Ok(())
+}
+
+#[test]
+fn security_rule_promotes_firebase_candidate_detail_to_error()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        ".dart-decimaterc",
+        "[rules]\n\"dart-decimate/security-firebase-api-key\" = \"error\"\n",
+    )?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "const options = FirebaseOptions(apiKey: 'DartDecimateFirebaseKeyValue123456789');\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "security",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_finding_severity(&json, "dart-decimate/security-firebase-api-key", "error");
+    assert_eq!(json["security_candidates"][0]["severity"], "error");
+    Ok(())
+}
+
+#[test]
+fn check_downgrades_dev_e2e_environment_defines() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        ".dart-decimaterc",
+        "[rules]\n\"dart-decimate/dead-file\" = \"warn\"\n",
+    )?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main_dev.dart",
+        "const forceSignedOut = bool.fromEnvironment('APP_E2E_FORCE_SIGNED_OUT');\nvoid main() { print(forceSignedOut); }\n",
+    )?;
+
+    let (code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_finding_severity(&json, "dart-decimate/feature-flag", "warning");
+    Ok(())
+}
+
+#[test]
+fn check_keeps_production_e2e_named_sdk_flags_as_errors() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "bool enabled() => FirebaseRemoteConfig.instance.getBool('APP_E2E_REMOTE_FLAG');\nvoid main() { print(enabled()); }\n",
+    )?;
+
+    let (code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_finding_severity(&json, "dart-decimate/feature-flag", "error");
+    Ok(())
+}
+
+fn run_json<const N: usize>(args: [&str; N]) -> Result<(i32, Value), Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+    let code = run_from(args, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+    Ok((code, json))
+}
+
+fn root(fixture: &TempDir) -> &str {
+    fixture.path().to_str().unwrap_or(".")
+}
+
+fn assert_no_rule(json: &Value, rule_id: &str) {
+    assert!(
+        !findings(json)
+            .iter()
+            .any(|finding| finding["rule_id"] == rule_id),
+        "{rule_id} should not be reported: {:?}",
+        findings(json)
+    );
+}
+
+fn assert_no_finding_path(json: &Value, rule_id: &str, path: &str) {
+    assert!(
+        !findings(json)
+            .iter()
+            .any(|finding| finding["rule_id"] == rule_id && finding["path"] == path),
+        "{rule_id} should not be reported for {path}: {:?}",
+        findings(json)
+    );
+}
+
+fn assert_no_dependency(json: &Value, dependency: &str) {
+    assert!(
+        !findings(json)
+            .iter()
+            .any(|finding| finding["actions"][0]["target_dependency"] == dependency),
+        "{dependency} should not be reported unused: {:?}",
+        findings(json)
+    );
+}
+
+fn assert_no_symbol(json: &Value, rule_id: &str, symbol: &str) {
+    assert!(
+        !findings(json)
+            .iter()
+            .any(|finding| finding["rule_id"] == rule_id
+                && finding["actions"][0]["target_symbol"] == symbol),
+        "{symbol} should not be reported for {rule_id}: {:?}",
+        findings(json)
+    );
+}
+
+fn assert_finding_severity(json: &Value, rule_id: &str, severity: &str) {
+    let Some(finding) = findings(json)
+        .iter()
+        .find(|finding| finding["rule_id"] == rule_id)
+    else {
+        panic!("{rule_id} finding missing: {:?}", findings(json));
+    };
+    assert_eq!(finding["severity"], severity);
+}
+
+fn findings(json: &Value) -> &[Value] {
+    json["findings"].as_array().map_or(&[], Vec::as_slice)
+}
+
+fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {
+    let path = fixture.path().join(path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, source)
+}

@@ -83,7 +83,7 @@ fn is_direct_script_entry_point(path: &Path) -> bool {
         && path.parent().and_then(Path::file_name).is_some_and(|name| {
             matches!(
                 name.to_str(),
-                Some("test" | "integration_test" | "test_driver" | "tool" | "pigeon")
+                Some("test" | "integration_test" | "test_driver" | "tool" | "scripts" | "pigeon")
             )
         })
 }

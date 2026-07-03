@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ScannedProject;
+use crate::dependencies::{LocalPubPackage, local_pub_packages};
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
 use crate::output::TRACE_SCHEMA_VERSION;
@@ -392,6 +393,8 @@ pub fn detect_duplicates(
             ))
     });
     clone_groups = collapse_overlapping_groups(clone_groups);
+    let copied_packages = local_pub_packages(&project.root).unwrap_or_default();
+    clone_groups.retain(|group| !is_copied_package_clone(group, &copied_packages));
     let stats = duplicate_stats(analyzed_lines, &clone_groups, options.threshold);
     if let Some(top) = options.top {
         clone_groups.truncate(top);
@@ -459,6 +462,45 @@ fn collapse_overlapping_groups(groups: Vec<CodeClone>) -> Vec<CodeClone> {
         }
     }
     collapsed
+}
+
+fn is_copied_package_clone(group: &CodeClone, packages: &[LocalPubPackage]) -> bool {
+    if group.instances.len() < 2 {
+        return false;
+    }
+    let mut roots = BTreeSet::new();
+    let mut identity = None;
+    for instance in &group.instances {
+        let Some(package) = owning_package(packages, &instance.path) else {
+            return false;
+        };
+        let Ok(relative_path) = instance.path.strip_prefix(&package.root) else {
+            return false;
+        };
+        roots.insert(package.root.clone());
+        let current = (
+            package.name.as_str(),
+            relative_path,
+            instance.start_line,
+            instance.end_line,
+        );
+        if identity.is_none() {
+            identity = Some(current);
+        } else if identity != Some(current) {
+            return false;
+        }
+    }
+    roots.len() > 1
+}
+
+fn owning_package<'package>(
+    packages: &'package [LocalPubPackage],
+    path: &Path,
+) -> Option<&'package LocalPubPackage> {
+    packages
+        .iter()
+        .filter(|package| path.starts_with(&package.root))
+        .max_by_key(|package| package.root.components().count())
 }
 
 fn groups_overlap(left: &CodeClone, right: &CodeClone) -> bool {

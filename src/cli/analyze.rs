@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::config::{filter_ignored_dependencies, filter_ignored_dependency_overrides};
+use crate::generated::is_generated_dart_path;
 use crate::output::{AnalysisResults, ReportCommand};
 use crate::scan::ScannedProject;
 use crate::{
@@ -419,9 +420,9 @@ where
     P: AsRef<Path>,
 {
     let mut report = find_dead_code(&project.graph, entry_points);
-    report
-        .dead_files
-        .retain(|dead_file| is_project_path(project, &dead_file.path));
+    report.dead_files.retain(|dead_file| {
+        is_project_path(project, &dead_file.path) && !is_generated_dart_path(&dead_file.path)
+    });
     report
         .reachable_files
         .retain(|path| is_project_path(project, path));
@@ -441,6 +442,7 @@ fn detect_project_cycles(project: &ScannedProject) -> Vec<crate::DependencyCycle
                 .files
                 .iter()
                 .any(|path| is_project_path(project, path))
+                && !cycle.files.iter().all(|path| is_generated_dart_path(path))
         })
         .collect()
 }
@@ -453,6 +455,7 @@ fn detect_project_re_export_cycles(project: &ScannedProject) -> Vec<crate::ReExp
                 .files
                 .iter()
                 .any(|path| is_project_path(project, path))
+                && !cycle.files.iter().all(|path| is_generated_dart_path(path))
         })
         .collect()
 }
