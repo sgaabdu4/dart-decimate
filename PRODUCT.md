@@ -344,7 +344,8 @@ Current implemented parity:
   dependency hygiene exceptions
 - unused dependency reports include a read-only `trace-dependency` next step
 - code duplication findings with stable `dup:<id>` fingerprints, actual matched
-  line/token counts, and read-only `trace-clone` next steps
+  line/token counts, copied-local-package filtering, and read-only `trace-clone`
+  next steps
 - code health findings for high cyclomatic and cognitive complexity, including
   `--complexity-breakdown`, `--max-cyclomatic`, `--max-cognitive`, `--top`, and
   read-only `complexity-breakdown` next steps

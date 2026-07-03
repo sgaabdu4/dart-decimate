@@ -254,6 +254,8 @@ Dart Decimate finds exact and semantic clone groups. Each clone group gets a sta
 fingerprint like `dup:abc12345`, so agents can trace it before touching code.
 Clone windows must meet both line and token thresholds; sparse duplicated blocks
 can span more than `--min-lines`, and `line_count` reports the actual match.
+Copied local Pub packages with the same package name and identical relative
+matches are ignored.
 
 Useful commands:
 
@@ -323,7 +325,8 @@ Dart Decimate finds:
 Dart Decimate follows Pub package ownership when resolving `package:` imports,
 including local path dependencies, workspace members, and copied nested packages
 with the same package name. Non-Dart tooling references in Flutter config files,
-workflow files, Makefiles, and `tool/` scripts can count as dependency usage.
+including launcher and splash config, workflow files, Makefiles, and `tool/`
+scripts can count as dependency usage.
 
 Useful commands:
 
@@ -363,7 +366,9 @@ Dart Decimate finds candidates for:
 
 Firebase client API keys are warning-level by default because FlutterFire
 generates client config; set `dart-decimate/security-firebase-api-key = "error"`
-in `[rules]` to make them fail a gate.
+in `[rules]` to make them fail a gate. Common authentication copy such as
+password reset and password requirement text is filtered before reporting
+hardcoded-secret candidates.
 
 Useful commands:
 
