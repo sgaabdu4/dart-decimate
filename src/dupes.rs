@@ -48,9 +48,10 @@ impl DuplicateMode {
 pub struct DuplicateOptions {
     /// Detection mode.
     pub mode: DuplicateMode,
-    /// Minimum token count per clone.
+    /// Minimum normalized token count per clone window.
     pub min_tokens: usize,
-    /// Minimum line count per clone.
+    /// Minimum normalized line count per clone window; sparse windows may grow
+    /// past this to satisfy `min_tokens`.
     pub min_lines: usize,
     /// Minimum occurrences before a clone group is reported.
     pub min_occurrences: usize,
@@ -211,9 +212,9 @@ pub struct CodeClone {
     pub fingerprint: String,
     /// Matching block instances.
     pub instances: Vec<CodeCloneInstance>,
-    /// Lines in the duplicated block.
+    /// Normalized lines in the matched duplicated block.
     pub line_count: usize,
-    /// Tokens in the duplicated block.
+    /// Normalized tokens in the matched duplicated block.
     pub token_count: usize,
 }
 
@@ -256,9 +257,9 @@ pub struct CloneTraceReport {
 pub struct TraceCloneGroup {
     /// Stable clone fingerprint.
     pub fingerprint: String,
-    /// Lines in the duplicated block.
+    /// Normalized lines in the matched duplicated block.
     pub line_count: usize,
-    /// Tokens in the duplicated block.
+    /// Normalized tokens in the matched duplicated block.
     pub token_count: usize,
     /// Matching block instances.
     pub instances: Vec<TraceCloneInstance>,
@@ -310,6 +311,9 @@ struct CloneWindow {
 }
 
 /// Detect duplicated Dart code blocks.
+///
+/// Clone windows satisfy both `min_lines` and `min_tokens`; sparse duplicated
+/// blocks can therefore span more than `min_lines`.
 ///
 /// # Errors
 ///
