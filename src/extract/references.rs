@@ -55,7 +55,21 @@ fn collect_string_interpolation_references(
         if is_escaped_dollar(bytes, dollar) {
             continue;
         }
-        if let Some((name, start)) = interpolation_identifier(text, dollar + 1) {
+        let interpolation_start = dollar + 1;
+        if bytes.get(interpolation_start) == Some(&b'{') {
+            let Some(end) = collect_interpolation_body_references(
+                text,
+                interpolation_start + 1,
+                references,
+                source,
+                node,
+            ) else {
+                continue;
+            };
+            index = end + 1;
+            continue;
+        }
+        if let Some((name, start)) = interpolation_identifier(text, interpolation_start) {
             references.push(IdentifierReference {
                 name: name.to_owned(),
                 location: location_at(source, node.start_byte() + start),
@@ -84,24 +98,67 @@ fn is_escaped_dollar(bytes: &[u8], dollar: usize) -> bool {
 
 fn interpolation_identifier(text: &str, start: usize) -> Option<(&str, usize)> {
     let bytes = text.as_bytes();
-    if bytes.get(start) == Some(&b'{') {
-        return first_identifier_in_interpolation_body(text, start + 1);
-    }
     let end = identifier_end(bytes, start)?;
     Some((&text[start..end], start))
 }
 
-fn first_identifier_in_interpolation_body(text: &str, start: usize) -> Option<(&str, usize)> {
+fn collect_interpolation_body_references(
+    text: &str,
+    start: usize,
+    references: &mut Vec<IdentifierReference>,
+    source: &str,
+    node: Node<'_>,
+) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut index = start;
-    while index < bytes.len() && bytes[index] != b'}' {
+    let mut brace_depth = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'}' if brace_depth == 0 => return Some(index),
+            b'}' => brace_depth -= 1,
+            b'{' => brace_depth += 1,
+            b'\'' | b'"' => {
+                index = quoted_segment_end(bytes, index);
+                continue;
+            }
+            _ => {}
+        }
         if is_identifier_start(bytes[index]) {
             let end = identifier_end(bytes, index)?;
-            return Some((&text[index..end], index));
+            references.push(IdentifierReference {
+                name: text[index..end].to_owned(),
+                location: location_at(source, node.start_byte() + index),
+            });
+            index = end;
+            continue;
         }
         index += 1;
     }
     None
+}
+
+fn quoted_segment_end(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let is_triple = bytes.get(start + 1) == Some(&quote) && bytes.get(start + 2) == Some(&quote);
+    let mut index = start + if is_triple { 3 } else { 1 };
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += 2;
+            continue;
+        }
+        if is_triple {
+            if bytes[index] == quote
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
+            {
+                return index + 3;
+            }
+        } else if bytes[index] == quote {
+            return index + 1;
+        }
+        index += 1;
+    }
+    bytes.len()
 }
 
 fn identifier_end(bytes: &[u8], start: usize) -> Option<usize> {

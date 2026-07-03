@@ -131,12 +131,16 @@ fn check_counts_private_members_used_in_string_interpolation()
     write(
         &fixture,
         "lib/main.dart",
-        "abstract final class Keys {\n  static const String _prefix = 'item:';\n  static String item(String id) => '$_prefix$id';\n}\nvoid main() { Keys.item('42'); }\n",
+        "abstract final class Keys {\n  static const String _prefix = 'item:';\n  static const String _suffix = ':done';\n  static const String _chain = 'chain';\n  static const String _escaped = 'escaped';\n  static const String _raw = 'raw';\n  static String item(String id) => '$_prefix$id ${_suffix.toUpperCase()} ${Keys._chain} \\$_escaped';\n  static String raw() => r'$_raw';\n}\nvoid main() { Keys.item('42'); Keys.raw(); }\n",
     )?;
 
     let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
 
     assert_no_symbol(&json, "dart-decimate/unused-class-member", "Keys._prefix");
+    assert_no_symbol(&json, "dart-decimate/unused-class-member", "Keys._suffix");
+    assert_no_symbol(&json, "dart-decimate/unused-class-member", "Keys._chain");
+    assert_symbol(&json, "dart-decimate/unused-class-member", "Keys._escaped");
+    assert_symbol(&json, "dart-decimate/unused-class-member", "Keys._raw");
     Ok(())
 }
 
@@ -286,6 +290,17 @@ fn assert_no_symbol(json: &Value, rule_id: &str, symbol: &str) {
             .any(|finding| finding["rule_id"] == rule_id
                 && finding["actions"][0]["target_symbol"] == symbol),
         "{symbol} should not be reported for {rule_id}: {:?}",
+        findings(json)
+    );
+}
+
+fn assert_symbol(json: &Value, rule_id: &str, symbol: &str) {
+    assert!(
+        findings(json)
+            .iter()
+            .any(|finding| finding["rule_id"] == rule_id
+                && finding["actions"][0]["target_symbol"] == symbol),
+        "{symbol} should be reported for {rule_id}: {:?}",
         findings(json)
     );
 }
