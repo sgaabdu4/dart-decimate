@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dependencies::{
-    declared_package_dependencies, local_pub_packages, DeclaredPackageDependency, LocalPubPackage,
+    DeclaredPackageDependency, LocalPubPackage, declared_package_dependencies, local_pub_packages,
 };
 use crate::dependency_scripts::package_used_in_tooling;
 use crate::graph::normalize_against;

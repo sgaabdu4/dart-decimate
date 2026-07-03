@@ -7,8 +7,8 @@ use super::*;
 use crate::{DartFile, DartImport, Location};
 
 #[test]
-fn directive_uri_paths_are_percent_decoded_for_graph_resolution(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn directive_uri_paths_are_percent_decoded_for_graph_resolution()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\nworkspace:\n  - packages/*\n")?;
     fixture.write("packages/shared/pubspec.yaml", "name: shared\n")?;

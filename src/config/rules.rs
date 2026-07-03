@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::SecurityCategory;
 use crate::output::{
     Finding, FindingKind, JsonAttackSurfaceEntry, JsonReport, JsonSecurityCandidate, Severity,
     Verdict,
 };
-use crate::SecurityCategory;
 
 use super::rule_aliases::{
     aliases, known_rule, missing_suppression_reason_aliases, private_type_leak_aliases,

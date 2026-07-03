@@ -273,15 +273,17 @@ fn security_finding(root: &Path, candidate: &SecurityCandidate) -> Finding {
         safe_to_delete: false,
         files,
         edge: None,
-        actions: vec![FindingAction::new(
-            "review-security-candidate",
-            "Verify source control, reachability, and defensive controls before editing",
-            false,
-        )
-        .with_target_path(path.clone())
-        .with_target_symbol(candidate.sink.clone())
-        .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()])
-        .with_suppression_comment("// dart-decimate-ignore-next-line security-sink")],
+        actions: vec![
+            FindingAction::new(
+                "review-security-candidate",
+                "Verify source control, reachability, and defensive controls before editing",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_target_symbol(candidate.sink.clone())
+            .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()])
+            .with_suppression_comment("// dart-decimate-ignore-next-line security-sink"),
+        ],
     }
 }
 

@@ -8,8 +8,8 @@ use crate::package_map::PackageMap;
 use crate::{DartFile, Location};
 
 use super::{
-    normalize_against, resolve_local_uri, DependencyEdge, DependencyGraph, DependencyKind,
-    DependencyVisibility, UnresolvedDependency,
+    DependencyEdge, DependencyGraph, DependencyKind, DependencyVisibility, UnresolvedDependency,
+    normalize_against, resolve_local_uri,
 };
 
 /// A resolved `part` edge whose target file does not point back to its library.

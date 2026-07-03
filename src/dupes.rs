@@ -7,11 +7,11 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::dependencies::{local_pub_packages, LocalPubPackage};
+use crate::ScannedProject;
+use crate::dependencies::{LocalPubPackage, local_pub_packages};
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
 use crate::output::TRACE_SCHEMA_VERSION;
-use crate::ScannedProject;
 
 mod lex;
 use lex::normalized_lines;

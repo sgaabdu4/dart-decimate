@@ -86,8 +86,8 @@ fn resolves_package_imports_to_pub_workspace_members() -> Result<(), Box<dyn std
 }
 
 #[test]
-fn platform_environment_selects_one_configurable_import_branch(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn platform_environment_selects_one_configurable_import_branch()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\n")?;
     let mut conditional = import("web.dart");
@@ -130,8 +130,8 @@ fn platform_environment_selects_one_configurable_import_branch(
 }
 
 #[test]
-fn platform_environment_falls_back_to_default_configurable_import(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn platform_environment_falls_back_to_default_configurable_import()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\n")?;
     let mut conditional = import("web.dart");
@@ -167,8 +167,8 @@ fn platform_environment_falls_back_to_default_configurable_import(
 }
 
 #[test]
-fn platform_environment_selects_package_uri_branches_before_resolution(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn platform_environment_selects_package_uri_branches_before_resolution()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\nworkspace:\n  - packages/*\n")?;
     fixture.write("packages/shared/pubspec.yaml", "name: shared\n")?;
@@ -235,8 +235,8 @@ fn default_graph_keeps_all_configurable_import_branches() -> Result<(), Box<dyn 
 }
 
 #[test]
-fn resolves_package_imports_using_package_config_root_uri_and_package_uri(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn resolves_package_imports_using_package_config_root_uri_and_package_uri()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write(
         ".dart_tool/package_config.json",
@@ -282,8 +282,8 @@ fn resolves_package_imports_using_package_config_root_uri_and_package_uri(
 }
 
 #[test]
-fn package_config_takes_precedence_over_stale_pubspec_paths(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn package_config_takes_precedence_over_stale_pubspec_paths()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write(
         "pubspec.yaml",
@@ -477,8 +477,8 @@ fn package_config_local_missing_target_is_unresolved() -> Result<(), Box<dyn std
 }
 
 #[test]
-fn preserves_import_and_export_visibility_metadata_on_edges(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn preserves_import_and_export_visibility_metadata_on_edges()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\n")?;
     let main = DartFile {
@@ -712,8 +712,8 @@ fn resolves_package_imports_to_nested_local_pubspecs() -> Result<(), Box<dyn std
 }
 
 #[test]
-fn excludes_external_packages_and_records_missing_local_targets(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn excludes_external_packages_and_records_missing_local_targets()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\n")?;
     let main = fixture.file(

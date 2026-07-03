@@ -76,8 +76,8 @@ fn filters_short_blocks_and_generated_files() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-fn detects_sparse_duplicate_blocks_that_meet_default_tokens_as_a_whole(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn detects_sparse_duplicate_blocks_that_meet_default_tokens_as_a_whole()
+-> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     let helper = "  static String formatLabel({\n    required String value,\n    required String fallback,\n    required bool useFallback,\n    required String prefix,\n  }) {\n    if (useFallback) {\n      return '$prefix ${fallback.trim()}';\n    }\n\n    final normalized = value.trim().toLowerCase();\n    return '$prefix $normalized';\n  }\n";
