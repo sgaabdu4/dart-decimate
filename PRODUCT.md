@@ -64,8 +64,10 @@ Phase 2 builds a directed module graph:
   compile graph
 - relative URIs resolve from the importing file's directory
 - `package:` URIs prefer Pub's `.dart_tool/package_config.json` when present,
-  including `rootUri` and `packageUri`
-- `package:` URIs resolve to local pub workspace/path packages when present
+  including `rootUri` and `packageUri`, but same-package imports and owner-local
+  path dependencies can resolve from the importing package
+- `package:` URIs resolve to local pub workspace/path packages when present,
+  including copied nested packages with duplicate package names
 - scan roots expand through local path dependencies and pub workspace members
 
 Phase 3 runs graph intelligence algorithms:
@@ -235,6 +237,9 @@ Current implemented parity:
 
 - file-level dead code reachability
 - circular dependency detection
+- generated Dart filtering for companion files, Flutter l10n outputs, and
+  FlutterFire options, including dead-file protection and generated-only cycle
+  suppression
 - simple directory boundary rules, built-in `layered`, `hexagonal`,
   `feature-sliced`, and `bulletproof` boundary presets, opt-in boundary
   coverage checks for unzoned Dart library files with `allowUnmatched`
@@ -249,7 +254,9 @@ Current implemented parity:
 - Dart `part` files, `library augment` directives with base-to-augment
   reachability, and platform-aware conditional import/export branches in the
   module graph
-- Pub `.dart_tool/package_config.json` resolution for local package graph edges
+- Pub `.dart_tool/package_config.json` resolution for local package graph edges,
+  plus owner-aware local path dependency resolution for nested packages with
+  duplicate package names
 - import/export visibility metadata for `show`, `hide`, prefixes, and deferred imports
 - import/export visibility metadata preserved on graph dependency edges
 - top-level symbol extraction for classes, mixins, extensions, extension types,
@@ -260,7 +267,8 @@ Current implemented parity:
   `dart-decimate/unused-class-member` findings for reachable Dart libraries,
   including same-library `part` reference handling, suppressions, rule config,
   baselines, and JSON schema coverage
-- syntactic reference extraction for identifiers and type identifiers
+- syntactic reference extraction for identifiers and type identifiers,
+  including non-raw Dart string interpolation references
 - a `SymbolIndex` owner plus conservative `dart-decimate/unused-export` and
   `dart-decimate/unused-type` findings for reachable non-entry, non-generated,
   public top-level declarations and typedefs
@@ -324,7 +332,8 @@ Current implemented parity:
   `dart-decimate/misconfigured-dependency-override`
 - conservative non-Dart tooling usage for dependency traces and unused-dev
   checks from Dart/Flutter config files such as `build.yaml`,
-  `analysis_options.yaml`, workflow YAML, and tool scripts
+  `analysis_options.yaml`, Flutter launcher/splash config, workflow YAML, and
+  tool scripts
 - lockfile-backed `dependency_overrides` hygiene for overrides absent from the
   resolved `pubspec.lock` package graph
 - misconfigured `dependency_overrides` hygiene for invalid package keys and
@@ -370,7 +379,9 @@ Current implemented parity:
   `String.fromEnvironment`, `int.fromEnvironment`, `Platform.environment`,
   Firebase Remote Config `get*` calls, and LaunchDarkly-style `*Variation` calls,
   with `--top`, grouped `feature_flags`, occurrence locations, and
-  non-autofixable `dart-decimate/feature-flag` findings
+  non-autofixable `dart-decimate/feature-flag` findings; compile-time
+  environment flags used only from dev/test paths are warning-level, while
+  production SDK/config flag calls stay error-level by default
 - `dart-decimate security` inventory for hardcoded secret-shaped literals,
   `FirebaseOptions.apiKey` client keys, remote `http://` network sinks,
   certificate-validation bypasses, unrestricted or file-backed WebView surfaces,
@@ -381,8 +392,9 @@ Current implemented parity:
   `--compare REF`, `--diff-file PATCH`, `--diff-stdin`, grouped
   `security_candidates`, config-level `security.categories` filtering, redacted
   evidence, benign password-route/copy filtering, and non-autofixable
-  `dart-decimate/security-*` findings; security gates exit `8` when new
-  review-required candidates are present
+  `dart-decimate/security-*` findings; Firebase client API keys are
+  warning-level by default and can be promoted by rule config; security gates
+  exit `8` when new review-required candidates are present
 - `dart-decimate check` and `dart-decimate audit` include feature flag and security
   candidate findings in the same report envelope, with focused commands still
   available for targeted inventories
@@ -435,7 +447,8 @@ Current implemented parity:
   `dupes`, `health`, `flags`, and `security`, with absolute and percentage
   tolerance parsing
 - Dart entry heuristics for public `lib/*.dart`, direct `bin/`, `test/`,
-  `integration_test/`, `test_driver/`, `tool/`, and `pigeon/` scripts
+  `integration_test/`, `test_driver/`, `tool/`, `scripts/`, and `pigeon/`
+  scripts
 - CLI JSON output for `check`, `audit`, `dead-code`, `cycles`, `dupes`,
   `health`, `flags`, `security`, `list`, `workspaces`, `explain`, `fix`,
   `config`, `config-schema`, and `report-schema`

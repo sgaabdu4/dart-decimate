@@ -204,6 +204,13 @@ Dart Decimate finds:
 - missing entry points
 - stale `dart-decimate-ignore` comments
 
+Default entry points include public `lib/*.dart` libraries, `lib/main.dart`,
+direct `bin/` scripts, and, outside production mode, direct `test/`,
+`integration_test/`, `test_driver/`, `tool/`, `scripts/`, and `pigeon/`
+scripts. Generated Dart companions, Flutter l10n outputs, and FlutterFire
+options are protected from dead-file cleanup; generated-only cycles are also
+suppressed.
+
 Useful commands:
 
 ```bash
@@ -313,6 +320,11 @@ Dart Decimate finds:
 - imports into another package's private `lib/src`
 - duplicate public API exports
 
+Dart Decimate follows Pub package ownership when resolving `package:` imports,
+including local path dependencies, workspace members, and copied nested packages
+with the same package name. Non-Dart tooling references in Flutter config files,
+workflow files, Makefiles, and `tool/` scripts can count as dependency usage.
+
 Useful commands:
 
 ```bash
@@ -349,6 +361,10 @@ Dart Decimate finds candidates for:
 - Firebase client API keys in `FirebaseOptions`
 - plain local storage of secret-like material
 
+Firebase client API keys are warning-level by default because FlutterFire
+generates client config; set `dart-decimate/security-firebase-api-key = "error"`
+in `[rules]` to make them fail a gate.
+
 Useful commands:
 
 ```bash
@@ -373,6 +389,10 @@ Dart Decimate reports:
 - findings introduced by the PR
 - findings that already existed
 - risky changed files
+
+Compile-time environment feature flags used only from development or test paths
+are warning-level; production SDK/config flag calls remain error-level by
+default.
 
 Useful commands:
 
@@ -567,6 +587,7 @@ categories = ["hardcoded-secret", "firebase-api-key", "insecure-transport", "tls
 unused-files = "error"
 unused-exports = "warn"
 security-candidate = "warn"
+"dart-decimate/security-firebase-api-key" = "error"
 ```
 
 ## Full Issue List
