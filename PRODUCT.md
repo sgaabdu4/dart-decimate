@@ -48,8 +48,9 @@ Phase 1 extracts syntax facts from one `.dart` file:
 - top-level function-like declarations
 - class-like member declarations for fields, constructors, getters, setters,
   methods, operators, and enum constants
-- syntactic identifier and type-identifier references, excluding directive
-  metadata and obvious declaration-name positions
+- syntactic identifier and type-identifier references, including non-raw string
+  interpolation, excluding directive metadata and obvious declaration-name
+  positions
 
 Phase 2 builds a directed module graph:
 

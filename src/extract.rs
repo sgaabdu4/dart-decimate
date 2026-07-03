@@ -82,8 +82,8 @@ pub struct DartFile {
     pub declarations: Vec<TopLevelDeclaration>,
     /// Class-like member declarations in source order.
     pub members: Vec<MemberDeclaration>,
-    /// Identifier uses in source order, excluding import/export metadata and
-    /// obvious declaration-name positions.
+    /// Identifier uses in source order, including non-raw string interpolation,
+    /// excluding import/export metadata and obvious declaration-name positions.
     pub references: Vec<IdentifierReference>,
     /// Type references from public declaration signatures, excluding bodies.
     pub signature_references: Vec<SignatureReference>,
@@ -212,7 +212,8 @@ pub struct MemberDeclaration {
     pub location: Location,
 }
 
-/// A syntactic identifier or type identifier use.
+/// A syntactic identifier or type identifier use, including references found in
+/// non-raw string interpolation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdentifierReference {
     /// Referenced identifier text.
