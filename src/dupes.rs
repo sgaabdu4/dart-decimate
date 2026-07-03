@@ -299,6 +299,14 @@ struct CloneOccurrence {
     end_line: usize,
     column: usize,
     parent: PathBuf,
+    line_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CloneWindow {
+    start: usize,
+    end: usize,
+    token_count: usize,
 }
 
 /// Detect duplicated Dart code blocks.
@@ -328,11 +336,8 @@ pub fn detect_duplicates(
             continue;
         }
 
-        for window in lines.windows(options.min_lines) {
-            let token_count = window.iter().map(|line| line.token_count).sum::<usize>();
-            if token_count < options.min_tokens {
-                continue;
-            }
+        for clone_window in clone_windows(&lines, options) {
+            let window = &lines[clone_window.start..=clone_window.end];
             let text = window
                 .iter()
                 .map(|line| line.text.as_str())
@@ -352,8 +357,9 @@ pub fn detect_duplicates(
                     start_line: first.line,
                     end_line: last.line,
                     column: first.column,
+                    line_count: window.len(),
                 },
-                token_count,
+                clone_window.token_count,
             ));
         }
     }
@@ -474,6 +480,32 @@ fn ranges_overlap(
     left_start <= right_end && right_start <= left_end
 }
 
+fn clone_windows(lines: &[lex::NormalizedLine], options: &DuplicateOptions) -> Vec<CloneWindow> {
+    let min_lines = options.min_lines.max(1);
+    let mut windows = Vec::new();
+
+    for start in 0..lines.len() {
+        let mut token_count = 0;
+        for (end, line) in lines.iter().enumerate().skip(start) {
+            token_count += line.token_count;
+            if end - start + 1 < min_lines {
+                continue;
+            }
+            if token_count < options.min_tokens {
+                continue;
+            }
+            windows.push(CloneWindow {
+                start,
+                end,
+                token_count,
+            });
+            break;
+        }
+    }
+
+    windows
+}
+
 fn duplicate_stats(
     analyzed_lines: usize,
     clone_groups: &[CodeClone],
@@ -513,6 +545,7 @@ fn clone_group_from_occurrences(
     let mut seen = BTreeSet::<(PathBuf, usize, usize)>::new();
     let mut instances = Vec::new();
     let mut token_count = 0;
+    let mut line_count = 0;
     let mut parents = BTreeSet::new();
 
     for (occurrence, tokens) in occurrences {
@@ -525,6 +558,7 @@ fn clone_group_from_occurrences(
         }
         parents.insert(occurrence.parent);
         token_count = token_count.max(tokens);
+        line_count = line_count.max(occurrence.line_count);
         instances.push(CodeCloneInstance {
             path: occurrence.path,
             start_line: occurrence.start_line,
@@ -547,7 +581,7 @@ fn clone_group_from_occurrences(
     Some(CodeClone {
         fingerprint: fingerprint.to_owned(),
         instances,
-        line_count: options.min_lines,
+        line_count,
         token_count,
     })
 }
