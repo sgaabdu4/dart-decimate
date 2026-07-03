@@ -13,9 +13,9 @@ pub struct JsonCloneGroup {
     pub fingerprint: String,
     /// Matching clone instances.
     pub instances: Vec<JsonCloneInstance>,
-    /// Lines in the duplicated block.
+    /// Normalized lines in the matched duplicated block.
     pub line_count: usize,
-    /// Tokens in the duplicated block.
+    /// Normalized tokens in the matched duplicated block.
     pub token_count: usize,
 }
 

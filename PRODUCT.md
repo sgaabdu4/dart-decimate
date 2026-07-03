@@ -208,7 +208,8 @@ Parity areas:
 - Flutter framework checks: typed and raw GoRouter route path and name
   collisions, private widget classes, top-level widget helper boundaries,
   unused widget constructor parameters, and unrendered widget classes.
-- Duplication: strict, mild, weak, and semantic clone detection with traceable
+- Duplication: strict, mild, weak, and semantic clone detection with variable
+  clone windows that satisfy configured line/token thresholds, traceable
   fingerprints, top-N filtering, and clone tracing.
 - Health: cyclomatic/cognitive/CRAP complexity, file scores, hotspots,
   ownership, refactoring targets, coverage gaps, and explanations.
@@ -333,8 +334,8 @@ Current implemented parity:
 - Fallow-style `ignoreDependencies` config entries for intentional pub
   dependency hygiene exceptions
 - unused dependency reports include a read-only `trace-dependency` next step
-- code duplication findings with stable `dup:<id>` fingerprints and read-only
-  `trace-clone` next steps
+- code duplication findings with stable `dup:<id>` fingerprints, actual matched
+  line/token counts, and read-only `trace-clone` next steps
 - code health findings for high cyclomatic and cognitive complexity, including
   `--complexity-breakdown`, `--max-cyclomatic`, `--max-cognitive`, `--top`, and
   read-only `complexity-breakdown` next steps

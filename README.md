@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.8"
+    "dart-decimate": "^0.0.9"
   }
 }
 ```
@@ -245,6 +245,8 @@ Duplication means the same Dart code appears in more than one place.
 
 Dart Decimate finds exact and semantic clone groups. Each clone group gets a stable
 fingerprint like `dup:abc12345`, so agents can trace it before touching code.
+Clone windows must meet both line and token thresholds; sparse duplicated blocks
+can span more than `--min-lines`, and `line_count` reports the actual match.
 
 Useful commands:
 
@@ -670,7 +672,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.8`.
+Current version: `0.0.9`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

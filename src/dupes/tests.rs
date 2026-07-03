@@ -76,6 +76,39 @@ fn filters_short_blocks_and_generated_files() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
+fn detects_sparse_duplicate_blocks_that_meet_default_tokens_as_a_whole()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let helper = "  static String formatLabel({\n    required String value,\n    required String fallback,\n    required bool useFallback,\n    required String prefix,\n  }) {\n    if (useFallback) {\n      return '$prefix ${fallback.trim()}';\n    }\n\n    final normalized = value.trim().toLowerCase();\n    return '$prefix $normalized';\n  }\n";
+    write(
+        &fixture,
+        "lib/a.dart",
+        &format!("class AFormatter {{\n{helper}  int get aOnly => 1;\n}}\n"),
+    )?;
+    write(
+        &fixture,
+        "lib/b.dart",
+        &format!("class BFormatter {{\n{helper}  int get bOnly => 2;\n}}\n"),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = detect_duplicates(&project, &DuplicateOptions::default())?;
+
+    assert_eq!(report.clone_groups.len(), 1);
+    let clone = &report.clone_groups[0];
+    assert!(clone.line_count > DuplicateOptions::default().min_lines);
+    assert!(clone.token_count >= DuplicateOptions::default().min_tokens);
+    assert_eq!(clone.instances.len(), 2);
+    assert_eq!(clone.instances[0].path, fixture.path().join("lib/a.dart"));
+    assert_eq!(clone.instances[0].start_line, 2);
+    assert_eq!(clone.instances[1].path, fixture.path().join("lib/b.dart"));
+    assert_eq!(clone.instances[1].start_line, 2);
+
+    Ok(())
+}
+
+#[test]
 fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

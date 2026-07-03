@@ -94,10 +94,11 @@ pub struct DuplicateConfig {
     /// Detection mode.
     #[serde(default)]
     pub mode: Option<DuplicateMode>,
-    /// Minimum tokens per clone.
+    /// Minimum normalized tokens per clone window.
     #[serde(default, alias = "minTokens")]
     pub min_tokens: Option<usize>,
-    /// Minimum lines per clone.
+    /// Minimum normalized lines per clone window; sparse windows may grow past
+    /// this to satisfy `min_tokens`.
     #[serde(default, alias = "minLines")]
     pub min_lines: Option<usize>,
     /// Minimum clone instances per group.
