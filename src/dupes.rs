@@ -483,24 +483,24 @@ fn ranges_overlap(
 fn clone_windows(lines: &[lex::NormalizedLine], options: &DuplicateOptions) -> Vec<CloneWindow> {
     let min_lines = options.min_lines.max(1);
     let mut windows = Vec::new();
+    let mut end = 0;
+    let mut token_count = 0;
 
     for start in 0..lines.len() {
-        let mut token_count = 0;
-        for (end, line) in lines.iter().enumerate().skip(start) {
-            token_count += line.token_count;
-            if end - start + 1 < min_lines {
-                continue;
-            }
-            if token_count < options.min_tokens {
-                continue;
-            }
+        while end < lines.len() && (end - start < min_lines || token_count < options.min_tokens) {
+            token_count += lines[end].token_count;
+            end += 1;
+        }
+
+        if end - start >= min_lines && token_count >= options.min_tokens {
             windows.push(CloneWindow {
                 start,
-                end,
+                end: end - 1,
                 token_count,
             });
-            break;
         }
+
+        token_count -= lines[start].token_count;
     }
 
     windows
