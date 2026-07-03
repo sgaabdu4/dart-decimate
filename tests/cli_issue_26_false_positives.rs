@@ -136,7 +136,7 @@ fn check_counts_private_members_used_in_string_interpolation()
 
     let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
 
-    assert_no_symbol(&json, "dart-decimate/unused-class-member", "_prefix");
+    assert_no_symbol(&json, "dart-decimate/unused-class-member", "Keys._prefix");
     Ok(())
 }
 

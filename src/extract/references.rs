@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use super::IdentifierReference;
+use super::{IdentifierReference, Location};
 
 pub(super) fn extract_identifier_references(
     root: Node<'_>,
@@ -16,6 +16,10 @@ fn collect_identifier_references(
     source: &str,
     references: &mut Vec<IdentifierReference>,
 ) {
+    if node.kind() == "string_literal" {
+        collect_string_interpolation_references(node, source, references);
+    }
+
     if is_reference_identifier(node, source) {
         if let Ok(name) = node.utf8_text(source.as_bytes()) {
             references.push(IdentifierReference {
@@ -26,9 +30,114 @@ fn collect_identifier_references(
     }
 
     let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
+    for child in node.children(&mut cursor) {
         collect_identifier_references(child, source, references);
     }
+}
+
+fn collect_string_interpolation_references(
+    node: Node<'_>,
+    source: &str,
+    references: &mut Vec<IdentifierReference>,
+) {
+    let Ok(text) = node.utf8_text(source.as_bytes()) else {
+        return;
+    };
+    if is_raw_string_literal(text) {
+        return;
+    }
+
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while let Some(relative) = bytes[index..].iter().position(|byte| *byte == b'$') {
+        let dollar = index + relative;
+        index = dollar + 1;
+        if is_escaped_dollar(bytes, dollar) {
+            continue;
+        }
+        if let Some((name, start)) = interpolation_identifier(text, dollar + 1) {
+            references.push(IdentifierReference {
+                name: name.to_owned(),
+                location: location_at(source, node.start_byte() + start),
+            });
+            index = start + name.len();
+        }
+    }
+}
+
+fn is_raw_string_literal(text: &str) -> bool {
+    text.trim_start().starts_with("r'")
+        || text.trim_start().starts_with("r\"")
+        || text.trim_start().starts_with("R'")
+        || text.trim_start().starts_with("R\"")
+}
+
+fn is_escaped_dollar(bytes: &[u8], dollar: usize) -> bool {
+    let mut slash_count = 0;
+    let mut index = dollar;
+    while index > 0 && bytes[index - 1] == b'\\' {
+        slash_count += 1;
+        index -= 1;
+    }
+    slash_count % 2 == 1
+}
+
+fn interpolation_identifier(text: &str, start: usize) -> Option<(&str, usize)> {
+    let bytes = text.as_bytes();
+    if bytes.get(start) == Some(&b'{') {
+        return first_identifier_in_interpolation_body(text, start + 1);
+    }
+    let end = identifier_end(bytes, start)?;
+    Some((&text[start..end], start))
+}
+
+fn first_identifier_in_interpolation_body(text: &str, start: usize) -> Option<(&str, usize)> {
+    let bytes = text.as_bytes();
+    let mut index = start;
+    while index < bytes.len() && bytes[index] != b'}' {
+        if is_identifier_start(bytes[index]) {
+            let end = identifier_end(bytes, index)?;
+            return Some((&text[index..end], index));
+        }
+        index += 1;
+    }
+    None
+}
+
+fn identifier_end(bytes: &[u8], start: usize) -> Option<usize> {
+    if !bytes
+        .get(start)
+        .is_some_and(|byte| is_identifier_start(*byte))
+    {
+        return None;
+    }
+    let mut end = start + 1;
+    while bytes.get(end).is_some_and(|byte| is_identifier_part(*byte)) {
+        end += 1;
+    }
+    Some(end)
+}
+
+const fn is_identifier_start(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+const fn is_identifier_part(byte: u8) -> bool {
+    is_identifier_start(byte) || byte.is_ascii_digit()
+}
+
+fn location_at(source: &str, byte_offset: usize) -> Location {
+    let mut line = 1;
+    let mut column = 0;
+    for byte in source[..byte_offset].bytes() {
+        if byte == b'\n' {
+            line += 1;
+            column = 0;
+        } else {
+            column += 1;
+        }
+    }
+    Location { line, column }
 }
 
 fn is_reference_identifier(node: Node<'_>, source: &str) -> bool {
