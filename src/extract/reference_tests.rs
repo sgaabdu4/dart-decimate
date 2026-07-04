@@ -20,3 +20,36 @@ void boot(String _ignored, String _used) {
 
     Ok(())
 }
+
+#[test]
+fn braced_interpolation_references_are_not_duplicated() -> Result<(), ExtractError> {
+    let source = "\
+void boot(String suffix) {
+  print('${suffix.toUpperCase()} $suffix');
+}
+";
+
+    let extracted = extract_dart_source("lib/interpolation.dart", source)?;
+    let references = extracted
+        .references
+        .iter()
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        references
+            .iter()
+            .filter(|reference| **reference == "suffix")
+            .count(),
+        2
+    );
+    assert_eq!(
+        references
+            .iter()
+            .filter(|reference| **reference == "toUpperCase")
+            .count(),
+        1
+    );
+
+    Ok(())
+}

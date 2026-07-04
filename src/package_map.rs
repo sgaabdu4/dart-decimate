@@ -87,6 +87,9 @@ impl PackageMap {
                 return Some(package_resolution(root, path));
             }
         }
+        if owner_package.is_some_and(|package| package.from_package_config) {
+            return None;
+        }
         if let Some(root) = configured_root {
             return Some(package_resolution(root, path));
         }

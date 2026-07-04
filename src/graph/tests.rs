@@ -412,6 +412,37 @@ fn package_config_prevents_nested_same_name_fallback() -> Result<(), Box<dyn std
 }
 
 #[test]
+fn package_config_owned_import_missing_from_config_ignores_nested_pubspec()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new()?;
+    fixture.write("pubspec.yaml", "name: app\n")?;
+    fixture.write("functions/shared/pubspec.yaml", "name: shared\n")?;
+    fixture.write(
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let main = fixture.file(
+        "lib/main.dart",
+        vec![import("package:shared/shared.dart")],
+        vec![],
+    );
+    let nested = fixture.file("functions/shared/lib/shared.dart", vec![], vec![]);
+
+    let graph = build_module_graph(fixture.root(), &[main, nested])?;
+
+    assert_eq!(graph.edge_count(), 0);
+    assert!(graph.unresolved().is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn package_config_keeps_nested_self_imports_local() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\n")?;
