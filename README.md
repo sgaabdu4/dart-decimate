@@ -204,7 +204,8 @@ Dart Decimate finds:
 - missing entry points
 - stale `dart-decimate-ignore` comments
 
-Default entry points include public `lib/*.dart` libraries, `lib/main.dart`,
+Default entry points are evaluated across the root and discovered local package
+roots. They include public `lib/` Dart files outside `lib/src/`, `lib/main.dart`,
 direct `bin/` scripts, and, outside production mode, direct `test/`,
 `integration_test/`, `test_driver/`, `tool/`, `scripts/`, and `pigeon/`
 scripts. Generated Dart companions, Flutter l10n outputs, and FlutterFire
@@ -323,10 +324,13 @@ Dart Decimate finds:
 - duplicate public API exports
 
 Dart Decimate follows Pub package ownership when resolving `package:` imports,
-including local path dependencies, workspace members, and copied nested packages
-with the same package name. Non-Dart tooling references in Flutter config files,
-including launcher and splash config, workflow files, Makefiles, and `tool/`
-scripts can count as dependency usage.
+using `.dart_tool/package_config.json` when present while keeping same-package
+imports and owner-local path dependencies local. Workspace members and copied
+nested packages with the same package name are resolved by owner. Non-Dart
+tooling references in Flutter config files, including launcher and splash
+config, workflow files, Makefiles, and `tool/` scripts can count as dependency
+usage. Known generator-internal imports from generated Dart, such as
+`package:slang/generated.dart`, are not reported as unlisted dependencies.
 
 Useful commands:
 
@@ -365,10 +369,11 @@ Dart Decimate finds candidates for:
 - plain local storage of secret-like material
 
 Firebase client API keys are warning-level by default because FlutterFire
-generates client config; set `dart-decimate/security-firebase-api-key = "error"`
-in `[rules]` to make them fail a gate. Common authentication copy such as
-password reset and password requirement text is filtered before reporting
-hardcoded-secret candidates.
+generates client config. To make them fail a gate, set
+`"dart-decimate/security-firebase-api-key" = "error"` in `[rules]`. Common
+authentication copy such as password reset and password requirement text is
+filtered before reporting hardcoded-secret candidates unless it is bound to a
+secret-like name or contains a concrete token-like segment.
 
 Useful commands:
 
@@ -395,9 +400,9 @@ Dart Decimate reports:
 - findings that already existed
 - risky changed files
 
-Compile-time environment feature flags used only from development or test paths
-are warning-level; production SDK/config flag calls remain error-level by
-default.
+Compile-time environment feature flags used only from non-`lib/` development,
+tooling, example, or test paths are warning-level; production `lib/` flags and
+SDK/config flag calls remain error-level by default.
 
 Useful commands:
 

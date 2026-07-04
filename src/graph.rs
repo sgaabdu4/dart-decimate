@@ -271,8 +271,9 @@ pub enum GraphError {
 /// Build a directed module graph from extracted Dart file facts.
 ///
 /// Local relative imports and exports are resolved from the source file's
-/// directory. `package:` imports resolve through local package names discovered
-/// from `pubspec.yaml` files, including pub workspaces and path dependencies.
+/// directory. `package:` imports resolve through Pub package metadata,
+/// including `.dart_tool/package_config.json`, workspaces, path dependencies,
+/// same-package imports, and owner-local copied packages with duplicate names.
 ///
 /// # Errors
 ///

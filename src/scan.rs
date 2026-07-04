@@ -17,7 +17,7 @@ use crate::{
 /// Parsed Dart files plus their resolved module graph.
 #[derive(Debug)]
 pub struct ScannedProject {
-    /// Root directory used for discovery and dependency resolution.
+    /// Primary root used for dependency resolution and root-relative output.
     pub root: PathBuf,
     /// Local roots included in discovery, sorted for deterministic entrypoint analysis.
     pub scan_roots: Vec<PathBuf>,
@@ -117,7 +117,8 @@ pub enum ScanError {
     Graph(#[from] GraphError),
 }
 
-/// Discover, parse, and graph all `.dart` files under `root`.
+/// Discover, parse, and graph all `.dart` files under `root` and discovered
+/// local package roots.
 ///
 /// Parsing is parallelized with Rayon after a deterministic filesystem walk.
 ///
@@ -128,7 +129,8 @@ pub fn scan_project(root: impl AsRef<Path>) -> Result<ScannedProject, ScanError>
     scan_project_with_options(root, &ScanOptions::default())
 }
 
-/// Discover, parse, and graph all non-ignored `.dart` files under `root`.
+/// Discover, parse, and graph all non-ignored `.dart` files under `root` and
+/// discovered local package roots.
 ///
 /// Parsing is parallelized with Rayon after a deterministic filesystem walk.
 ///
