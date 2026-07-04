@@ -82,3 +82,25 @@ void boot(String value, String _block, String _line) {
 
     Ok(())
 }
+
+#[test]
+fn braced_interpolation_ignores_declaration_identifiers() -> Result<(), ExtractError> {
+    let source = "\
+void boot(String value, String arg, String _unused) {
+  print('${((String _unused) => value)(arg)}');
+}
+";
+
+    let extracted = extract_dart_source("lib/interpolation.dart", source)?;
+    let references = extracted
+        .references
+        .iter()
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(references.contains(&"value"));
+    assert!(references.contains(&"arg"));
+    assert!(!references.contains(&"_unused"));
+
+    Ok(())
+}

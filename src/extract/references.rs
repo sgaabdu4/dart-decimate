@@ -88,13 +88,7 @@ fn collect_string_segment_interpolation_references(
         }
         let interpolation_start = dollar + 1;
         if bytes.get(interpolation_start) == Some(&b'{') {
-            let Some(end) = collect_interpolation_body_references(
-                text,
-                interpolation_start + 1,
-                references,
-                source,
-                base_byte,
-            ) else {
+            let Some(end) = interpolation_body_end(text, interpolation_start + 1) else {
                 continue;
             };
             index = end + 1;
@@ -141,13 +135,7 @@ fn interpolation_identifier(text: &str, start: usize) -> Option<(&str, usize)> {
     Some((&text[start..end], start))
 }
 
-fn collect_interpolation_body_references(
-    text: &str,
-    start: usize,
-    references: &mut Vec<IdentifierReference>,
-    source: &str,
-    base_byte: usize,
-) -> Option<usize> {
+fn interpolation_body_end(text: &str, start: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut index = start;
     let mut brace_depth = 0;
@@ -173,15 +161,6 @@ fn collect_interpolation_body_references(
                 continue;
             }
             _ => {}
-        }
-        if is_identifier_start(bytes[index]) {
-            let end = identifier_end(bytes, index)?;
-            references.push(IdentifierReference {
-                name: text[index..end].to_owned(),
-                location: location_at(source, base_byte + index),
-            });
-            index = end;
-            continue;
         }
         index += 1;
     }
