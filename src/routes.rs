@@ -349,6 +349,11 @@ final router = GoRouter(routes: [
             .map(|(path, source)| extract_dart_source(root.join(path), source))
             .collect::<Result<Vec<_>, _>>()?;
         let graph = crate::build_module_graph(&root, &files)?;
-        Ok(ScannedProject { root, files, graph })
+        Ok(ScannedProject {
+            scan_roots: vec![root.clone()],
+            root,
+            files,
+            graph,
+        })
     }
 }

@@ -86,7 +86,7 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
         rule_id: "dart-decimate/feature-flag".to_owned(),
         fingerprint: Some(feature_flag_fingerprint(flag)),
         kind: FindingKind::FeatureFlag,
-        severity: Severity::Error,
+        severity: feature_flag_severity(root, flag),
         message: format!(
             "Feature flag {} is referenced via {}",
             flag.name, flag.provider
@@ -109,6 +109,68 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
             .with_suppression_comment("// dart-decimate-ignore-next-line feature-flag"),
         ],
     }
+}
+
+fn feature_flag_severity(root: &Path, flag: &FeatureFlag) -> Severity {
+    if flag.source == FeatureFlagSource::CompileTimeEnvironment
+        && flag.occurrences.iter().all(|occurrence| {
+            let path = occurrence.path.as_path();
+            is_dev_or_test_path(root, path)
+        })
+    {
+        Severity::Warning
+    } else {
+        Severity::Error
+    }
+}
+
+fn is_dev_or_test_path(root: &Path, path: &Path) -> bool {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let mut under_production_lib = false;
+    let mut saw_lib = false;
+    for component in relative
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+    {
+        if matches!(
+            component,
+            "test"
+                | "tests"
+                | "integration_test"
+                | "test_driver"
+                | "tool"
+                | "scripts"
+                | "dev"
+                | "debug"
+                | "e2e"
+                | "example"
+        ) && !under_production_lib
+        {
+            return true;
+        }
+        if component == "lib" {
+            under_production_lib = true;
+            saw_lib = true;
+        }
+    }
+    if saw_lib {
+        return relative
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .is_some_and(is_non_production_flutter_entrypoint);
+    }
+    false
+}
+
+fn is_non_production_flutter_entrypoint(file_name: &str) -> bool {
+    matches!(
+        file_name,
+        "main_dev.dart"
+            | "main_debug.dart"
+            | "main_e2e.dart"
+            | "main_test.dart"
+            | "main_driver.dart"
+    )
 }
 
 fn feature_flag_fingerprint(flag: &FeatureFlag) -> String {

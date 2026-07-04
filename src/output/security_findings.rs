@@ -196,7 +196,7 @@ pub(super) fn json_security_candidates(
                     .iter()
                     .map(|cwe| (*cwe).to_owned())
                     .collect(),
-                severity: Severity::Error,
+                severity: security_severity(candidate.category),
                 candidate: JsonSecurityCandidateDetails {
                     source: source_label(candidate.category).to_owned(),
                     sink: candidate.sink.clone(),
@@ -261,7 +261,7 @@ fn security_finding(root: &Path, candidate: &SecurityCandidate) -> Finding {
         rule_id: candidate.rule_id.clone(),
         fingerprint: Some(security_fingerprint(candidate)),
         kind: FindingKind::SecurityCandidate,
-        severity: Severity::Error,
+        severity: security_severity(candidate.category),
         message: format!(
             "Security review candidate for {} via {}",
             category_name(candidate.category),
@@ -284,6 +284,19 @@ fn security_finding(root: &Path, candidate: &SecurityCandidate) -> Finding {
             .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()])
             .with_suppression_comment("// dart-decimate-ignore-next-line security-sink"),
         ],
+    }
+}
+
+const fn security_severity(category: SecurityCategory) -> Severity {
+    match category {
+        SecurityCategory::FirebaseApiKey => Severity::Warning,
+        SecurityCategory::HardcodedSecret
+        | SecurityCategory::InsecureTransport
+        | SecurityCategory::TlsBypass
+        | SecurityCategory::WebViewRisk
+        | SecurityCategory::ProcessExecution
+        | SecurityCategory::RawSql
+        | SecurityCategory::PlainSecretStorage => Severity::Error,
     }
 }
 

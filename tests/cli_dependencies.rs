@@ -266,6 +266,50 @@ Model _$ModelFromJson(Map<String, Object?> json) => _Model(name: json['name'] as
 }
 
 #[test]
+fn generated_dart_imports_do_not_report_generator_internal_unlisted_packages()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\n\
+dependencies:\n  slang_flutter: ^4.16.0\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'i18n/strings.g.dart';\nvoid main() { LocaleSettings.useDeviceLocale(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/i18n/strings.g.dart",
+        "/// Generated file. Do not edit.\n\
+/// Source: lib/i18n\n\
+import 'package:slang/generated.dart';\n\
+import 'package:slang_flutter/slang_flutter.dart';\n\
+export 'package:slang_flutter/slang_flutter.dart';\n\
+class LocaleSettings { static void useDeviceLocale() {} }\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "check",
+        fixture.path().to_str().unwrap_or("."),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["unlisted_dependencies"], 0);
+    assert_eq!(json["summary"]["unused_dependencies"], 0);
+    assert_eq!(json["summary"]["findings"], 0);
+    assert_no_unlisted_dependency_for(&json, "slang");
+    assert_no_unused_dependency_for(&json, "slang_flutter");
+
+    Ok(())
+}
+
+#[test]
 fn config_rules_disable_specific_dependency_placement_findings()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -674,6 +718,15 @@ fn assert_no_unused_dependency_for(json: &Value, dependency: &str) {
                 finding["rule_id"].as_str(),
                 Some("dart-decimate/unused-dependency" | "dart-decimate/unused-dev-dependency")
             ) || finding["actions"][0]["target_dependency"] != dependency
+        })
+    }));
+}
+
+fn assert_no_unlisted_dependency_for(json: &Value, dependency: &str) {
+    assert!(json["findings"].as_array().is_some_and(|findings| {
+        findings.iter().all(|finding| {
+            finding["rule_id"] != "dart-decimate/unlisted-dependency"
+                || finding["actions"][0]["target_dependency"] != dependency
         })
     }));
 }

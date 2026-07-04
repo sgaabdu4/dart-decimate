@@ -248,6 +248,25 @@ pub fn local_pub_packages(root: &Path) -> Result<Vec<LocalPubPackage>, Dependenc
     })
 }
 
+pub(crate) fn local_pub_package_from_pubspec(
+    path: &Path,
+) -> Result<Option<LocalPubPackage>, DependencyHygieneError> {
+    let source = read_pubspec_source(path)?;
+    let value = parse_pubspec_value(path, &source)?;
+    let Some(name) = string_field(&value, "name") else {
+        return Ok(None);
+    };
+    let root = path
+        .parent()
+        .map_or_else(|| PathBuf::from("."), normalize_path);
+
+    Ok(Some(LocalPubPackage {
+        name: name.to_owned(),
+        root,
+        pubspec_path: path.to_path_buf(),
+    }))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PubPackage {
     name: String,

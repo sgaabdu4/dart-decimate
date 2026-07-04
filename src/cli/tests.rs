@@ -567,6 +567,70 @@ fn check_command_treats_public_library_files_as_default_entry_points()
 }
 
 #[test]
+fn check_command_treats_nested_package_files_as_default_entry_points()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "packages/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "packages/shared/lib/shared.dart",
+        "import 'src/live.dart';\nclass Shared {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/lib/src/live.dart",
+        "class Live {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/lib/src/dead.dart",
+        "class Dead {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/lib/core/errors/app_error.dart",
+        "class AppError {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/bin/tool.dart",
+        "void main() {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/scripts/sync.dart",
+        "void main() {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/test/shared_test.dart",
+        "void main() {}\n",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    let paths = finding_paths(&json, "dart-decimate/dead-file");
+    assert_eq!(code, 1);
+    assert_eq!(json["summary"]["dead_files"], 1);
+    assert_eq!(paths, vec!["packages/shared/lib/src/dead.dart"]);
+
+    Ok(())
+}
+
+#[test]
 fn output_alias_commands_run_check_formats() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -595,6 +659,16 @@ fn output_alias_commands_run_check_formats() -> Result<(), Box<dyn std::error::E
     assert!(human.contains("Why"));
 
     Ok(())
+}
+
+fn finding_paths<'a>(json: &'a Value, rule_id: &str) -> Vec<&'a str> {
+    json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["rule_id"] == rule_id)
+        .filter_map(|finding| finding["path"].as_str())
+        .collect()
 }
 
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {

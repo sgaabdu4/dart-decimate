@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::SecurityCategory;
-use crate::output::{Finding, FindingKind, JsonAttackSurfaceEntry, JsonReport, Severity, Verdict};
+use crate::output::{
+    Finding, FindingKind, JsonAttackSurfaceEntry, JsonReport, JsonSecurityCandidate, Severity,
+    Verdict,
+};
 
 use super::rule_aliases::{
     aliases, known_rule, missing_suppression_reason_aliases, private_type_leak_aliases,
@@ -64,7 +67,7 @@ pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Res
     if rules.is_empty() {
         report
             .findings
-            .retain(|finding| default_rule_level(finding.kind) != RuleLevel::Off);
+            .retain(|finding| default_rule_level(&finding.rule_id, finding.kind) != RuleLevel::Off);
         recompute_summary(report);
         return Ok(());
     }
@@ -93,8 +96,8 @@ pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Res
     report.feature_flags.retain(|_| {
         rules.level("dart-decimate/feature-flag", FindingKind::FeatureFlag) != RuleLevel::Off
     });
-    report.security_candidates.retain(|candidate| {
-        rules.level(&candidate.rule_id, FindingKind::SecurityCandidate) != RuleLevel::Off
+    report.security_candidates.retain_mut(|candidate| {
+        apply_security_candidate_level(candidate, &rules) != RuleLevel::Off
     });
     report
         .attack_surface
@@ -129,12 +132,34 @@ pub enum RuleError {
 }
 
 fn apply_finding_level(finding: &mut Finding, rules: &RuleMatcher) -> RuleLevel {
-    let level = rules.level(&finding.rule_id, finding.kind);
-    finding.severity = match level {
-        RuleLevel::Error => Severity::Error,
-        RuleLevel::Warn => Severity::Warning,
-        RuleLevel::Off => finding.severity,
-    };
+    let configured_level = rules.configured_level(&finding.rule_id, finding.kind);
+    let level =
+        configured_level.unwrap_or_else(|| default_rule_level(&finding.rule_id, finding.kind));
+    if configured_level.is_some() || level == RuleLevel::Warn {
+        finding.severity = match level {
+            RuleLevel::Error => Severity::Error,
+            RuleLevel::Warn => Severity::Warning,
+            RuleLevel::Off => finding.severity,
+        };
+    }
+    level
+}
+
+fn apply_security_candidate_level(
+    candidate: &mut JsonSecurityCandidate,
+    rules: &RuleMatcher,
+) -> RuleLevel {
+    let configured_level =
+        rules.configured_level(&candidate.rule_id, FindingKind::SecurityCandidate);
+    let level = configured_level
+        .unwrap_or_else(|| default_rule_level(&candidate.rule_id, FindingKind::SecurityCandidate));
+    if configured_level.is_some() || level == RuleLevel::Warn {
+        candidate.severity = match level {
+            RuleLevel::Error => Severity::Error,
+            RuleLevel::Warn => Severity::Warning,
+            RuleLevel::Off => candidate.severity,
+        };
+    }
     level
 }
 
@@ -305,22 +330,34 @@ impl<'a> RuleMatcher<'a> {
     }
 
     fn level(&self, rule_id: &str, kind: FindingKind) -> RuleLevel {
+        self.configured_level(rule_id, kind)
+            .unwrap_or_else(|| default_rule_level(rule_id, kind))
+    }
+
+    fn configured_level(&self, rule_id: &str, kind: FindingKind) -> Option<RuleLevel> {
         if let Some(level) = self.rules.get(rule_id).copied() {
-            return level;
+            return Some(level);
         }
         aliases(rule_id, kind)
             .into_iter()
             .find_map(|alias| self.rules.get(alias).copied())
-            .unwrap_or_else(|| default_rule_level(kind))
     }
 }
 
-const fn default_rule_level(kind: FindingKind) -> RuleLevel {
+fn default_rule_level(rule_id: &str, kind: FindingKind) -> RuleLevel {
     match kind {
         FindingKind::UnusedDependencyOverride
         | FindingKind::CodeDuplication
         | FindingKind::UnusedWidgetParam
         | FindingKind::UnrenderedWidget => RuleLevel::Warn,
+        FindingKind::SecurityCandidate
+            if matches!(
+                rule_id.as_bytes(),
+                b"dart-decimate/security-firebase-api-key"
+            ) =>
+        {
+            RuleLevel::Warn
+        }
         FindingKind::PrivateWidgetClass
         | FindingKind::WidgetTopLevelFunctionBoundary
         | FindingKind::MissingContextMountedAfterAwait => RuleLevel::Off,

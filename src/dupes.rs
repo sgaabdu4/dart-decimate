@@ -14,6 +14,8 @@ use crate::output::TRACE_SCHEMA_VERSION;
 
 mod lex;
 use lex::normalized_lines;
+mod packages;
+use packages::CopiedPackageFilter;
 
 /// Dart duplicate-code detection mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -313,7 +315,8 @@ struct CloneWindow {
 /// Detect duplicated Dart code blocks.
 ///
 /// Clone windows satisfy both `min_lines` and `min_tokens`; sparse duplicated
-/// blocks can therefore span more than `min_lines`.
+/// blocks can therefore span more than `min_lines`. Identical matches across
+/// copied local Pub packages with the same package name are ignored.
 ///
 /// # Errors
 ///
@@ -392,6 +395,8 @@ pub fn detect_duplicates(
             ))
     });
     clone_groups = collapse_overlapping_groups(clone_groups);
+    let mut copied_packages = CopiedPackageFilter::new(&project.root);
+    clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));
     let stats = duplicate_stats(analyzed_lines, &clone_groups, options.threshold);
     if let Some(top) = options.top {
         clone_groups.truncate(top);

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{DetectedSecurityCandidate, SecurityCategory, SecurityConfidence, SecurityOccurrence};
 use crate::Location;
-use crate::generated::is_generated_dart_path;
+use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
 
 pub(super) fn detect_in_source(path: &Path, source: &str) -> Vec<DetectedSecurityCandidate> {
     let mut candidates = Vec::new();
@@ -24,7 +24,7 @@ pub(super) fn is_ignored_path(path: &Path) -> bool {
     }) {
         return true;
     }
-    is_generated_dart_path(path)
+    is_generated_dart_path(path) && !is_flutterfire_options_path(path)
 }
 
 fn detect_hardcoded_secrets(
@@ -59,9 +59,14 @@ fn detect_hardcoded_secrets(
         } else {
             has_secret_like_name(line)
         };
+        let secret_binding_name = if firebase_options_literal {
+            secret_name
+        } else {
+            literal_secret_binding_context(source, literal.index)
+        };
         if is_module_uri_directive_line(line)
             || firebase_api_key_context(source, literal.index)
-            || (!secret_value && benign_secret_named_literal(&literal.value))
+            || (!secret_value && benign_secret_named_literal(&literal.value, secret_binding_name))
             || (!secret_value && firebase_options_literal && !secret_name)
             || google_app_id_context(source, literal.index)
             || (!secret_value && literal_looks_like_storage_key(&literal.value))
@@ -537,6 +542,48 @@ fn concrete_firebase_api_key_literal(value: &str) -> bool {
 
 fn firebase_secret_name_context(source: &str, index: usize) -> bool {
     literal_argument_context(source, index).is_some_and(has_secret_like_name)
+}
+
+fn literal_secret_binding_context(source: &str, index: usize) -> bool {
+    literal_binding_identifier(source, index).is_some_and(secret_binding_identifier)
+}
+
+fn literal_binding_identifier(source: &str, index: usize) -> Option<&str> {
+    let context = literal_context(source, index)?;
+    for separator in ['=', ':'] {
+        let Some((candidate, rest)) = context.rsplit_once(separator) else {
+            continue;
+        };
+        if rest.trim().is_empty() {
+            return trailing_identifier(candidate);
+        }
+    }
+    None
+}
+
+fn secret_binding_identifier(identifier: &str) -> bool {
+    let lower = identifier.to_ascii_lowercase();
+    [
+        "token",
+        "secret",
+        "jwt",
+        "privatekey",
+        "private_key",
+        "clientsecret",
+        "client_secret",
+        "refreshtoken",
+        "refresh_token",
+        "accesstoken",
+        "access_token",
+        "bearer",
+        "authorization",
+        "apikey",
+        "api_key",
+        "signingkey",
+        "signing_key",
+    ]
+    .iter()
+    .any(|suffix| lower == *suffix || lower.ends_with(suffix))
 }
 
 fn named_argument_context(source: &str, index: usize, name: &str) -> bool {
@@ -1026,13 +1073,16 @@ const RESET_OR_RECOVERY_PATH_MARKERS: &[&str] = &[
     "recover-password",
 ];
 
-fn benign_secret_named_literal(value: &str) -> bool {
+fn benign_secret_named_literal(value: &str, secret_binding_name: bool) -> bool {
     let route_or_reset_url =
         literal_looks_like_route_path(value) || literal_looks_like_reset_or_recovery_url(value);
+    let benign_copy = literal_looks_like_user_facing_copy(value)
+        || literal_looks_like_validation_copy(value)
+        || literal_looks_like_operational_copy(value);
     (route_or_reset_url
         && !literal_has_secret_like_url_parameter(value)
         && !literal_has_secret_like_reset_path_segment(value))
-        || literal_looks_like_user_facing_copy(value)
+        || (benign_copy && !secret_binding_name && !literal_has_concrete_token_like_segment(value))
 }
 
 fn literal_looks_like_route_path(value: &str) -> bool {
@@ -1141,15 +1191,26 @@ fn literal_looks_like_user_facing_copy(value: &str) -> bool {
             .any(|word| lower.contains(word))
         && [
             "change password",
+            "current password",
+            "new password",
             "invalid email or password",
             "forgot password",
+            "forgot your password",
             "reset password",
+            "password reset",
             "enter password",
             "confirm password",
             "password must",
             "password is",
+            "password should",
+            "password cannot",
+            "passwords do not match",
+            "password do not match",
+            "password field",
+            "password requirements",
             "token expired",
             "invalid token",
+            "cloud function error",
         ]
         .iter()
         .any(|phrase| lower.contains(phrase))
@@ -1158,9 +1219,81 @@ fn literal_looks_like_user_facing_copy(value: &str) -> bool {
                 || character.is_ascii_whitespace()
                 || matches!(
                     character,
-                    '.' | ',' | '!' | '?' | ':' | ';' | '\'' | '"' | '-' | '/' | '(' | ')'
+                    '.' | ','
+                        | '!'
+                        | '?'
+                        | ':'
+                        | ';'
+                        | '\''
+                        | '"'
+                        | '-'
+                        | '_'
+                        | '/'
+                        | '|'
+                        | '('
+                        | ')'
                 )
         })
+}
+
+fn literal_looks_like_validation_copy(value: &str) -> bool {
+    let trimmed = value.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    trimmed.len() <= 120
+        && trimmed.contains(char::is_whitespace)
+        && ((lower.contains("use at least") && lower.contains("characters"))
+            || (lower.contains("reset link") && lower.contains("invalid or expired")))
+        && trimmed.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || character.is_ascii_whitespace()
+                || matches!(
+                    character,
+                    '.' | ',' | '!' | '?' | ':' | ';' | '\'' | '"' | '-' | '_' | '/' | '|'
+                )
+        })
+}
+
+fn literal_looks_like_operational_copy(value: &str) -> bool {
+    let trimmed = value.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    trimmed.len() <= 120
+        && trimmed.contains(char::is_whitespace)
+        && [
+            "token issued",
+            "pre-fetch token",
+            "token notifications active",
+            "updating password",
+        ]
+        .iter()
+        .any(|phrase| lower.contains(phrase))
+        && trimmed.chars().all(|character| !character.is_control())
+}
+
+fn literal_has_concrete_token_like_segment(value: &str) -> bool {
+    value
+        .split(|character: char| {
+            character.is_ascii_whitespace()
+                || matches!(
+                    character,
+                    ':' | ';'
+                        | ','
+                        | '='
+                        | '&'
+                        | '?'
+                        | '#'
+                        | '\''
+                        | '"'
+                        | '('
+                        | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '<'
+                        | '>'
+                )
+        })
+        .any(concrete_secret_like_path_segment)
 }
 
 fn has_secret_shape(value: &str) -> bool {
@@ -1178,6 +1311,7 @@ fn has_secret_shape(value: &str) -> bool {
 fn jwt_like(value: &str) -> bool {
     let parts = value.split('.').collect::<Vec<_>>();
     parts.len() == 3
+        && parts[0].starts_with("eyJ")
         && parts
             .iter()
             .all(|part| part.len() >= 10 && is_base64ish(part))

@@ -26,6 +26,8 @@ fn tooling_files(package_root: &Path) -> Vec<PathBuf> {
     let mut paths = [
         "analysis_options.yaml",
         "build.yaml",
+        "flutter_launcher_icons.yaml",
+        "flutter_native_splash.yaml",
         "melos.yaml",
         "codemagic.yaml",
         "Makefile",

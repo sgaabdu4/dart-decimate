@@ -109,6 +109,33 @@ fn detects_sparse_duplicate_blocks_that_meet_default_tokens_as_a_whole()
 }
 
 #[test]
+fn copied_package_filter_ignores_unrelated_malformed_pubspec()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "fixtures/bad/pubspec.yaml", "name: [\n")?;
+    for package in ["copy_a", "copy_b"] {
+        write(
+            &fixture,
+            &format!("{package}/pubspec.yaml"),
+            "name: copied_package\n",
+        )?;
+        write(
+            &fixture,
+            &format!("{package}/lib/shared.dart"),
+            "String sharedHttp() {\n  final headers = <String, String>{\n    'accept': 'application/json',\n    'content-type': 'application/json',\n    'x-client': 'function-client',\n  };\n  final values = ['alpha', 'beta', 'gamma', headers.keys.join('|')];\n  final normalized = values.map((value) => value.trim().toLowerCase()).where((value) => value.isNotEmpty).toList();\n  return normalized.join(',');\n}\n",
+        )?;
+    }
+    let project = scan_project(fixture.path())?;
+
+    let report = detect_duplicates(&project, &DuplicateOptions::default())?;
+
+    assert!(report.clone_groups.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

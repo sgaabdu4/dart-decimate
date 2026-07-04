@@ -271,13 +271,14 @@ pub enum GraphError {
 /// Build a directed module graph from extracted Dart file facts.
 ///
 /// Local relative imports and exports are resolved from the source file's
-/// directory. `package:` imports resolve through local package names discovered
-/// from `pubspec.yaml` files, including pub workspaces and path dependencies.
+/// directory. `package:` imports resolve through Pub package metadata,
+/// including `.dart_tool/package_config.json`, workspaces, path dependencies,
+/// same-package imports, and owner-local copied packages with duplicate names.
 ///
 /// # Errors
 ///
-/// Returns [`GraphError`] if a discovered `pubspec.yaml` cannot be read or
-/// parsed, or if a workspace glob entry is invalid.
+/// Returns [`GraphError`] if package config or declared Pub package metadata
+/// cannot be read or parsed, or if a workspace glob entry is invalid.
 pub fn build_module_graph(
     root: impl AsRef<Path>,
     files: &[DartFile],
@@ -547,7 +548,7 @@ pub(super) fn resolve_local_uri(
         let (package, path) = rest.split_once('/')?;
         let path = percent_decode_uri_path(path);
         return packages
-            .resolve(package, &path)
+            .resolve_from(from_path, package, &path)
             .map(|resolution| ResolvedTarget {
                 path: resolution.path,
                 local: resolution.local,

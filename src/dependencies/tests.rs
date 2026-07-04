@@ -475,6 +475,35 @@ dependencies:\n  collection: ^1.0.0\n",
 }
 
 #[test]
+fn reports_unlisted_dependency_from_generated_flutterfire_options()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/firebase_options.dart",
+        "import 'package:firebase_core/firebase_core.dart';\n\
+class DefaultFirebaseOptions {\n\
+  static const FirebaseOptions currentPlatform = FirebaseOptions(apiKey: 'key');\n\
+}\n",
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_dependency_hygiene(&project)?;
+
+    assert_eq!(report.unlisted_dependencies.len(), 1);
+    assert_eq!(report.unlisted_dependencies[0].dependency, "firebase_core");
+    assert!(
+        report.unlisted_dependencies[0]
+            .path
+            .ends_with("lib/firebase_options.dart")
+    );
+    assert_eq!(report.unlisted_dependencies[0].location.line, 1);
+
+    Ok(())
+}
+
+#[test]
 fn finds_declared_package_dependencies_for_trace() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
