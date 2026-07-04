@@ -79,8 +79,9 @@ pub(crate) fn is_flutterfire_options_path(path: &Path) -> bool {
         .and_then(|name| name.to_str())
         .is_some_and(|file_name| file_name == "firebase_options.dart")
         && path
-            .components()
-            .any(|component| component.as_os_str() == "lib")
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .is_some_and(|parent| parent == "lib")
 }
 
 #[cfg(test)]
@@ -123,6 +124,7 @@ mod tests {
             Path::new("lib/l10n/app_localizations_es_419.dart"),
             Path::new("lib/gen_l10n/app_localizations_es.dart"),
             Path::new("lib/firebase_options.dart"),
+            Path::new("packages/foo/lib/firebase_options.dart"),
         ] {
             assert!(is_generated_dart_path(path), "{}", path.display());
         }
@@ -135,6 +137,8 @@ mod tests {
             Path::new("lib/l10n/app_localizations_en_US_helper.dart"),
             Path::new("lib/l10n/app_localizations_.dart"),
             Path::new("lib/l10n/app_localizations_en-us.dart"),
+            Path::new("lib/src/firebase_options.dart"),
+            Path::new("packages/foo/lib/config/firebase_options.dart"),
         ] {
             assert!(!is_generated_dart_path(path), "{}", path.display());
         }

@@ -59,9 +59,14 @@ fn detect_hardcoded_secrets(
         } else {
             has_secret_like_name(line)
         };
+        let secret_binding_name = if firebase_options_literal {
+            secret_name
+        } else {
+            literal_secret_binding_context(source, literal.index)
+        };
         if is_module_uri_directive_line(line)
             || firebase_api_key_context(source, literal.index)
-            || (!secret_value && benign_secret_named_literal(&literal.value))
+            || (!secret_value && benign_secret_named_literal(&literal.value, secret_binding_name))
             || (!secret_value && firebase_options_literal && !secret_name)
             || google_app_id_context(source, literal.index)
             || (!secret_value && literal_looks_like_storage_key(&literal.value))
@@ -537,6 +542,48 @@ fn concrete_firebase_api_key_literal(value: &str) -> bool {
 
 fn firebase_secret_name_context(source: &str, index: usize) -> bool {
     literal_argument_context(source, index).is_some_and(has_secret_like_name)
+}
+
+fn literal_secret_binding_context(source: &str, index: usize) -> bool {
+    literal_binding_identifier(source, index).is_some_and(secret_binding_identifier)
+}
+
+fn literal_binding_identifier(source: &str, index: usize) -> Option<&str> {
+    let context = literal_context(source, index)?;
+    for separator in ['=', ':'] {
+        let Some((candidate, rest)) = context.rsplit_once(separator) else {
+            continue;
+        };
+        if rest.trim().is_empty() {
+            return trailing_identifier(candidate);
+        }
+    }
+    None
+}
+
+fn secret_binding_identifier(identifier: &str) -> bool {
+    let lower = identifier.to_ascii_lowercase();
+    [
+        "token",
+        "secret",
+        "jwt",
+        "privatekey",
+        "private_key",
+        "clientsecret",
+        "client_secret",
+        "refreshtoken",
+        "refresh_token",
+        "accesstoken",
+        "access_token",
+        "bearer",
+        "authorization",
+        "apikey",
+        "api_key",
+        "signingkey",
+        "signing_key",
+    ]
+    .iter()
+    .any(|suffix| lower == *suffix || lower.ends_with(suffix))
 }
 
 fn named_argument_context(source: &str, index: usize, name: &str) -> bool {
@@ -1026,7 +1073,7 @@ const RESET_OR_RECOVERY_PATH_MARKERS: &[&str] = &[
     "recover-password",
 ];
 
-fn benign_secret_named_literal(value: &str) -> bool {
+fn benign_secret_named_literal(value: &str, secret_binding_name: bool) -> bool {
     let route_or_reset_url =
         literal_looks_like_route_path(value) || literal_looks_like_reset_or_recovery_url(value);
     (route_or_reset_url
@@ -1034,7 +1081,9 @@ fn benign_secret_named_literal(value: &str) -> bool {
         && !literal_has_secret_like_reset_path_segment(value))
         || literal_looks_like_user_facing_copy(value)
         || literal_looks_like_validation_copy(value)
-        || literal_looks_like_operational_copy(value)
+        || (literal_looks_like_operational_copy(value)
+            && !secret_binding_name
+            && !literal_has_concrete_token_like_segment(value))
 }
 
 fn literal_looks_like_route_path(value: &str) -> bool {
@@ -1219,6 +1268,33 @@ fn literal_looks_like_operational_copy(value: &str) -> bool {
         .iter()
         .any(|phrase| lower.contains(phrase))
         && trimmed.chars().all(|character| !character.is_control())
+}
+
+fn literal_has_concrete_token_like_segment(value: &str) -> bool {
+    value
+        .split(|character: char| {
+            character.is_ascii_whitespace()
+                || matches!(
+                    character,
+                    ':' | ';'
+                        | ','
+                        | '='
+                        | '&'
+                        | '?'
+                        | '#'
+                        | '\''
+                        | '"'
+                        | '('
+                        | ')'
+                        | '['
+                        | ']'
+                        | '{'
+                        | '}'
+                        | '<'
+                        | '>'
+                )
+        })
+        .any(concrete_secret_like_path_segment)
 }
 
 fn has_secret_shape(value: &str) -> bool {

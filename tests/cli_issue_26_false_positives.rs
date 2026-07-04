@@ -204,15 +204,11 @@ fn security_rule_promotes_firebase_candidate_detail_to_error()
 fn check_downgrades_dev_e2e_environment_defines() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
     write(
         &fixture,
-        "lib/main.dart",
-        "import 'core/services/notifications/notification_service.dart';\nvoid main() { print(disablePushForE2e); }\n",
-    )?;
-    write(
-        &fixture,
-        "lib/core/services/notifications/notification_service.dart",
-        "const disablePushForE2e = bool.fromEnvironment('E2E_DISABLE_PUSH');\n",
+        "test/e2e_flags_test.dart",
+        "const disablePushForE2e = bool.fromEnvironment('E2E_DISABLE_PUSH');\nvoid main() { print(disablePushForE2e); }\n",
     )?;
 
     let (code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
