@@ -276,8 +276,8 @@ pub enum GraphError {
 ///
 /// # Errors
 ///
-/// Returns [`GraphError`] if a discovered `pubspec.yaml` cannot be read or
-/// parsed, or if a workspace glob entry is invalid.
+/// Returns [`GraphError`] if package config or declared Pub package metadata
+/// cannot be read or parsed, or if a workspace glob entry is invalid.
 pub fn build_module_graph(
     root: impl AsRef<Path>,
     files: &[DartFile],

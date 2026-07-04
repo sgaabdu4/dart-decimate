@@ -152,6 +152,14 @@ fn collect_interpolation_body_references(
     let mut index = start;
     let mut brace_depth = 0;
     while index < bytes.len() {
+        if line_comment_start(bytes, index) {
+            index = line_comment_end(bytes, index);
+            continue;
+        }
+        if block_comment_start(bytes, index) {
+            index = block_comment_end(bytes, index);
+            continue;
+        }
         match bytes[index] {
             b'}' if brace_depth == 0 => return Some(index),
             b'}' => brace_depth -= 1,
@@ -178,6 +186,43 @@ fn collect_interpolation_body_references(
         index += 1;
     }
     None
+}
+
+fn line_comment_start(bytes: &[u8], start: usize) -> bool {
+    bytes.get(start) == Some(&b'/') && bytes.get(start + 1) == Some(&b'/')
+}
+
+fn line_comment_end(bytes: &[u8], start: usize) -> usize {
+    bytes[start + 2..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(bytes.len(), |relative| start + 2 + relative + 1)
+}
+
+fn block_comment_start(bytes: &[u8], start: usize) -> bool {
+    bytes.get(start) == Some(&b'/') && bytes.get(start + 1) == Some(&b'*')
+}
+
+fn block_comment_end(bytes: &[u8], start: usize) -> usize {
+    let mut index = start + 2;
+    let mut depth = 1;
+    while index + 1 < bytes.len() {
+        if block_comment_start(bytes, index) {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if bytes[index] == b'*' && bytes[index + 1] == b'/' {
+            depth -= 1;
+            index += 2;
+            if depth == 0 {
+                return index;
+            }
+            continue;
+        }
+        index += 1;
+    }
+    bytes.len()
 }
 
 fn raw_quoted_segment_start(bytes: &[u8], start: usize) -> Option<usize> {

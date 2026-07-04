@@ -53,3 +53,32 @@ void boot(String suffix) {
 
     Ok(())
 }
+
+#[test]
+fn braced_interpolation_ignores_comment_identifiers() -> Result<(), ExtractError> {
+    let source = "\
+void boot(String value, String _block, String _line) {
+  print('''${/* _block */ value} ${value // _line
+}''');
+}
+";
+
+    let extracted = extract_dart_source("lib/interpolation.dart", source)?;
+    let references = extracted
+        .references
+        .iter()
+        .map(|reference| reference.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        references
+            .iter()
+            .filter(|reference| **reference == "value")
+            .count(),
+        2
+    );
+    assert!(!references.contains(&"_block"));
+    assert!(!references.contains(&"_line"));
+
+    Ok(())
+}

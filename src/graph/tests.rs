@@ -443,6 +443,32 @@ fn package_config_owned_import_missing_from_config_ignores_nested_pubspec()
 }
 
 #[test]
+fn package_config_ignores_malformed_unowned_nested_pubspec()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new()?;
+    fixture.write("pubspec.yaml", "name: app\n")?;
+    fixture.write("fixtures/bad/pubspec.yaml", "name: [\n")?;
+    fixture.write(
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let main = fixture.file("lib/main.dart", vec![], vec![]);
+
+    let graph = build_module_graph(fixture.root(), &[main])?;
+
+    assert_eq!(graph.package_names(), vec!["app"]);
+    assert_eq!(graph.edge_count(), 0);
+
+    Ok(())
+}
+
+#[test]
 fn package_config_keeps_nested_self_imports_local() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write("pubspec.yaml", "name: app\n")?;

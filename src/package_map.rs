@@ -221,7 +221,11 @@ impl PackageMap {
                 && path.file_name().is_some_and(|name| name == "pubspec.yaml")
             {
                 if let Some(package_root) = path.parent() {
-                    self.discover_pubspec(package_root, visited)?;
+                    match self.discover_pubspec(package_root, visited) {
+                        Ok(()) => {}
+                        Err(error) if is_optional_pubspec_error(&error) => {}
+                        Err(error) => return Err(error),
+                    }
                 }
             }
         }
@@ -253,6 +257,13 @@ fn package_resolution(root: &PackageRoot, path: &str) -> PackageResolution {
         path: normalize_path(&root.package_path.join(path)),
         local: root.local,
     }
+}
+
+fn is_optional_pubspec_error(error: &GraphError) -> bool {
+    matches!(
+        error,
+        GraphError::ReadPubspec { .. } | GraphError::ParsePubspec { .. }
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
