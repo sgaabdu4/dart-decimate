@@ -225,16 +225,30 @@ impl PackageMap {
                 && path.file_name().is_some_and(|name| name == "pubspec.yaml")
             {
                 if let Some(package_root) = path.parent() {
-                    match self.discover_pubspec(package_root, visited) {
-                        Ok(()) => {}
-                        Err(error) if is_optional_pubspec_error(&error) => {}
-                        Err(error) => return Err(error),
-                    }
+                    self.discover_optional_pubspec(package_root, visited)?;
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn discover_optional_pubspec(
+        &mut self,
+        package_root: &Path,
+        visited: &mut BTreeSet<PathBuf>,
+    ) -> Result<(), GraphError> {
+        let previous_packages = self.clone();
+        let previous_visited = visited.clone();
+        match self.discover_pubspec(package_root, visited) {
+            Ok(()) => Ok(()),
+            Err(error) if is_optional_pubspec_error(&error) => {
+                *self = previous_packages;
+                *visited = previous_visited;
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn insert(&mut self, name: String, root: &Path, package_uri: PathBuf) -> PackageRoot {
@@ -266,7 +280,10 @@ fn package_resolution(root: &PackageRoot, path: &str) -> PackageResolution {
 fn is_optional_pubspec_error(error: &GraphError) -> bool {
     matches!(
         error,
-        GraphError::ReadPubspec { .. } | GraphError::ParsePubspec { .. }
+        GraphError::ReadPubspec { .. }
+            | GraphError::ParsePubspec { .. }
+            | GraphError::WorkspacePattern { .. }
+            | GraphError::WorkspaceGlob { .. }
     )
 }
 
@@ -591,6 +608,72 @@ mod tests {
                 )
                 .is_none()
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn optional_nested_pubspec_parse_failure_does_not_poison_later_strict_discovery()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(
+            &fixture,
+            "app/pubspec.yaml",
+            "name: app\ndependencies:\n  bad:\n    path: ../scratch/bad\n",
+        )?;
+        write(&fixture, "scratch/bad/pubspec.yaml", "name: [\n")?;
+
+        let mut packages = PackageMap::default();
+        let mut visited = BTreeSet::new();
+        packages.discover_nested_pubspecs(&fixture.path().join("scratch"), &mut visited)?;
+
+        match packages.discover_pubspec(&fixture.path().join("app"), &mut visited) {
+            Err(GraphError::ParsePubspec { path, .. }) => {
+                assert_eq!(path, fixture.path().join("scratch/bad/pubspec.yaml"));
+            }
+            other => panic!("expected strict parse error, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn optional_nested_pubspec_workspace_errors_are_ignored_without_partial_owner()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(&fixture, "pubspec.yaml", "name: app\n")?;
+        write(
+            &fixture,
+            "fixtures/bad/pubspec.yaml",
+            "name: bad\nworkspace:\n  - '[bad'\n",
+        )?;
+
+        let packages = PackageMap::discover(fixture.path())?;
+
+        assert_eq!(packages.names(), vec!["app"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn declared_path_dependency_workspace_errors_stay_strict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            "name: app\ndependencies:\n  bad:\n    path: fixtures/bad\n",
+        )?;
+        write(
+            &fixture,
+            "fixtures/bad/pubspec.yaml",
+            "name: bad\nworkspace:\n  - '[bad'\n",
+        )?;
+
+        match PackageMap::discover(fixture.path()) {
+            Err(GraphError::WorkspacePattern { .. }) => {}
+            other => panic!("expected strict workspace pattern error, got {other:?}"),
+        }
 
         Ok(())
     }
