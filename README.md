@@ -212,6 +212,9 @@ scripts. Generated Dart companions, Flutter l10n outputs, and FlutterFire
 options are protected from dead-file cleanup; generated-only cycles are also
 suppressed.
 
+Unused-symbol checks count references from non-raw Dart string interpolation;
+raw strings and escaped dollars stay literal.
+
 Useful commands:
 
 ```bash
@@ -400,9 +403,12 @@ Dart Decimate reports:
 - findings that already existed
 - risky changed files
 
-Compile-time environment feature flags used only from non-`lib/` development,
-tooling, example, or test paths are warning-level; production `lib/` flags and
-SDK/config flag calls remain error-level by default.
+Compile-time environment feature flags are warning-level only when every
+occurrence is in a non-`lib/` development, tooling, example, or test path, or in
+`lib/main_dev.dart`, `lib/main_debug.dart`, `lib/main_e2e.dart`,
+`lib/main_test.dart`, or `lib/main_driver.dart`. Other `lib/` files, including
+`lib/dev_flags.dart`, services, and screens, remain error-level. SDK/config flag
+calls stay error-level by default.
 
 Useful commands:
 

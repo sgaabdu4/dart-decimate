@@ -385,8 +385,11 @@ Current implemented parity:
   Firebase Remote Config `get*` calls, and LaunchDarkly-style `*Variation` calls,
   with `--top`, grouped `feature_flags`, occurrence locations, and
   non-autofixable `dart-decimate/feature-flag` findings; compile-time
-  environment flags used only from non-`lib/` development, tooling, example, or
-  test paths are warning-level, while production `lib/` flags and SDK/config
+  environment flags are warning-level only when every occurrence is in a
+  non-`lib/` development, tooling, example, or test path, or in recognized
+  alternate Flutter entrypoint files such as `lib/main_dev.dart`,
+  `lib/main_debug.dart`, `lib/main_e2e.dart`, `lib/main_test.dart`, and
+  `lib/main_driver.dart`, while other production `lib/` flags and SDK/config
   flag calls stay error-level by default
 - `dart-decimate security` inventory for hardcoded secret-shaped literals,
   `FirebaseOptions.apiKey` client keys, remote `http://` network sinks,
