@@ -119,8 +119,18 @@ fn compile_time_feature_flag_severity_depends_on_path_not_name()
     )?;
     write(
         &fixture,
+        "lib/dev_flags.dart",
+        "const debugFlag = bool.fromEnvironment('DEBUG_PROD_ONLY');\n",
+    )?;
+    write(
+        &fixture,
+        "lib/debug_flags.dart",
+        "const e2eFlag = bool.fromEnvironment('E2E_PROD_ONLY');\n",
+    )?;
+    write(
+        &fixture,
         "test/flag_test.dart",
-        "const debug = bool.fromEnvironment('DEBUG_ONLY');\n",
+        "const debug = bool.fromEnvironment('DEBUG_TEST_ONLY');\n",
     )?;
     let project = scan_project(fixture.path())?;
     let feature_flags = detect_feature_flags(&project, &FeatureFlagOptions::default())?;
@@ -154,6 +164,22 @@ fn compile_time_feature_flag_severity_depends_on_path_not_name()
             .findings
             .iter()
             .find(|finding| finding.path == "lib/main.dart")
+            .map(|finding| finding.severity),
+        Some(Severity::Error)
+    );
+    assert_eq!(
+        report
+            .findings
+            .iter()
+            .find(|finding| finding.path == "lib/dev_flags.dart")
+            .map(|finding| finding.severity),
+        Some(Severity::Error)
+    );
+    assert_eq!(
+        report
+            .findings
+            .iter()
+            .find(|finding| finding.path == "lib/debug_flags.dart")
             .map(|finding| finding.severity),
         Some(Severity::Error)
     );

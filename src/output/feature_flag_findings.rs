@@ -86,7 +86,7 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
         rule_id: "dart-decimate/feature-flag".to_owned(),
         fingerprint: Some(feature_flag_fingerprint(flag)),
         kind: FindingKind::FeatureFlag,
-        severity: feature_flag_severity(flag),
+        severity: feature_flag_severity(root, flag),
         message: format!(
             "Feature flag {} is referenced via {}",
             flag.name, flag.provider
@@ -111,11 +111,11 @@ fn feature_flag_finding(root: &Path, flag: &FeatureFlag) -> Finding {
     }
 }
 
-fn feature_flag_severity(flag: &FeatureFlag) -> Severity {
+fn feature_flag_severity(root: &Path, flag: &FeatureFlag) -> Severity {
     if flag.source == FeatureFlagSource::CompileTimeEnvironment
         && flag.occurrences.iter().all(|occurrence| {
             let path = occurrence.path.as_path();
-            is_dev_or_test_path(path)
+            is_dev_or_test_path(root, path)
         })
     {
         Severity::Warning
@@ -124,30 +124,34 @@ fn feature_flag_severity(flag: &FeatureFlag) -> Severity {
     }
 }
 
-fn is_dev_or_test_path(path: &Path) -> bool {
-    let file_name = path.file_name().and_then(|name| name.to_str());
-    file_name.is_some_and(|name| {
-        name.contains("_dev.")
-            || name.contains("_debug.")
-            || name.contains("_e2e.")
-            || name.starts_with("dev_")
-            || name.starts_with("debug_")
-            || name.starts_with("e2e_")
-    }) || path.components().any(|component| {
-        matches!(
-            component.as_os_str().to_str(),
-            Some(
-                "test"
-                    | "integration_test"
-                    | "test_driver"
-                    | "tool"
-                    | "scripts"
-                    | "dev"
-                    | "debug"
-                    | "e2e"
-            )
-        )
-    })
+fn is_dev_or_test_path(root: &Path, path: &Path) -> bool {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let mut under_production_lib = false;
+    for component in relative
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+    {
+        if matches!(
+            component,
+            "test"
+                | "tests"
+                | "integration_test"
+                | "test_driver"
+                | "tool"
+                | "scripts"
+                | "dev"
+                | "debug"
+                | "e2e"
+                | "example"
+        ) && !under_production_lib
+        {
+            return true;
+        }
+        if component == "lib" {
+            under_production_lib = true;
+        }
+    }
+    false
 }
 
 fn feature_flag_fingerprint(flag: &FeatureFlag) -> String {
