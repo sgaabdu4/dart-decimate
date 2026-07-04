@@ -170,6 +170,34 @@ fn reports_operational_copy_with_concrete_token_segments() -> Result<(), Box<dyn
 }
 
 #[test]
+fn reports_user_copy_with_secret_bindings_or_token_segments()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "class Session {
+  static const String accessToken = 'Invalid token abc123abc123';
+  static const String resetToken = 'Reset link invalid or expired abc123abc123';
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert_eq!(report.total_occurrences, 2);
+    assert_eq!(
+        report.candidates[0].rule_id,
+        "dart-decimate/security-hardcoded-secret"
+    );
+    assert_eq!(report.candidates[0].occurrences.len(), 2);
+
+    Ok(())
+}
+
+#[test]
 fn skips_dot_qualified_diagnostic_identifiers_but_reports_jwts()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

@@ -1076,14 +1076,13 @@ const RESET_OR_RECOVERY_PATH_MARKERS: &[&str] = &[
 fn benign_secret_named_literal(value: &str, secret_binding_name: bool) -> bool {
     let route_or_reset_url =
         literal_looks_like_route_path(value) || literal_looks_like_reset_or_recovery_url(value);
+    let benign_copy = literal_looks_like_user_facing_copy(value)
+        || literal_looks_like_validation_copy(value)
+        || literal_looks_like_operational_copy(value);
     (route_or_reset_url
         && !literal_has_secret_like_url_parameter(value)
         && !literal_has_secret_like_reset_path_segment(value))
-        || literal_looks_like_user_facing_copy(value)
-        || literal_looks_like_validation_copy(value)
-        || (literal_looks_like_operational_copy(value)
-            && !secret_binding_name
-            && !literal_has_concrete_token_like_segment(value))
+        || (benign_copy && !secret_binding_name && !literal_has_concrete_token_like_segment(value))
 }
 
 fn literal_looks_like_route_path(value: &str) -> bool {
