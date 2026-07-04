@@ -118,8 +118,8 @@ fn record_directive(
         .or_default()
         .record(&owner.root, file_path);
 
-    if !is_generated_dart_path(file_path)
-        && !owner.declares_dependency_for_path(&dependency, file_path)
+    if !owner.declares_dependency_for_path(&dependency, file_path)
+        && !is_known_generated_internal_import(file_path, specifier)
     {
         usage
             .unlisted_by_identity
@@ -135,6 +135,10 @@ fn record_directive(
                 location,
             });
     }
+}
+
+fn is_known_generated_internal_import(file_path: &Path, specifier: &str) -> bool {
+    is_generated_dart_path(file_path) && matches!(specifier, "package:slang/generated.dart")
 }
 
 fn unused_dependencies(
