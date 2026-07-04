@@ -676,6 +676,8 @@ fn find_first_named_descendant_with_cursor<'tree>(
 #[cfg(test)]
 mod error_tests;
 #[cfg(test)]
+mod reference_tests;
+#[cfg(test)]
 mod string_tests;
 #[cfg(test)]
 mod tests;

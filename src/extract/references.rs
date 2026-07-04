@@ -40,13 +40,44 @@ fn collect_string_interpolation_references(
     source: &str,
     references: &mut Vec<IdentifierReference>,
 ) {
+    let mut cursor = node.walk();
+    let segments = node
+        .children(&mut cursor)
+        .filter(|child| is_string_literal_segment(child.kind()))
+        .collect::<Vec<_>>();
+    if !segments.is_empty() {
+        for segment in segments {
+            if is_raw_string_literal_segment(segment.kind()) {
+                continue;
+            }
+            let Ok(text) = segment.utf8_text(source.as_bytes()) else {
+                continue;
+            };
+            collect_string_segment_interpolation_references(
+                text,
+                segment.start_byte(),
+                source,
+                references,
+            );
+        }
+        return;
+    }
+
     let Ok(text) = node.utf8_text(source.as_bytes()) else {
         return;
     };
     if is_raw_string_literal(text) {
         return;
     }
+    collect_string_segment_interpolation_references(text, node.start_byte(), source, references);
+}
 
+fn collect_string_segment_interpolation_references(
+    text: &str,
+    base_byte: usize,
+    source: &str,
+    references: &mut Vec<IdentifierReference>,
+) {
     let bytes = text.as_bytes();
     let mut index = 0;
     while let Some(relative) = bytes[index..].iter().position(|byte| *byte == b'$') {
@@ -62,7 +93,7 @@ fn collect_string_interpolation_references(
                 interpolation_start + 1,
                 references,
                 source,
-                node,
+                base_byte,
             ) else {
                 continue;
             };
@@ -72,11 +103,19 @@ fn collect_string_interpolation_references(
         if let Some((name, start)) = interpolation_identifier(text, interpolation_start) {
             references.push(IdentifierReference {
                 name: name.to_owned(),
-                location: location_at(source, node.start_byte() + start),
+                location: location_at(source, base_byte + start),
             });
             index = start + name.len();
         }
     }
+}
+
+fn is_string_literal_segment(kind: &str) -> bool {
+    kind.starts_with("raw_string_literal") || kind.starts_with("string_literal_")
+}
+
+fn is_raw_string_literal_segment(kind: &str) -> bool {
+    kind.starts_with("raw_string_literal")
 }
 
 fn is_raw_string_literal(text: &str) -> bool {
@@ -107,7 +146,7 @@ fn collect_interpolation_body_references(
     start: usize,
     references: &mut Vec<IdentifierReference>,
     source: &str,
-    node: Node<'_>,
+    base_byte: usize,
 ) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut index = start;
@@ -131,7 +170,7 @@ fn collect_interpolation_body_references(
             let end = identifier_end(bytes, index)?;
             references.push(IdentifierReference {
                 name: text[index..end].to_owned(),
-                location: location_at(source, node.start_byte() + index),
+                location: location_at(source, base_byte + index),
             });
             index = end;
             continue;
