@@ -127,6 +127,7 @@ fn feature_flag_severity(root: &Path, flag: &FeatureFlag) -> Severity {
 fn is_dev_or_test_path(root: &Path, path: &Path) -> bool {
     let relative = path.strip_prefix(root).unwrap_or(path);
     let mut under_production_lib = false;
+    let mut saw_lib = false;
     for component in relative
         .components()
         .filter_map(|component| component.as_os_str().to_str())
@@ -149,9 +150,27 @@ fn is_dev_or_test_path(root: &Path, path: &Path) -> bool {
         }
         if component == "lib" {
             under_production_lib = true;
+            saw_lib = true;
         }
     }
+    if saw_lib {
+        return relative
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .is_some_and(is_non_production_flutter_entrypoint);
+    }
     false
+}
+
+fn is_non_production_flutter_entrypoint(file_name: &str) -> bool {
+    matches!(
+        file_name,
+        "main_dev.dart"
+            | "main_debug.dart"
+            | "main_e2e.dart"
+            | "main_test.dart"
+            | "main_driver.dart"
+    )
 }
 
 fn feature_flag_fingerprint(flag: &FeatureFlag) -> String {
