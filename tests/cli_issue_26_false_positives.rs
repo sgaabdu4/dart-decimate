@@ -203,16 +203,16 @@ fn security_rule_promotes_firebase_candidate_detail_to_error()
 #[test]
 fn check_downgrades_dev_e2e_environment_defines() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
-    write(
-        &fixture,
-        ".dart-decimaterc",
-        "[rules]\n\"dart-decimate/dead-file\" = \"warn\"\n",
-    )?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
         &fixture,
-        "lib/main_dev.dart",
-        "const forceSignedOut = bool.fromEnvironment('APP_E2E_FORCE_SIGNED_OUT');\nvoid main() { print(forceSignedOut); }\n",
+        "lib/main.dart",
+        "import 'core/services/notifications/notification_service.dart';\nvoid main() { print(disablePushForE2e); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/core/services/notifications/notification_service.dart",
+        "const disablePushForE2e = bool.fromEnvironment('E2E_DISABLE_PUSH');\n",
     )?;
 
     let (code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;

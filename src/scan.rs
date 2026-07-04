@@ -19,6 +19,8 @@ use crate::{
 pub struct ScannedProject {
     /// Root directory used for discovery and dependency resolution.
     pub root: PathBuf,
+    /// Local roots included in discovery, sorted for deterministic entrypoint analysis.
+    pub scan_roots: Vec<PathBuf>,
     /// Extracted Dart files, sorted by path for deterministic output.
     pub files: Vec<DartFile>,
     /// Directed graph built from the extracted files.
@@ -139,9 +141,10 @@ pub fn scan_project_with_options(
 ) -> Result<ScannedProject, ScanError> {
     let root = normalize_scan_root(root.as_ref())?;
     let ignore_matcher = IgnoreMatcher::new(&options.ignore_patterns)?;
+    let package_map = PackageMap::discover(&root)?;
     let mut scan_roots = BTreeSet::new();
     scan_roots.insert(root.clone());
-    scan_roots.extend(PackageMap::discover(&root)?.local_roots());
+    scan_roots.extend(package_map.local_roots());
 
     let mut paths = BTreeSet::new();
     for scan_root in &scan_roots {
@@ -163,7 +166,12 @@ pub fn scan_project_with_options(
         },
     )?;
 
-    Ok(ScannedProject { root, files, graph })
+    Ok(ScannedProject {
+        root,
+        scan_roots: scan_roots.into_iter().collect(),
+        files,
+        graph,
+    })
 }
 
 fn normalize_scan_root(root: &Path) -> Result<PathBuf, ScanError> {

@@ -1033,6 +1033,8 @@ fn benign_secret_named_literal(value: &str) -> bool {
         && !literal_has_secret_like_url_parameter(value)
         && !literal_has_secret_like_reset_path_segment(value))
         || literal_looks_like_user_facing_copy(value)
+        || literal_looks_like_validation_copy(value)
+        || literal_looks_like_operational_copy(value)
 }
 
 fn literal_looks_like_route_path(value: &str) -> bool {
@@ -1154,10 +1156,13 @@ fn literal_looks_like_user_facing_copy(value: &str) -> bool {
             "password is",
             "password should",
             "password cannot",
+            "passwords do not match",
+            "password do not match",
             "password field",
             "password requirements",
             "token expired",
             "invalid token",
+            "cloud function error",
         ]
         .iter()
         .any(|phrase| lower.contains(phrase))
@@ -1166,9 +1171,54 @@ fn literal_looks_like_user_facing_copy(value: &str) -> bool {
                 || character.is_ascii_whitespace()
                 || matches!(
                     character,
-                    '.' | ',' | '!' | '?' | ':' | ';' | '\'' | '"' | '-' | '/' | '(' | ')'
+                    '.' | ','
+                        | '!'
+                        | '?'
+                        | ':'
+                        | ';'
+                        | '\''
+                        | '"'
+                        | '-'
+                        | '_'
+                        | '/'
+                        | '|'
+                        | '('
+                        | ')'
                 )
         })
+}
+
+fn literal_looks_like_validation_copy(value: &str) -> bool {
+    let trimmed = value.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    trimmed.len() <= 120
+        && trimmed.contains(char::is_whitespace)
+        && ((lower.contains("use at least") && lower.contains("characters"))
+            || (lower.contains("reset link") && lower.contains("invalid or expired")))
+        && trimmed.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || character.is_ascii_whitespace()
+                || matches!(
+                    character,
+                    '.' | ',' | '!' | '?' | ':' | ';' | '\'' | '"' | '-' | '_' | '/' | '|'
+                )
+        })
+}
+
+fn literal_looks_like_operational_copy(value: &str) -> bool {
+    let trimmed = value.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    trimmed.len() <= 120
+        && trimmed.contains(char::is_whitespace)
+        && [
+            "token issued",
+            "pre-fetch token",
+            "token notifications active",
+            "updating password",
+        ]
+        .iter()
+        .any(|phrase| lower.contains(phrase))
+        && trimmed.chars().all(|character| !character.is_control())
 }
 
 fn has_secret_shape(value: &str) -> bool {
@@ -1186,6 +1236,7 @@ fn has_secret_shape(value: &str) -> bool {
 fn jwt_like(value: &str) -> bool {
     let parts = value.split('.').collect::<Vec<_>>();
     parts.len() == 3
+        && parts[0].starts_with("eyJ")
         && parts
             .iter()
             .all(|part| part.len() >= 10 && is_base64ish(part))

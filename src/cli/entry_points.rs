@@ -36,14 +36,30 @@ pub(super) fn entry_points_for_dead_code(
 }
 
 fn default_entry_points(project: &ScannedProject, mode: EntryPointMode) -> Vec<PathBuf> {
+    let roots = entry_point_roots(project);
     let mut entries = project
         .files
         .iter()
-        .filter(|file| is_default_entry_point(&project.root, &file.path, mode))
+        .filter(|file| {
+            roots
+                .iter()
+                .any(|root| is_default_entry_point(root, &file.path, mode))
+        })
         .map(|file| file.path.clone())
         .collect::<Vec<_>>();
     entries.sort();
+    entries.dedup();
     entries
+}
+
+fn entry_point_roots(project: &ScannedProject) -> Vec<PathBuf> {
+    let mut roots = project.scan_roots.clone();
+    if !roots.iter().any(|root| root == &project.root) {
+        roots.push(project.root.clone());
+    }
+    roots.sort();
+    roots.dedup();
+    roots
 }
 
 fn is_default_entry_point(root: &Path, path: &Path, mode: EntryPointMode) -> bool {

@@ -118,7 +118,9 @@ fn record_directive(
         .or_default()
         .record(&owner.root, file_path);
 
-    if !owner.declares_dependency_for_path(&dependency, file_path) {
+    if !is_generated_dart_path(file_path)
+        && !owner.declares_dependency_for_path(&dependency, file_path)
+    {
         usage
             .unlisted_by_identity
             .entry((owner.root.clone(), dependency.clone()))
