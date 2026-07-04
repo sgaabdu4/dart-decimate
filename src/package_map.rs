@@ -11,6 +11,7 @@ use crate::graph::{GraphError, normalize_path};
 pub(crate) struct PackageMap {
     by_name: BTreeMap<String, Vec<PackageRoot>>,
     by_owner_dependency: BTreeMap<PathBuf, BTreeMap<String, PackageRoot>>,
+    uses_package_config: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,8 +88,10 @@ impl PackageMap {
                 return Some(package_resolution(root, path));
             }
         }
-        if owner_package.is_some_and(|package| package.from_package_config) {
-            return None;
+        if let Some(owner_package) = owner_package {
+            if owner_package.from_package_config || self.uses_package_config {
+                return None;
+            }
         }
         if let Some(root) = configured_root {
             return Some(package_resolution(root, path));
@@ -144,6 +147,7 @@ impl PackageMap {
         Self {
             by_name,
             by_owner_dependency: BTreeMap::new(),
+            uses_package_config: true,
         }
     }
 

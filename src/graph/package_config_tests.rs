@@ -64,6 +64,113 @@ fn resolves_package_imports_using_ancestor_package_config_from_member_root()
     Ok(())
 }
 
+#[test]
+fn nested_pubspec_missing_path_dependency_does_not_use_ancestor_package_config()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "functions/worker/pubspec.yaml", "name: worker\n")?;
+    write(&fixture, "packages/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"},
+    {"name": "shared", "rootUri": "../packages/shared", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let worker = dart_file(
+        fixture.path().join("functions/worker/lib/worker.dart"),
+        "package:shared/shared.dart",
+    );
+    let shared = empty_dart_file(fixture.path().join("packages/shared/lib/shared.dart"));
+
+    let graph = build_module_graph(fixture.path(), &[worker, shared])?;
+
+    assert_eq!(graph.edge_count(), 0);
+    assert!(graph.unresolved().is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn nested_pubspec_missing_path_dependency_ignores_unowned_nested_pubspec()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "functions/worker/pubspec.yaml", "name: worker\n")?;
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let worker = dart_file(
+        fixture.path().join("functions/worker/lib/worker.dart"),
+        "package:shared/shared.dart",
+    );
+    let shared = empty_dart_file(fixture.path().join("functions/shared/lib/shared.dart"));
+
+    let graph = build_module_graph(fixture.path(), &[worker, shared])?;
+
+    assert_eq!(graph.edge_count(), 0);
+    assert!(graph.unresolved().is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn nested_pubspec_path_dependency_resolves_before_ancestor_package_config()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "functions/worker/pubspec.yaml",
+        "name: worker\ndependencies:\n  shared:\n    path: ../shared\n",
+    )?;
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(&fixture, "packages/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"},
+    {"name": "shared", "rootUri": "../packages/shared", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let worker = dart_file(
+        fixture.path().join("functions/worker/lib/worker.dart"),
+        "package:shared/shared.dart",
+    );
+    let local_shared = empty_dart_file(fixture.path().join("functions/shared/lib/shared.dart"));
+    let configured_shared = empty_dart_file(fixture.path().join("packages/shared/lib/shared.dart"));
+
+    let graph = build_module_graph(fixture.path(), &[worker, local_shared, configured_shared])?;
+
+    assert_eq!(graph.edge_count(), 1);
+    assert_eq!(
+        strip_root(fixture.path(), &graph.dependencies()[0].to_path),
+        PathBuf::from("functions/shared/lib/shared.dart")
+    );
+
+    Ok(())
+}
+
 fn dart_file(path: PathBuf, import_uri: &str) -> DartFile {
     DartFile {
         path,
@@ -77,6 +184,22 @@ fn dart_file(path: PathBuf, import_uri: &str) -> DartFile {
             combinators: Vec::new(),
             location: Location { line: 1, column: 0 },
         }],
+        exports: Vec::new(),
+        parts: Vec::new(),
+        declarations: Vec::new(),
+        members: Vec::new(),
+        references: Vec::new(),
+        signature_references: Vec::new(),
+        routes: Vec::new(),
+    }
+}
+
+fn empty_dart_file(path: PathBuf) -> DartFile {
+    DartFile {
+        path,
+        library: None,
+        part_of: None,
+        imports: Vec::new(),
         exports: Vec::new(),
         parts: Vec::new(),
         declarations: Vec::new(),
