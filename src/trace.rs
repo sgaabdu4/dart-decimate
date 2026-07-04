@@ -105,7 +105,7 @@ pub struct DependencyTraceReport {
     pub type_only_importers: Vec<TraceDependencyDirective>,
     /// Number of Dart import/export directives referencing the package.
     pub total_import_count: usize,
-    /// Whether non-Dart scripts reference the package. Not scanned yet.
+    /// Whether non-Dart tooling files reference the package.
     pub used_in_scripts: bool,
     /// Whether Dart source references the package in import/export directives.
     pub is_used: bool,

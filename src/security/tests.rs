@@ -121,6 +121,13 @@ class Routes {
 class Copy {
   String get settingsSecurityChangePassword => 'Change Password';
   static const String invalidCredentials = 'Invalid email or password';
+  static const String passwordsDoNotMatch = 'Passwords do not match';
+  static const String passwordTooShort = 'Use at least 8 characters';
+  static const String cloudFunctionSubject = 'Jabal Sina Cloud Function Error | token_notifications';
+  static const String pingResponse = 'Pong - Token Notifications Active';
+  static const String tokenTitle = '🎫 Token Issued';
+  static const String requestTokenOperation = 'Pre-fetch token';
+  static const String updatingPassword = 'Updating password...';
 }
 ",
     )?;
@@ -130,6 +137,95 @@ class Copy {
 
     assert!(report.candidates.is_empty());
     assert_eq!(report.total_occurrences, 0);
+
+    Ok(())
+}
+
+#[test]
+fn reports_operational_copy_with_concrete_token_segments() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "class Session {
+  static const String accessToken = 'Token issued: abc123abc123';
+  static const String operationMessage = 'Pre-fetch token abc123abc123';
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert_eq!(report.total_occurrences, 2);
+    assert_eq!(
+        report.candidates[0].rule_id,
+        "dart-decimate/security-hardcoded-secret"
+    );
+    assert_eq!(report.candidates[0].occurrences.len(), 2);
+
+    Ok(())
+}
+
+#[test]
+fn reports_user_copy_with_secret_bindings_or_token_segments()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "class Session {
+  static const String accessToken = 'Invalid token abc123abc123';
+  static const String resetToken = 'Reset link invalid or expired abc123abc123';
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert_eq!(report.total_occurrences, 2);
+    assert_eq!(
+        report.candidates[0].rule_id,
+        "dart-decimate/security-hardcoded-secret"
+    );
+    assert_eq!(report.candidates[0].occurrences.len(), 2);
+
+    Ok(())
+}
+
+#[test]
+fn skips_dot_qualified_diagnostic_identifiers_but_reports_jwts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "class Crash {
+  static void error(Object error, StackTrace stackTrace, {required String reason}) {}
+}
+
+void report(Object error, StackTrace stackTrace) {
+  Crash.error(error, stackTrace, reason: 'ActiveWorkoutNotifier.saveActiveWorkout.squadCheckIn');
+}
+
+const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert_eq!(report.total_occurrences, 1);
+    assert_eq!(
+        report.candidates[0].rule_id,
+        "dart-decimate/security-hardcoded-secret"
+    );
+    assert_eq!(report.candidates[0].occurrences[0].location.line, 9);
 
     Ok(())
 }

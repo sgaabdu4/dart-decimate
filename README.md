@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.9"
+    "dart-decimate": "^0.0.10"
   }
 }
 ```
@@ -204,6 +204,17 @@ Dart Decimate finds:
 - missing entry points
 - stale `dart-decimate-ignore` comments
 
+Default entry points are evaluated across the root and discovered local package
+roots. They include public `lib/` Dart files outside `lib/src/`, `lib/main.dart`,
+direct `bin/` scripts, and, outside production mode, direct `test/`,
+`integration_test/`, `test_driver/`, `tool/`, `scripts/`, and `pigeon/`
+scripts. Generated Dart companions, Flutter l10n outputs, and FlutterFire
+options are protected from dead-file cleanup; generated-only cycles are also
+suppressed.
+
+Unused-symbol checks count references from non-raw Dart string interpolation;
+raw strings and escaped dollars stay literal.
+
 Useful commands:
 
 ```bash
@@ -247,6 +258,8 @@ Dart Decimate finds exact and semantic clone groups. Each clone group gets a sta
 fingerprint like `dup:abc12345`, so agents can trace it before touching code.
 Clone windows must meet both line and token thresholds; sparse duplicated blocks
 can span more than `--min-lines`, and `line_count` reports the actual match.
+Copied local Pub packages with the same package name and identical relative
+matches are ignored.
 
 Useful commands:
 
@@ -313,6 +326,15 @@ Dart Decimate finds:
 - imports into another package's private `lib/src`
 - duplicate public API exports
 
+Dart Decimate follows Pub package ownership when resolving `package:` imports,
+using `.dart_tool/package_config.json` when present while keeping same-package
+imports and owner-local path dependencies local. Workspace members and copied
+nested packages with the same package name are resolved by owner. Non-Dart
+tooling references in Flutter config files, including launcher and splash
+config, workflow files, Makefiles, and `tool/` scripts can count as dependency
+usage. Known generator-internal imports from generated Dart, such as
+`package:slang/generated.dart`, are not reported as unlisted dependencies.
+
 Useful commands:
 
 ```bash
@@ -349,6 +371,13 @@ Dart Decimate finds candidates for:
 - Firebase client API keys in `FirebaseOptions`
 - plain local storage of secret-like material
 
+Firebase client API keys are warning-level by default because FlutterFire
+generates client config. To make them fail a gate, set
+`"dart-decimate/security-firebase-api-key" = "error"` in `[rules]`. Common
+authentication copy such as password reset and password requirement text is
+filtered before reporting hardcoded-secret candidates unless it is bound to a
+secret-like name or contains a concrete token-like segment.
+
 Useful commands:
 
 ```bash
@@ -373,6 +402,13 @@ Dart Decimate reports:
 - findings introduced by the PR
 - findings that already existed
 - risky changed files
+
+Compile-time environment feature flags are warning-level only when every
+occurrence is in a non-`lib/` development, tooling, example, or test path, or in
+`lib/main_dev.dart`, `lib/main_debug.dart`, `lib/main_e2e.dart`,
+`lib/main_test.dart`, or `lib/main_driver.dart`. Other `lib/` files, including
+`lib/dev_flags.dart`, services, and screens, remain error-level. SDK/config flag
+calls stay error-level by default.
 
 Useful commands:
 
@@ -567,6 +603,7 @@ categories = ["hardcoded-secret", "firebase-api-key", "insecure-transport", "tls
 unused-files = "error"
 unused-exports = "warn"
 security-candidate = "warn"
+"dart-decimate/security-firebase-api-key" = "error"
 ```
 
 ## Full Issue List
@@ -584,62 +621,8 @@ you need the installed binary's exact list.
 
 ## CI
 
-Add Dart Decimate to CI so every PR gets the same repo health check:
-
-```yaml
-- name: Dart Decimate
-  run: npx --yes dart-decimate json .
-```
-
-That is the easiest CI command. It checks everything Dart Decimate knows how to
-check in one pass.
-
-For PR-only regression checks, use:
-
-```bash
-npx --yes dart-decimate audit . --base origin/main --format json --summary --gate new-only
-```
-
-You can also put the full check in a git hook:
-
-```bash
-mkdir -p .git/hooks
-cat > .git/hooks/pre-commit <<'SH'
-#!/usr/bin/env sh
-npx --yes dart-decimate json .
-SH
-chmod +x .git/hooks/pre-commit
-```
-
-This repository already runs:
-
-- Rust format, clippy, and tests
-- npm package checks
-- version sync between `Cargo.toml` and `package.json`
-- a PR version-bump gate requiring both package files to increase to an
-  unpublished version
-- release guards that reject reused npm versions or tags on different commits
-- migration checks that block previous package, command, schema, and MCP names
-- Dependabot and weekly dependency/security audits
-
-Generate CI templates:
-
-```bash
-dart-decimate ci-template github --format yaml
-dart-decimate ci-template gitlab --format yaml
-```
-
-Preview review-thread reconciliation without changing GitHub or GitLab:
-
-```bash
-dart-decimate ci reconcile-review \
-  --provider github \
-  --repo owner/repo \
-  --pr 123 \
-  --envelope review-github.json \
-  --dry-run \
-  --format json
-```
+See [docs/ci.md](docs/ci.md) for CI checks, PR gates, hook setup, CI
+templates, and review-thread reconciliation.
 
 ## Scope
 
@@ -672,7 +655,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.9`.
+Current version: `0.0.10`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

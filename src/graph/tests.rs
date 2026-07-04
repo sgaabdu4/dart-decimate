@@ -378,6 +378,131 @@ fn package_config_hosted_entries_remain_external() -> Result<(), Box<dyn std::er
 }
 
 #[test]
+fn package_config_prevents_nested_same_name_fallback() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new()?;
+    fixture.write(
+        "pubspec.yaml",
+        "name: app\ndependencies:\n  shared: ^1.0.0\n",
+    )?;
+    fixture.write("functions/a/shared/pubspec.yaml", "name: shared\n")?;
+    fixture.write(
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"},
+    {"name": "shared", "rootUri": "file:///tmp/.pub-cache/hosted/shared-1.0.0", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let main = fixture.file(
+        "lib/main.dart",
+        vec![import("package:shared/shared.dart")],
+        vec![],
+    );
+    let nested = fixture.file("functions/a/shared/lib/shared.dart", vec![], vec![]);
+
+    let graph = build_module_graph(fixture.root(), &[main, nested])?;
+
+    assert_eq!(graph.edge_count(), 0);
+    assert!(graph.unresolved().is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn package_config_owned_import_missing_from_config_ignores_nested_pubspec()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new()?;
+    fixture.write("pubspec.yaml", "name: app\n")?;
+    fixture.write("functions/shared/pubspec.yaml", "name: shared\n")?;
+    fixture.write(
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let main = fixture.file(
+        "lib/main.dart",
+        vec![import("package:shared/shared.dart")],
+        vec![],
+    );
+    let nested = fixture.file("functions/shared/lib/shared.dart", vec![], vec![]);
+
+    let graph = build_module_graph(fixture.root(), &[main, nested])?;
+
+    assert_eq!(graph.edge_count(), 0);
+    assert!(graph.unresolved().is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn package_config_ignores_malformed_unowned_nested_pubspec()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new()?;
+    fixture.write("pubspec.yaml", "name: app\n")?;
+    fixture.write("fixtures/bad/pubspec.yaml", "name: [\n")?;
+    fixture.write(
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let main = fixture.file("lib/main.dart", vec![], vec![]);
+
+    let graph = build_module_graph(fixture.root(), &[main])?;
+
+    assert_eq!(graph.package_names(), vec!["app"]);
+    assert_eq!(graph.edge_count(), 0);
+
+    Ok(())
+}
+
+#[test]
+fn package_config_keeps_nested_self_imports_local() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new()?;
+    fixture.write("pubspec.yaml", "name: app\n")?;
+    fixture.write("functions/a/shared/pubspec.yaml", "name: shared\n")?;
+    fixture.write(
+        ".dart_tool/package_config.json",
+        r#"{
+  "configVersion": 2,
+  "packages": [
+    {"name": "app", "rootUri": "../", "packageUri": "lib/"},
+    {"name": "shared", "rootUri": "file:///tmp/.pub-cache/hosted/shared-1.0.0", "packageUri": "lib/"}
+  ]
+}
+"#,
+    )?;
+    let main = fixture.file(
+        "functions/a/shared/lib/main.dart",
+        vec![import("package:shared/src/foo.dart")],
+        vec![],
+    );
+    let foo = fixture.file("functions/a/shared/lib/src/foo.dart", vec![], vec![]);
+
+    let graph = build_module_graph(fixture.root(), &[main, foo])?;
+
+    assert_eq!(graph.edge_count(), 1);
+    assert_eq!(
+        strip_root(fixture.root(), &graph.dependencies()[0].to_path),
+        "functions/a/shared/lib/src/foo.dart"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn package_config_local_missing_target_is_unresolved() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::new()?;
     fixture.write(

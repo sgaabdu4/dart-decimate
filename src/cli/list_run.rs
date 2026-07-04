@@ -216,6 +216,7 @@ fn scoped_project(
     packages.retain(|package| package_in_scope(package, &package_roots, &scope));
     Ok(ScannedProject {
         root: project.root,
+        scan_roots: project.scan_roots,
         files: project
             .files
             .into_iter()

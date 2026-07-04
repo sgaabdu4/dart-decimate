@@ -52,15 +52,19 @@ pub(super) fn add_dead_code_findings(
             safe_to_delete: dead_file.safe_to_delete,
             files: Vec::new(),
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "delete-file",
-                    "Delete the unreachable Dart file after confirming no dynamic entry point uses it",
-                    dead_file.safe_to_delete,
-                )
-                .with_target_path(path.clone())
-                .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()]),
-            ],
+            actions: vec![FindingAction::new(
+                "delete-file",
+                "Delete the unreachable Dart file after confirming no dynamic entry point uses it",
+                dead_file.safe_to_delete,
+            )
+            .with_target_path(path.clone())
+            .with_dart_decimate_args([
+                "inspect",
+                "--format",
+                "json",
+                "--file",
+                path.as_str(),
+            ])],
         });
     }
 }
@@ -92,7 +96,7 @@ pub(super) fn add_cycle_findings(
             actions: vec![
                 FindingAction::new(
                     "break-cycle",
-                    "Move shared dependencies inward or invert one import edge",
+                    "Inspect the cycle edge; split barrels or move shared ownership before expanding imports",
                     false,
                 )
                 .with_target_path(path.clone())
@@ -251,17 +255,15 @@ pub(super) fn add_boundary_call_findings(
             safe_to_delete: false,
             files: vec![display_path(root, &violation.from_boundary)],
             edge: None,
-            actions: vec![
-                FindingAction::new(
-                    "repair-boundary-call",
-                    "Move the call behind an allowed boundary or replace it with an owned abstraction",
-                    false,
-                )
-                .with_target_path(path.clone())
-                .with_config_key("boundary_calls")
-                .with_value_schema("array of FROM:PATTERN forbidden direct call rules")
-                .with_suppression_comment("// dart-decimate-ignore-next-line boundary-call-violation"),
-            ],
+            actions: vec![FindingAction::new(
+                "repair-boundary-call",
+                "Move the call behind an allowed boundary or replace it with an owned abstraction",
+                false,
+            )
+            .with_target_path(path.clone())
+            .with_config_key("boundary_calls")
+            .with_value_schema("array of FROM:PATTERN forbidden direct call rules")
+            .with_suppression_comment("// dart-decimate-ignore-next-line boundary-call-violation")],
         });
     }
 }
