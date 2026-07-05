@@ -169,13 +169,44 @@ fn function_expression_body_constructor_name(node: Node<'_>, source: &str) -> Op
     }
     let body = function.child_by_field_name("body")?;
     let expression = body.named_child(0)?;
-    match expression.kind() {
-        "identifier" | "type_identifier" | "member_expression" => expression
-            .utf8_text(source.as_bytes())
-            .ok()
-            .map(str::to_owned),
-        _ => None,
+    constructor_call_type_name(expression, source)
+        .or_else(|| split_closure_body_constructor_name(node, expression, source))
+}
+
+fn constructor_call_type_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !is_object_constructor(node) {
+        return None;
     }
+    let arguments = node.child_by_field_name("arguments")?;
+    let prefix = source.get(node.start_byte()..arguments.start_byte())?;
+    let constructor = prefix
+        .trim()
+        .strip_prefix("const ")
+        .or_else(|| prefix.trim().strip_prefix("new "))
+        .unwrap_or(prefix.trim())
+        .split('<')
+        .next()
+        .unwrap_or("")
+        .replace(' ', "");
+    (!constructor_name_candidates(&constructor).is_empty()).then_some(constructor)
+}
+
+fn split_closure_body_constructor_name(
+    call: Node<'_>,
+    expression: Node<'_>,
+    source: &str,
+) -> Option<String> {
+    call.child_by_field_name("arguments")?;
+    if !matches!(
+        expression.kind(),
+        "identifier" | "type_identifier" | "member_expression"
+    ) {
+        return None;
+    }
+    expression
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(str::to_owned)
 }
 
 fn is_arrow_body_constructor_identifier(node: Node<'_>, source: &str) -> bool {
@@ -362,6 +393,7 @@ void main() {
   ui.PrefixedCard();
   DeadCard.named();
   DeadCard.route;
+  (() => BareIifeCard).call();
 }
 ";
         let parsed = parse_tree(Path::new("lib/widgets.dart"), source)?;
@@ -370,6 +402,10 @@ void main() {
         assert_eq!(
             names,
             vec!["LiveCard", "LegacyCard", "PrefixedCard", "DeadCard"]
+        );
+        assert!(
+            !names.iter().any(|name| name == "BareIifeCard"),
+            "{names:?}"
         );
         Ok(())
     }

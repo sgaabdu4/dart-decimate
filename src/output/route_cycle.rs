@@ -233,17 +233,18 @@ fn navigation_receiver(prefix: &str, navigation_name: &str) -> Option<String> {
 
 fn navigation_receiver_accepts_route_location(receiver: &str) -> bool {
     let receiver = receiver.trim_end_matches(['?', '!']);
-    if matches!(receiver, "context" | "BuildContext") || receiver.ends_with("Context") {
+    let simple_name = receiver
+        .rsplit(['.', '?', '!'])
+        .next()
+        .unwrap_or(receiver)
+        .to_ascii_lowercase();
+    if matches!(simple_name.as_str(), "context" | "buildcontext" | "ctx") {
         return true;
     }
     if contains_identifier(receiver, "GoRouter") {
         return true;
     }
-    receiver
-        .rsplit(['.', '?', '!'])
-        .next()
-        .map(str::to_ascii_lowercase)
-        .is_some_and(|name| name == "router" || name.ends_with("router"))
+    !receiver.contains(['.', '?', '!']) && matches!(simple_name.as_str(), "gorouter" | "router")
 }
 
 fn arguments_contain_route_location(

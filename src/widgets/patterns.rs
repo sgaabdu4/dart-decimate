@@ -226,8 +226,9 @@ fn object_pattern_field_reads_in_body(
         if object_pattern_type_name(node, source).as_deref() != Some(widget_class) {
             return;
         }
-        let roots = root_aliases_at(body, node, root_names, source);
-        if roots_shadowed_by_enclosing_callable(body, node, &roots, source) {
+        let mut roots = root_aliases_at(body, node, root_names, source);
+        remove_roots_shadowed_by_enclosing_callable(body, node, &mut roots, source);
+        if roots.is_empty() {
             return;
         }
         if !object_pattern_matches_roots(node, &roots, source) {
@@ -238,28 +239,42 @@ fn object_pattern_field_reads_in_body(
     fields
 }
 
-fn roots_shadowed_by_enclosing_callable(
+fn remove_roots_shadowed_by_enclosing_callable(
     body: Node<'_>,
     site: Node<'_>,
-    roots: &BTreeSet<String>,
+    roots: &mut BTreeSet<String>,
     source: &str,
-) -> bool {
+) {
     let owner = (body.kind() == "class_body")
         .then(|| outermost_callable_before_body(body, site))
         .flatten();
     let mut parent = site.parent();
     while let Some(ancestor) = parent {
         if same_node(ancestor, body) {
-            return false;
+            return;
         }
-        if owner.is_none_or(|owner| !same_node(owner, ancestor))
-            && callable_direct_parameters_bind_any(ancestor, roots, source)
-        {
-            return true;
+        for name in callable_direct_parameter_bound_names(ancestor, roots, source) {
+            if owner.is_some_and(|owner| same_node(owner, ancestor))
+                && owner_parameter_preserves_root(ancestor, &name, source)
+            {
+                continue;
+            }
+            roots.remove(&name);
         }
         parent = ancestor.parent();
     }
-    false
+}
+
+fn owner_parameter_preserves_root(owner: Node<'_>, name: &str, source: &str) -> bool {
+    name == "oldWidget"
+        && owner.kind() == "method_declaration"
+        && callable_name(owner, source).as_deref() == Some("didUpdateWidget")
+}
+
+fn callable_name(node: Node<'_>, source: &str) -> Option<String> {
+    let signature = helper_signature(node).unwrap_or(node);
+    field_text(signature, "name", source)
+        .or_else(|| identifier_before_parameters(signature, source))
 }
 
 fn outermost_callable_before_body<'tree>(
@@ -327,10 +342,23 @@ fn collect_root_aliases_from_lexical_declaration(
     roots: &mut BTreeSet<String>,
     source: &str,
 ) {
-    if !matches!(node.kind(), "local_variable_declaration") {
-        return;
+    match node.kind() {
+        "local_variable_declaration" | "pattern_variable_declaration" => {
+            collect_root_aliases_from_declaration_shape(node, roots, source);
+        }
+        "expression_statement" | "statement" => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if matches!(
+                    child.kind(),
+                    "local_variable_declaration" | "pattern_variable_declaration"
+                ) {
+                    collect_root_aliases_from_declaration_shape(child, roots, source);
+                }
+            }
+        }
+        _ => {}
     }
-    collect_root_aliases_from_declaration_shape(node, roots, source);
 }
 
 fn collect_root_aliases_from_declaration_shape(
@@ -338,9 +366,15 @@ fn collect_root_aliases_from_declaration_shape(
     roots: &mut BTreeSet<String>,
     source: &str,
 ) {
-    if let Some(name) = binding_name(node, source)
-        && roots.contains(&name)
-    {
+    let shadowed_roots = roots
+        .iter()
+        .filter(|root| {
+            binding_name(node, source).as_deref() == Some(root.as_str())
+                || pattern_binds_name(node, root, source)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for name in shadowed_roots {
         roots.remove(&name);
     }
     if let Some(alias) = local_alias_for_root(node, roots, source) {
@@ -622,17 +656,18 @@ fn this_or_super_member_name(invocation_name: &str) -> Option<&str> {
     (!member.contains('.')).then_some(member)
 }
 
-fn callable_direct_parameters_bind_any(
+fn callable_direct_parameter_bound_names(
     node: Node<'_>,
     names: &BTreeSet<String>,
     source: &str,
-) -> bool {
+) -> BTreeSet<String> {
     if !is_callable_node(node.kind()) {
-        return false;
+        return BTreeSet::new();
     }
     direct_parameter_lists(node)
         .into_iter()
-        .any(|parameters| parameter_list_directly_binds_any(parameters, names, source))
+        .flat_map(|parameters| parameter_list_directly_bound_names(parameters, names, source))
+        .collect()
 }
 
 fn callable_direct_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -692,33 +727,46 @@ fn own_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
         .find_map(own_parameter_list)
 }
 
-fn parameter_list_directly_binds_any(
+fn parameter_list_directly_bound_names(
     parameters: Node<'_>,
     names: &BTreeSet<String>,
     source: &str,
-) -> bool {
+) -> BTreeSet<String> {
+    let mut bound = BTreeSet::new();
     let mut cursor = parameters.walk();
-    parameters.named_children(&mut cursor).any(|candidate| {
-        if formal_parameter_name(candidate, source).is_some_and(|name| names.contains(&name)) {
-            return true;
+    for candidate in parameters.named_children(&mut cursor) {
+        if let Some(name) = formal_parameter_name(candidate, source)
+            && names.contains(&name)
+        {
+            bound.insert(name);
         }
-        candidate.kind() == "optional_formal_parameters"
-            && optional_parameters_directly_bind_any(candidate, names, source)
-    })
+        if candidate.kind() == "optional_formal_parameters" {
+            bound.extend(optional_parameters_directly_bound_names(
+                candidate, names, source,
+            ));
+        }
+    }
+    bound
 }
 
-fn optional_parameters_directly_bind_any(
+fn optional_parameters_directly_bound_names(
     parameters: Node<'_>,
     names: &BTreeSet<String>,
     source: &str,
-) -> bool {
+) -> BTreeSet<String> {
+    let mut bound = BTreeSet::new();
     let mut cursor = parameters.walk();
-    parameters
+    for candidate in parameters
         .named_children(&mut cursor)
         .filter(|candidate| candidate.kind() == "formal_parameter")
-        .any(|candidate| {
-            formal_parameter_name(candidate, source).is_some_and(|name| names.contains(&name))
-        })
+    {
+        if let Some(name) = formal_parameter_name(candidate, source)
+            && names.contains(&name)
+        {
+            bound.insert(name);
+        }
+    }
+    bound
 }
 
 fn parameter_list_directly_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
@@ -924,6 +972,9 @@ pub(super) fn pattern_binds_name(node: Node<'_>, name: &str, source: &str) -> bo
     if node.kind() == "variable_pattern"
         && field_text(node, "name", source).as_deref() == Some(name)
     {
+        return true;
+    }
+    if shorthand_pattern_name(node, source).as_deref() == Some(name) {
         return true;
     }
     if node.kind() == "object_pattern" {

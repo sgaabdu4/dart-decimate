@@ -360,6 +360,8 @@ void main() {
   LocalTopLevelHelperShadowWidget(used: 'real', unused: 'x');
   StateOldWidgetPatternWidget(used: 'real', unused: 'x');
   StateRootShadowWidget(used: 'real', unused: 'x');
+  StateOwnerParamShadowWidget(used: 'real', unused: 'x');
+  StatePatternRootShadowWidget(used: 'real', unused: 'x');
   ParameterShadowHelperWidget(used: 'real', unused: 'x');
 }
 ",
@@ -421,6 +423,10 @@ const OBJECT_PATTERN_UNUSED_TARGETS: &[&str] = &[
     "StateOldWidgetPatternWidget.unused",
     "StateRootShadowWidget.used",
     "StateRootShadowWidget.unused",
+    "StateOwnerParamShadowWidget.used",
+    "StateOwnerParamShadowWidget.unused",
+    "StatePatternRootShadowWidget.used",
+    "StatePatternRootShadowWidget.unused",
     "ParameterShadowHelperWidget.used",
     "ParameterShadowHelperWidget.unused",
 ];
@@ -712,6 +718,36 @@ class _StateRootShadowWidgetState extends State<StateRootShadowWidget> {
   Widget build(BuildContext context) {
     final widget = StateRootShadowWidget(used: 'other', unused: 'other');
     final StateRootShadowWidget(:used) = widget;
+    return Text(used);
+  }
+}
+
+class StateOwnerParamShadowWidget extends StatefulWidget {
+  const StateOwnerParamShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<StateOwnerParamShadowWidget> createState() => _StateOwnerParamShadowWidgetState();
+}
+
+class _StateOwnerParamShadowWidgetState extends State<StateOwnerParamShadowWidget> {
+  void show(StateOwnerParamShadowWidget widget) {
+    final StateOwnerParamShadowWidget(:used) = widget;
+    Text(used);
+  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class StatePatternRootShadowWidget extends StatefulWidget {
+  const StatePatternRootShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<StatePatternRootShadowWidget> createState() => _StatePatternRootShadowWidgetState();
+}
+
+class _StatePatternRootShadowWidgetState extends State<StatePatternRootShadowWidget> {
+  Widget build(BuildContext context) {
+    final (widget,) = (StatePatternRootShadowWidget(used: 'other', unused: 'other'),);
+    final StatePatternRootShadowWidget(:used) = widget;
     return Text(used);
   }
 }

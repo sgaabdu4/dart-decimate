@@ -213,6 +213,70 @@ extension BuildContextNavigation on BuildContext {
 }
 
 #[test]
+fn cycles_downgrades_route_location_on_build_context_navigation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+  String get location => '/';
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => context.go(const HomeRoute().location);
+}
+
+extension BuildContextNavigation on BuildContext {
+  void go(String location) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    Ok(())
+}
+
+#[test]
 fn cycles_keeps_route_location_on_non_navigation_receiver_as_error()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -253,10 +317,11 @@ class TypedGoRoute<T> {
 class HomeScreen extends Widget {
   const HomeScreen();
   HomeRoute fallback() => const HomeRoute();
-  void track(Analytics analytics) => analytics.push(const HomeRoute().location);
+  void track(AnalyticsContext analyticsContext) =>
+      analyticsContext.push(const HomeRoute().location);
 }
 
-class Analytics {
+class AnalyticsContext {
   void push(String location) {}
 }
 ",
@@ -625,6 +690,39 @@ fn check_keeps_production_e2e_named_sdk_flags_as_errors() -> Result<(), Box<dyn 
     assert_eq!(code, 1);
     assert_eq!(json["verdict"], "fail");
     assert_finding_severity(&json, "dart-decimate/feature-flag", "error");
+    Ok(())
+}
+
+#[test]
+fn check_keeps_bare_iife_type_reference_as_unrendered() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'widgets.dart';\nvoid main() {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"
+class DeadCard extends StatelessWidget {
+  const DeadCard({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+Type marker() => (() => DeadCard)();
+",
+    )?;
+
+    let (_code, json) = run_json(["dart-decimate", "check", root(&fixture), "--format", "json"])?;
+
+    assert_symbol(&json, "dart-decimate/unrendered-widget", "DeadCard");
     Ok(())
 }
 
