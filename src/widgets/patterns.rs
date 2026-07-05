@@ -179,7 +179,8 @@ fn helper_widget_parameters(
 
 fn parameter_list(node: Node<'_>) -> Option<Node<'_>> {
     node.child_by_field_name("parameters")
-        .or_else(|| direct_named_child(node, "formal_parameter_list"))
+        .and_then(formal_parameter_list)
+        .or_else(|| own_parameter_list(node))
 }
 
 fn is_named_parameter(param: Node<'_>, source: &str) -> bool {
@@ -243,17 +244,40 @@ fn roots_shadowed_by_enclosing_callable(
     roots: &BTreeSet<String>,
     source: &str,
 ) -> bool {
+    let owner = (body.kind() == "class_body")
+        .then(|| outermost_callable_before_body(body, site))
+        .flatten();
     let mut parent = site.parent();
     while let Some(ancestor) = parent {
         if same_node(ancestor, body) {
             return false;
         }
-        if callable_direct_parameters_bind_any(ancestor, roots, source) {
+        if owner.is_none_or(|owner| !same_node(owner, ancestor))
+            && callable_direct_parameters_bind_any(ancestor, roots, source)
+        {
             return true;
         }
         parent = ancestor.parent();
     }
     false
+}
+
+fn outermost_callable_before_body<'tree>(
+    body: Node<'tree>,
+    site: Node<'tree>,
+) -> Option<Node<'tree>> {
+    let mut owner = None;
+    let mut parent = site.parent();
+    while let Some(ancestor) = parent {
+        if same_node(ancestor, body) {
+            return owner;
+        }
+        if is_callable_node(ancestor.kind()) {
+            owner = Some(ancestor);
+        }
+        parent = ancestor.parent();
+    }
+    owner
 }
 
 fn root_aliases_at(
@@ -314,6 +338,11 @@ fn collect_root_aliases_from_declaration_shape(
     roots: &mut BTreeSet<String>,
     source: &str,
 ) {
+    if let Some(name) = binding_name(node, source)
+        && roots.contains(&name)
+    {
+        roots.remove(&name);
+    }
     if let Some(alias) = local_alias_for_root(node, roots, source) {
         roots.insert(alias);
     }
@@ -503,6 +532,9 @@ fn helper_name_matches(
     if lexical_local_binding_before(body, invocation, &helper_name.name, source) {
         return false;
     }
+    if enclosing_callable_parameter_binds_name(invocation, body, &helper_name.name, source) {
+        return false;
+    }
     helper_name.method_owner.as_ref().is_none_or(|owner| {
         current_lexical_owner(invocation, source)
             .as_deref()
@@ -526,6 +558,25 @@ fn lexical_local_binding_before(body: Node<'_>, site: Node<'_>, name: &str, sour
         .into_iter()
         .rev()
         .any(|(scope, child)| prior_lexical_sibling_binds_name(scope, child, name, source))
+}
+
+fn enclosing_callable_parameter_binds_name(
+    site: Node<'_>,
+    body: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    let mut parent = site.parent();
+    while let Some(ancestor) = parent {
+        if same_node(ancestor, body) {
+            return false;
+        }
+        if callable_direct_parameters_bind_name(ancestor, name, source) {
+            return true;
+        }
+        parent = ancestor.parent();
+    }
+    false
 }
 
 fn prior_lexical_sibling_binds_name(
@@ -576,18 +627,31 @@ fn callable_direct_parameters_bind_any(
     names: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    if !matches!(
-        node.kind(),
-        "function_declaration"
-            | "function_expression"
-            | "local_function_declaration"
-            | "method_declaration"
-    ) {
+    if !is_callable_node(node.kind()) {
         return false;
     }
     direct_parameter_lists(node)
         .into_iter()
         .any(|parameters| parameter_list_directly_binds_any(parameters, names, source))
+}
+
+fn callable_direct_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if !is_callable_node(node.kind()) {
+        return false;
+    }
+    direct_parameter_lists(node)
+        .into_iter()
+        .any(|parameters| parameter_list_directly_binds_name(parameters, name, source))
+}
+
+fn is_callable_node(kind: &str) -> bool {
+    matches!(
+        kind,
+        "function_declaration"
+            | "function_expression"
+            | "local_function_declaration"
+            | "method_declaration"
+    )
 }
 
 fn direct_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
@@ -619,6 +683,15 @@ fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
         .find(|child| child.kind() == "formal_parameter_list")
 }
 
+fn own_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(own_parameter_list)
+}
+
 fn parameter_list_directly_binds_any(
     parameters: Node<'_>,
     names: &BTreeSet<String>,
@@ -626,9 +699,8 @@ fn parameter_list_directly_binds_any(
 ) -> bool {
     let mut cursor = parameters.walk();
     parameters.named_children(&mut cursor).any(|candidate| {
-        if candidate.kind() == "formal_parameter" {
-            return formal_parameter_name(candidate, source)
-                .is_some_and(|name| names.contains(&name));
+        if formal_parameter_name(candidate, source).is_some_and(|name| names.contains(&name)) {
+            return true;
         }
         candidate.kind() == "optional_formal_parameters"
             && optional_parameters_directly_bind_any(candidate, names, source)
@@ -647,6 +719,25 @@ fn optional_parameters_directly_bind_any(
         .any(|candidate| {
             formal_parameter_name(candidate, source).is_some_and(|name| names.contains(&name))
         })
+}
+
+fn parameter_list_directly_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|candidate| {
+        if formal_parameter_name(candidate, source).as_deref() == Some(name) {
+            return true;
+        }
+        candidate.kind() == "optional_formal_parameters"
+            && optional_parameters_directly_bind_name(candidate, name, source)
+    })
+}
+
+fn optional_parameters_directly_bind_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .filter(|candidate| candidate.kind() == "formal_parameter")
+        .any(|candidate| formal_parameter_name(candidate, source).as_deref() == Some(name))
 }
 
 fn current_lexical_owner(node: Node<'_>, source: &str) -> Option<String> {
@@ -1014,8 +1105,7 @@ fn identifier_before_equals(text: &str) -> Option<String> {
         .split(|character: char| {
             !(character == '_' || character == '$' || character.is_ascii_alphanumeric())
         })
-        .filter(|part| !part.is_empty())
-        .next_back()
+        .rfind(|part| !part.is_empty())
         .map(str::to_owned)
 }
 
@@ -1026,8 +1116,7 @@ fn identifier_before_parameters(node: Node<'_>, source: &str) -> Option<String> 
         .split(|character: char| {
             !(character == '_' || character == '$' || character.is_ascii_alphanumeric())
         })
-        .filter(|part| !part.is_empty())
-        .next_back()
+        .rfind(|part| !part.is_empty())
         .map(str::to_owned)
 }
 

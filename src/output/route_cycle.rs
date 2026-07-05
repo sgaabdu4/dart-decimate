@@ -167,7 +167,13 @@ fn typed_route_navigation_call(
         return false;
     };
     route_extension_navigation_call(prefix, &navigation_name, route_classes)
-        || arguments_contain_route_location(arguments, route_classes, source)
+        || route_location_navigation_call(
+            prefix,
+            &navigation_name,
+            arguments,
+            route_classes,
+            source,
+        )
 }
 
 fn argument_list(node: Node<'_>) -> Option<Node<'_>> {
@@ -199,6 +205,45 @@ fn route_extension_navigation_call(
     route_classes
         .iter()
         .any(|route_class| contains_constructor_call(receiver, route_class))
+}
+
+fn route_location_navigation_call(
+    prefix: &str,
+    navigation_name: &str,
+    arguments: Node<'_>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    navigation_receiver(prefix, navigation_name)
+        .as_deref()
+        .is_some_and(navigation_receiver_accepts_route_location)
+        && arguments_contain_route_location(arguments, route_classes, source)
+}
+
+fn navigation_receiver(prefix: &str, navigation_name: &str) -> Option<String> {
+    let compact = strip_whitespace(prefix);
+    for separator in [".", "?."] {
+        let suffix = format!("{separator}{navigation_name}");
+        if let Some(receiver) = compact.strip_suffix(&suffix) {
+            return (!receiver.is_empty()).then(|| receiver.to_owned());
+        }
+    }
+    None
+}
+
+fn navigation_receiver_accepts_route_location(receiver: &str) -> bool {
+    let receiver = receiver.trim_end_matches(['?', '!']);
+    if matches!(receiver, "context" | "BuildContext") || receiver.ends_with("Context") {
+        return true;
+    }
+    if contains_identifier(receiver, "GoRouter") {
+        return true;
+    }
+    receiver
+        .rsplit(['.', '?', '!'])
+        .next()
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|name| name == "router" || name.ends_with("router"))
 }
 
 fn arguments_contain_route_location(
@@ -265,6 +310,24 @@ fn contains_constructor_call(text: &str, route_class: &str) -> bool {
             && text
                 .get(end..)
                 .is_some_and(|after| after.starts_with('(') || after.starts_with('<'))
+        {
+            return true;
+        }
+        cursor = end;
+    }
+    false
+}
+
+fn contains_identifier(text: &str, identifier: &str) -> bool {
+    let mut cursor = 0usize;
+    while let Some(relative) = text[cursor..].find(identifier) {
+        let start = cursor + relative;
+        let end = start + identifier.len();
+        if !identifier_continues_before(text, start)
+            && !text[end..]
+                .chars()
+                .next()
+                .is_some_and(is_identifier_character)
         {
             return true;
         }

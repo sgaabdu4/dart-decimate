@@ -358,6 +358,9 @@ void main() {
   WrappedPatternWidget(title: 'real', subtitle: 'sub', unused: 'x');
   NestedHelperShadowWidget(used: 'real', unused: 'x');
   LocalTopLevelHelperShadowWidget(used: 'real', unused: 'x');
+  StateOldWidgetPatternWidget(used: 'real', unused: 'x');
+  StateRootShadowWidget(used: 'real', unused: 'x');
+  ParameterShadowHelperWidget(used: 'real', unused: 'x');
 }
 ",
     )?;
@@ -382,55 +385,61 @@ void main() {
     assert_eq!(json["verdict"], "pass");
     let targets = unused_widget_targets(&json);
 
-    assert!(targets.contains(&"DirectPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"StaticPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"ChartDisplay.unused".to_owned()));
-    assert!(targets.contains(&"IfCasePatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"SwitchPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"OtherPatternWidget.used".to_owned()));
-    assert!(targets.contains(&"OtherPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"DifferentFieldPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"LocalShadowWidget.title".to_owned()));
-    assert!(targets.contains(&"HelperCollisionWidget.used".to_owned()));
-    assert!(targets.contains(&"HelperCollisionWidget.unused".to_owned()));
-    assert!(targets.contains(&"AliasScopeWidget.used".to_owned()));
-    assert!(targets.contains(&"AliasScopeWidget.unused".to_owned()));
-    assert!(targets.contains(&"UnrelatedPatternWidget.value".to_owned()));
-    assert!(targets.contains(&"DeadHelperPatternWidget.used".to_owned()));
-    assert!(targets.contains(&"DeadHelperPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"OtherInstancePatternWidget.used".to_owned()));
-    assert!(targets.contains(&"OtherInstancePatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"LocalHelperLeakWidget.used".to_owned()));
-    assert!(targets.contains(&"LocalHelperLeakWidget.unused".to_owned()));
-    assert!(targets.contains(&"ThisMethodPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"WrappedPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"NestedHelperShadowWidget.used".to_owned()));
-    assert!(targets.contains(&"NestedHelperShadowWidget.unused".to_owned()));
-    assert!(targets.contains(&"LocalTopLevelHelperShadowWidget.used".to_owned()));
-    assert!(targets.contains(&"LocalTopLevelHelperShadowWidget.unused".to_owned()));
-
-    for target in [
-        "DirectPatternWidget.used",
-        "StaticPatternWidget.title",
-        "StaticPatternWidget.subtitle",
-        "ChartDisplay.data",
-        "ChartDisplay.selectedIndex",
-        "ChartDisplay.tooltipSuffix",
-        "IfCasePatternWidget.used",
-        "SwitchPatternWidget.used",
-        "DifferentFieldPatternWidget.used",
-        "ThisMethodPatternWidget.used",
-        "WrappedPatternWidget.title",
-        "WrappedPatternWidget.subtitle",
-    ] {
-        assert!(
-            !targets.contains(&target.to_owned()),
-            "{target} should be used"
-        );
-    }
+    assert_targets_contain(&targets, OBJECT_PATTERN_UNUSED_TARGETS);
+    assert_targets_do_not_contain(&targets, OBJECT_PATTERN_USED_TARGETS);
 
     Ok(())
 }
+
+const OBJECT_PATTERN_UNUSED_TARGETS: &[&str] = &[
+    "DirectPatternWidget.unused",
+    "StaticPatternWidget.unused",
+    "ChartDisplay.unused",
+    "IfCasePatternWidget.unused",
+    "SwitchPatternWidget.unused",
+    "OtherPatternWidget.used",
+    "OtherPatternWidget.unused",
+    "DifferentFieldPatternWidget.unused",
+    "LocalShadowWidget.title",
+    "HelperCollisionWidget.used",
+    "HelperCollisionWidget.unused",
+    "AliasScopeWidget.used",
+    "AliasScopeWidget.unused",
+    "UnrelatedPatternWidget.value",
+    "DeadHelperPatternWidget.used",
+    "DeadHelperPatternWidget.unused",
+    "OtherInstancePatternWidget.used",
+    "OtherInstancePatternWidget.unused",
+    "LocalHelperLeakWidget.used",
+    "LocalHelperLeakWidget.unused",
+    "ThisMethodPatternWidget.unused",
+    "WrappedPatternWidget.unused",
+    "NestedHelperShadowWidget.used",
+    "NestedHelperShadowWidget.unused",
+    "LocalTopLevelHelperShadowWidget.used",
+    "LocalTopLevelHelperShadowWidget.unused",
+    "StateOldWidgetPatternWidget.unused",
+    "StateRootShadowWidget.used",
+    "StateRootShadowWidget.unused",
+    "ParameterShadowHelperWidget.used",
+    "ParameterShadowHelperWidget.unused",
+];
+
+const OBJECT_PATTERN_USED_TARGETS: &[&str] = &[
+    "DirectPatternWidget.used",
+    "StaticPatternWidget.title",
+    "StaticPatternWidget.subtitle",
+    "ChartDisplay.data",
+    "ChartDisplay.selectedIndex",
+    "ChartDisplay.tooltipSuffix",
+    "IfCasePatternWidget.used",
+    "SwitchPatternWidget.used",
+    "DifferentFieldPatternWidget.used",
+    "ThisMethodPatternWidget.used",
+    "WrappedPatternWidget.title",
+    "WrappedPatternWidget.subtitle",
+    "StateOldWidgetPatternWidget.used",
+];
 
 const OBJECT_PATTERN_WIDGETS_SOURCE: &str = r"
 class DirectPatternWidget extends StatelessWidget {
@@ -677,6 +686,53 @@ String topLevelShadowedHelper(LocalTopLevelHelperShadowWidget widget) {
   return used;
 }
 
+class StateOldWidgetPatternWidget extends StatefulWidget {
+  const StateOldWidgetPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<StateOldWidgetPatternWidget> createState() => _StateOldWidgetPatternWidgetState();
+}
+
+class _StateOldWidgetPatternWidgetState extends State<StateOldWidgetPatternWidget> {
+  void didUpdateWidget(StateOldWidgetPatternWidget oldWidget) {
+    final StateOldWidgetPatternWidget(:used) = oldWidget;
+    Text(used);
+  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class StateRootShadowWidget extends StatefulWidget {
+  const StateRootShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<StateRootShadowWidget> createState() => _StateRootShadowWidgetState();
+}
+
+class _StateRootShadowWidgetState extends State<StateRootShadowWidget> {
+  Widget build(BuildContext context) {
+    final widget = StateRootShadowWidget(used: 'other', unused: 'other');
+    final StateRootShadowWidget(:used) = widget;
+    return Text(used);
+  }
+}
+
+class ParameterShadowHelperWidget extends StatelessWidget {
+  const ParameterShadowHelperWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(
+    BuildContext context,
+    String Function(ParameterShadowHelperWidget) parameterShadowHelper,
+  ) {
+    return Text(parameterShadowHelper(this));
+  }
+}
+
+String parameterShadowHelper(ParameterShadowHelperWidget widget) {
+  final ParameterShadowHelperWidget(:used) = widget;
+  return used;
+}
+
 class OtherThing {
   const OtherThing(this.value);
   final String value;
@@ -880,6 +936,24 @@ fn assert_no_widget_target(json: &Value, target_symbol: &str) {
         "{target_symbol} should not be reported: {:?}",
         json["findings"]
     );
+}
+
+fn assert_targets_contain(targets: &[String], expected: &[&str]) {
+    for target in expected {
+        assert!(
+            targets.iter().any(|candidate| candidate == target),
+            "{target} should be unused"
+        );
+    }
+}
+
+fn assert_targets_do_not_contain(targets: &[String], expected: &[&str]) {
+    for target in expected {
+        assert!(
+            targets.iter().all(|candidate| candidate != target),
+            "{target} should be used"
+        );
+    }
 }
 
 fn unused_widget_targets(json: &Value) -> Vec<String> {
