@@ -184,9 +184,16 @@ fn parameter_field_lists(node: Node<'_>) -> Vec<Node<'_>> {
 }
 
 fn collect_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
-    let mut lists = Vec::new();
-    collect_nodes(node, "formal_parameter_list", &mut lists);
-    lists
+    own_parameter_list(node).into_iter().collect()
+}
+
+fn own_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(own_parameter_list)
 }
 
 fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
@@ -271,23 +278,27 @@ fn catch_header_binding_exists(
         return scope.start_byte() < path_child.start_byte()
             && catch_clause_binds_name(scope, name, source);
     }
-    if scope.kind() != "try_statement" {
-        return false;
-    }
-    let mut previous: Option<Node<'_>> = None;
-    let mut cursor = scope.walk();
-    for child in scope.named_children(&mut cursor) {
-        if same_node(child, path_child) || child.start_byte() >= path_child.start_byte() {
-            return previous.is_some_and(|header| {
-                header.kind() == "catch_clause"
-                    && header.end_byte() <= usage_start
-                    && !source_between_contains_finally(header, path_child, source)
-                    && catch_clause_binds_name(header, name, source)
-            });
+    if scope.kind() == "try_statement" {
+        let mut previous: Option<Node<'_>> = None;
+        let mut cursor = scope.walk();
+        for child in scope.named_children(&mut cursor) {
+            if same_node(child, path_child) || child.start_byte() >= path_child.start_byte() {
+                return previous.is_some_and(|header| {
+                    header.kind() == "catch_clause"
+                        && catch_body_child(path_child)
+                        && header.end_byte() <= usage_start
+                        && !source_between_contains_finally(header, path_child, source)
+                        && catch_clause_binds_name(header, name, source)
+                });
+            }
+            previous = Some(child);
         }
-        previous = Some(child);
     }
     false
+}
+
+fn catch_body_child(node: Node<'_>) -> bool {
+    matches!(node.kind(), "block" | "function_body")
 }
 
 fn source_between_contains_finally(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
@@ -322,10 +333,21 @@ fn header_field_binding_exists(
 }
 
 fn lexical_sibling_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if node.kind() == "local_function_declaration" {
+        return local_function_name(node, source).as_deref() == Some(name);
+    }
     matches!(
         node.kind(),
         "local_variable_declaration" | "pattern_variable_declaration"
     ) && node_contains_binding_name(node, name, source)
+}
+
+fn local_function_name(node: Node<'_>, source: &str) -> Option<String> {
+    direct_named_child(node, "function_signature")
+        .and_then(|signature| signature.child_by_field_name("name"))
+        .or_else(|| node.child_by_field_name("name"))
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
 }
 
 fn pattern_or_local_binding_owner(node: Node<'_>) -> bool {
@@ -444,16 +466,6 @@ fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         visit_named(child, visitor);
-    }
-}
-
-fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tree>>) {
-    if node.kind() == kind {
-        nodes.push(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        collect_nodes(child, kind, nodes);
     }
 }
 

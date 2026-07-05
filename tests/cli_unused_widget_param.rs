@@ -348,6 +348,8 @@ void main() {
   OtherPatternWidget(used: 'ok', unused: 'x');
   DifferentFieldPatternWidget(used: 'ok', unused: 'x');
   LocalShadowWidget(title: 'real');
+  HelperCollisionWidget(used: 'real', unused: 'x');
+  AliasScopeWidget(used: 'real', unused: 'x');
   UnrelatedPatternWidget(value: 'real');
   DeadHelperPatternWidget(used: 'real', unused: 'x');
   OtherInstancePatternWidget(used: 'real', unused: 'x');
@@ -384,6 +386,10 @@ void main() {
     assert!(targets.contains(&"OtherPatternWidget.unused".to_owned()));
     assert!(targets.contains(&"DifferentFieldPatternWidget.unused".to_owned()));
     assert!(targets.contains(&"LocalShadowWidget.title".to_owned()));
+    assert!(targets.contains(&"HelperCollisionWidget.used".to_owned()));
+    assert!(targets.contains(&"HelperCollisionWidget.unused".to_owned()));
+    assert!(targets.contains(&"AliasScopeWidget.used".to_owned()));
+    assert!(targets.contains(&"AliasScopeWidget.unused".to_owned()));
     assert!(targets.contains(&"UnrelatedPatternWidget.value".to_owned()));
     assert!(targets.contains(&"DeadHelperPatternWidget.used".to_owned()));
     assert!(targets.contains(&"DeadHelperPatternWidget.unused".to_owned()));
@@ -523,6 +529,37 @@ class LocalShadowWidget extends StatelessWidget {
   }
 }
 
+class HelperCollisionWidget extends StatelessWidget {
+  const HelperCollisionWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(fromDisplay(this));
+}
+
+String fromDisplay(HelperCollisionWidget widget) => 'not a pattern helper';
+
+abstract final class HelperCollisionDetails {
+  static String fromDisplay(HelperCollisionWidget widget) {
+    final HelperCollisionWidget(:used) = widget;
+    return used;
+  }
+}
+
+class AliasScopeWidget extends StatelessWidget {
+  const AliasScopeWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final candidate = AliasScopeWidget(used: 'other', unused: 'other');
+    final AliasScopeWidget(:used) = candidate;
+    {
+      final candidate = this;
+      Text(candidate.used);
+    }
+    return Text(used);
+  }
+}
+
 class UnrelatedPatternWidget extends StatelessWidget {
   const UnrelatedPatternWidget({super.key, required this.value});
   final String value;
@@ -634,6 +671,83 @@ class UnusedExplicit extends StatelessWidget {
 ",
     )?;
     Ok(fixture)
+}
+
+#[test]
+fn check_respects_widget_field_shadowing_scope_boundaries() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'widgets.dart';
+
+void main() {
+  CatchBetweenWidget(title: 'real');
+  LocalFunctionShadowWidget(title: 'real');
+  FunctionTypedParamWidget(title: 'real');
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"
+class CatchBetweenWidget extends StatelessWidget {
+  const CatchBetweenWidget({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    try {
+      throw StateError('x');
+    } on FormatException catch (title) {
+      return Text(title.message);
+    } on StateError {
+      return Text(title);
+    }
+  }
+}
+
+class LocalFunctionShadowWidget extends StatelessWidget {
+  const LocalFunctionShadowWidget({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    String title() => 'local';
+    return Text(title());
+  }
+}
+
+class FunctionTypedParamWidget extends StatelessWidget {
+  const FunctionTypedParamWidget({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context, String Function(String title) format) => Text(title);
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_no_widget_target(&json, "CatchBetweenWidget.title");
+    assert_widget_param_for(&json, "LocalFunctionShadowWidget.title");
+    assert_no_widget_target(&json, "FunctionTypedParamWidget.title");
+
+    Ok(())
 }
 
 fn unused_widget_param_finding(json: &Value) -> &Value {

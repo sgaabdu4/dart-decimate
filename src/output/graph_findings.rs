@@ -169,10 +169,15 @@ fn is_typed_go_router_registry_cycle(project: &ScannedProject, cycle: &Dependenc
                 && dependency.from_path != dependency.to_path
         })
         .collect::<Vec<_>>();
+    let files_by_path = project
+        .files
+        .iter()
+        .map(|file| (file.path.clone(), file))
+        .collect::<BTreeMap<_, _>>();
     if internal_dependencies.is_empty()
-        || internal_dependencies
-            .iter()
-            .any(|dependency| !is_typed_go_router_registry_edge(dependency, &route_files))
+        || internal_dependencies.iter().any(|dependency| {
+            !is_typed_go_router_registry_edge(dependency, &route_files, &files_by_path)
+        })
     {
         return false;
     }
@@ -212,9 +217,66 @@ fn is_typed_go_router_registry_cycle(project: &ScannedProject, cycle: &Dependenc
 fn is_typed_go_router_registry_edge(
     dependency: &ResolvedDependency,
     route_files: &BTreeSet<PathBuf>,
+    files_by_path: &BTreeMap<PathBuf, &DartFile>,
 ) -> bool {
-    dependency.kind == DependencyKind::Import
-        && route_files.contains(&dependency.from_path) != route_files.contains(&dependency.to_path)
+    if dependency.kind != DependencyKind::Import {
+        return false;
+    }
+    let from_is_route = route_files.contains(&dependency.from_path);
+    let to_is_route = route_files.contains(&dependency.to_path);
+    if from_is_route == to_is_route {
+        return false;
+    }
+    let route_path = if from_is_route {
+        &dependency.from_path
+    } else {
+        &dependency.to_path
+    };
+    let helper_path = if from_is_route {
+        &dependency.to_path
+    } else {
+        &dependency.from_path
+    };
+    let Some(route_file) = files_by_path.get(route_path) else {
+        return false;
+    };
+    let Some(helper_file) = files_by_path.get(helper_path) else {
+        return false;
+    };
+    is_typed_go_router_navigation_helper(helper_file, route_file)
+}
+
+fn is_typed_go_router_navigation_helper(helper_file: &DartFile, route_file: &DartFile) -> bool {
+    let route_classes = route_file
+        .routes
+        .iter()
+        .map(|route| route.route_class.as_str())
+        .collect::<BTreeSet<_>>();
+    if route_classes.is_empty()
+        || !helper_file
+            .references
+            .iter()
+            .any(|reference| route_classes.contains(reference.name.as_str()))
+    {
+        return false;
+    }
+    helper_file
+        .references
+        .iter()
+        .any(|reference| is_typed_route_navigation_reference(&reference.name))
+}
+
+fn is_typed_route_navigation_reference(name: &str) -> bool {
+    matches!(
+        name,
+        "go" | "goNamed"
+            | "push"
+            | "pushNamed"
+            | "pushReplacement"
+            | "pushReplacementNamed"
+            | "replace"
+            | "replaceNamed"
+    )
 }
 
 fn is_typed_go_router_registry(file: &DartFile) -> bool {

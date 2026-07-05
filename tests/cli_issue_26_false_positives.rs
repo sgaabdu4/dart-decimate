@@ -223,6 +223,61 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
+fn cycles_keeps_plain_go_router_registry_import_cycles_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/data/route_repository.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  RouteRepository repository() => RouteRepository();
+}
+
+class GoRouteData {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/data/route_repository.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class RouteRepository {
+  HomeRoute fallback() => const HomeRoute();
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_severity(&json, "dart-decimate/circular-dependency", "error");
+    Ok(())
+}
+
+#[test]
 fn cycles_keeps_route_registry_sccs_with_internal_exports_as_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

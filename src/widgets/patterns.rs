@@ -6,9 +6,16 @@ use super::simple_type_name;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectPatternHelper {
-    names: BTreeSet<String>,
+    name: HelperName,
     parameter: HelperParameter,
     fields: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HelperName {
+    name: String,
+    qualified_names: BTreeSet<String>,
+    method_owner: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +48,7 @@ pub(super) fn object_pattern_field_reads_for_widget(
     for helper in helpers {
         let widget_call = body_calls_helper_with_roots(
             widget_body,
-            &helper.names,
+            &helper.name,
             &helper.parameter,
             &["this"],
             source,
@@ -51,7 +58,7 @@ pub(super) fn object_pattern_field_reads_for_widget(
                 state_bodies.iter().any(|state_body| {
                     body_calls_helper_with_roots(
                         *state_body,
-                        &helper.names,
+                        &helper.name,
                         &helper.parameter,
                         &["widget", "oldWidget"],
                         source,
@@ -86,10 +93,9 @@ fn object_pattern_helpers(
         let Some(signature) = helper_signature(declaration) else {
             continue;
         };
-        let names = helper_names(declaration, signature, source);
-        if names.is_empty() {
+        let Some(name) = helper_name(declaration, signature, source) else {
             continue;
-        }
+        };
         let body = helper_body(declaration).unwrap_or(declaration);
         for parameter in helper_widget_parameters(signature, widget_class, source) {
             let fields =
@@ -98,7 +104,7 @@ fn object_pattern_helpers(
                 continue;
             }
             helpers.push(ObjectPatternHelper {
-                names: names.clone(),
+                name: name.clone(),
                 parameter,
                 fields,
             });
@@ -117,20 +123,21 @@ fn helper_body(node: Node<'_>) -> Option<Node<'_>> {
         .or_else(|| direct_named_child(node, "function_body"))
 }
 
-fn helper_names(declaration: Node<'_>, signature: Node<'_>, source: &str) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    let Some(name) = field_text(signature, "name", source)
-        .or_else(|| identifier_before_parameters(signature, source))
-    else {
-        return names;
-    };
-    names.insert(name.clone());
-    if declaration.kind() == "method_declaration" {
-        if let Some(owner) = owner_class_name(declaration, source) {
-            names.insert(format!("{owner}.{name}"));
-        }
+fn helper_name(declaration: Node<'_>, signature: Node<'_>, source: &str) -> Option<HelperName> {
+    let name = field_text(signature, "name", source)
+        .or_else(|| identifier_before_parameters(signature, source))?;
+    let method_owner = (declaration.kind() == "method_declaration")
+        .then(|| owner_class_name(declaration, source))
+        .flatten();
+    let mut qualified_names = BTreeSet::new();
+    if let Some(owner) = &method_owner {
+        qualified_names.insert(format!("{owner}.{name}"));
     }
-    names
+    Some(HelperName {
+        name,
+        qualified_names,
+        method_owner,
+    })
 }
 
 fn owner_class_name(node: Node<'_>, source: &str) -> Option<String> {
@@ -214,7 +221,6 @@ fn object_pattern_field_reads_in_body(
     root_names: &[&str],
     source: &str,
 ) -> BTreeSet<String> {
-    let roots = body_root_aliases(body, root_names, source);
     let mut fields = BTreeSet::new();
     visit_named(body, &mut |node| {
         if node.kind() != "object_pattern" {
@@ -223,6 +229,7 @@ fn object_pattern_field_reads_in_body(
         if object_pattern_type_name(node, source).as_deref() != Some(widget_class) {
             return;
         }
+        let roots = root_aliases_at(body, node, root_names, source);
         if !object_pattern_matches_roots(node, &roots, source) {
             return;
         }
@@ -231,20 +238,77 @@ fn object_pattern_field_reads_in_body(
     fields
 }
 
-fn body_root_aliases(body: Node<'_>, root_names: &[&str], source: &str) -> BTreeSet<String> {
+fn root_aliases_at(
+    body: Node<'_>,
+    site: Node<'_>,
+    root_names: &[&str],
+    source: &str,
+) -> BTreeSet<String> {
     let mut roots = root_names
         .iter()
         .map(|name| (*name).to_owned())
         .collect::<BTreeSet<_>>();
-    loop {
-        let before = roots.len();
-        visit_named(body, &mut |node| {
-            if let Some(alias) = local_alias_for_root(node, &roots, source) {
-                roots.insert(alias);
-            }
-        });
-        if roots.len() == before {
-            return roots;
+    let mut steps = Vec::new();
+    let mut path_child = site;
+    let mut parent = site.parent();
+    while let Some(scope) = parent {
+        steps.push((scope, path_child));
+        if same_node(scope, body) {
+            break;
+        }
+        path_child = scope;
+        parent = scope.parent();
+    }
+    for (scope, child) in steps.into_iter().rev() {
+        collect_prior_root_aliases(scope, child, &mut roots, source);
+    }
+    roots
+}
+
+fn collect_prior_root_aliases(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    let mut cursor = scope.walk();
+    for sibling in scope.named_children(&mut cursor) {
+        if same_node(sibling, path_child) || sibling.start_byte() >= path_child.start_byte() {
+            break;
+        }
+        collect_root_aliases_from_lexical_declaration(sibling, roots, source);
+    }
+}
+
+fn collect_root_aliases_from_lexical_declaration(
+    node: Node<'_>,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    if !matches!(node.kind(), "local_variable_declaration") {
+        return;
+    }
+    collect_root_aliases_from_declaration_shape(node, roots, source);
+}
+
+fn collect_root_aliases_from_declaration_shape(
+    node: Node<'_>,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    if let Some(alias) = local_alias_for_root(node, roots, source) {
+        roots.insert(alias);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "initialized_identifier"
+                | "initialized_identifier_list"
+                | "initialized_variable_definition"
+                | "variable_declaration_list"
+        ) {
+            collect_root_aliases_from_declaration_shape(child, roots, source);
         }
     }
 }
@@ -370,24 +434,61 @@ fn parenthesized_after_keyword<'source>(text: &'source str, keyword: &str) -> Op
 
 fn body_calls_helper_with_roots(
     body: Node<'_>,
-    helper_names: &BTreeSet<String>,
+    helper_name: &HelperName,
     parameter: &HelperParameter,
     root_names: &[&str],
     source: &str,
 ) -> bool {
-    let roots = body_root_aliases(body, root_names, source);
     let mut found = false;
     visit_named(body, &mut |node| {
         if found {
             return;
         }
-        if invocation_name(node, source).is_some_and(|name| helper_names.contains(&name))
-            && invocation_arguments_pass_roots(node, parameter, &roots, source)
+        let Some(invocation_name) = invocation_name(node, source) else {
+            return;
+        };
+        if helper_name_matches(helper_name, &invocation_name, node, source)
+            && invocation_arguments_pass_roots(
+                node,
+                parameter,
+                &root_aliases_at(body, node, root_names, source),
+                source,
+            )
         {
             found = true;
         }
     });
     found
+}
+
+fn helper_name_matches(
+    helper_name: &HelperName,
+    invocation_name: &str,
+    invocation: Node<'_>,
+    source: &str,
+) -> bool {
+    if invocation_name.contains('.') {
+        return helper_name.qualified_names.contains(invocation_name);
+    }
+    if invocation_name != helper_name.name {
+        return false;
+    }
+    helper_name.method_owner.as_ref().is_none_or(|owner| {
+        current_lexical_owner(invocation, source)
+            .as_deref()
+            .is_some_and(|current| current == owner)
+    })
+}
+
+fn current_lexical_owner(node: Node<'_>, source: &str) -> Option<String> {
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent {
+        if ancestor.kind() == "class_declaration" {
+            return field_text(ancestor, "name", source);
+        }
+        parent = ancestor.parent();
+    }
+    None
 }
 
 fn invocation_name(node: Node<'_>, source: &str) -> Option<String> {
@@ -763,4 +864,10 @@ fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
     for child in node.named_children(&mut cursor) {
         visit_named(child, visitor);
     }
+}
+
+fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
+    left.kind() == right.kind()
+        && left.start_byte() == right.start_byte()
+        && left.end_byte() == right.end_byte()
 }
