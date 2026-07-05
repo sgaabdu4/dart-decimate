@@ -80,11 +80,7 @@ fn object_pattern_helpers(
     let mut declarations = Vec::new();
     collect_nodes_in(
         root,
-        &[
-            "function_declaration",
-            "local_function_declaration",
-            "method_declaration",
-        ],
+        &["function_declaration", "method_declaration"],
         &mut declarations,
     );
 
@@ -467,6 +463,14 @@ fn helper_name_matches(
     invocation: Node<'_>,
     source: &str,
 ) -> bool {
+    if let Some(member) = this_or_super_member_name(invocation_name) {
+        return member == helper_name.name
+            && helper_name.method_owner.as_ref().is_some_and(|owner| {
+                current_lexical_owner(invocation, source)
+                    .as_deref()
+                    .is_some_and(|current| current == owner)
+            });
+    }
     if invocation_name.contains('.') {
         return helper_name.qualified_names.contains(invocation_name);
     }
@@ -478,6 +482,13 @@ fn helper_name_matches(
             .as_deref()
             .is_some_and(|current| current == owner)
     })
+}
+
+fn this_or_super_member_name(invocation_name: &str) -> Option<&str> {
+    let member = invocation_name
+        .strip_prefix("this.")
+        .or_else(|| invocation_name.strip_prefix("super."))?;
+    (!member.contains('.')).then_some(member)
 }
 
 fn current_lexical_owner(node: Node<'_>, source: &str) -> Option<String> {
@@ -753,7 +764,24 @@ fn shorthand_pattern_name(node: Node<'_>, source: &str) -> Option<String> {
     if is_identifier_text(text) && text != "_" {
         return Some(text.to_owned());
     }
+    if shorthand_pattern_wrapper(node.kind()) {
+        let mut cursor = node.walk();
+        return node
+            .named_children(&mut cursor)
+            .find_map(|child| shorthand_pattern_name(child, source));
+    }
     None
+}
+
+fn shorthand_pattern_wrapper(kind: &str) -> bool {
+    matches!(
+        kind,
+        "cast_pattern"
+            | "null_assert_pattern"
+            | "null_check_pattern"
+            | "parenthesized_pattern"
+            | "pattern"
+    )
 }
 
 fn field_text(node: Node<'_>, field_name: &str, source: &str) -> Option<String> {

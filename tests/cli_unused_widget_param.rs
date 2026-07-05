@@ -353,6 +353,9 @@ void main() {
   UnrelatedPatternWidget(value: 'real');
   DeadHelperPatternWidget(used: 'real', unused: 'x');
   OtherInstancePatternWidget(used: 'real', unused: 'x');
+  LocalHelperLeakWidget(used: 'real', unused: 'x');
+  ThisMethodPatternWidget(used: 'real', unused: 'x');
+  WrappedPatternWidget(title: 'real', subtitle: 'sub', unused: 'x');
 }
 ",
     )?;
@@ -395,6 +398,10 @@ void main() {
     assert!(targets.contains(&"DeadHelperPatternWidget.unused".to_owned()));
     assert!(targets.contains(&"OtherInstancePatternWidget.used".to_owned()));
     assert!(targets.contains(&"OtherInstancePatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"LocalHelperLeakWidget.used".to_owned()));
+    assert!(targets.contains(&"LocalHelperLeakWidget.unused".to_owned()));
+    assert!(targets.contains(&"ThisMethodPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"WrappedPatternWidget.unused".to_owned()));
 
     for target in [
         "DirectPatternWidget.used",
@@ -406,6 +413,9 @@ void main() {
         "IfCasePatternWidget.used",
         "SwitchPatternWidget.used",
         "DifferentFieldPatternWidget.used",
+        "ThisMethodPatternWidget.used",
+        "WrappedPatternWidget.title",
+        "WrappedPatternWidget.subtitle",
     ] {
         assert!(
             !targets.contains(&target.to_owned()),
@@ -586,6 +596,48 @@ class OtherInstancePatternWidget extends StatelessWidget {
     const other = OtherInstancePatternWidget(used: 'other', unused: 'other');
     final OtherInstancePatternWidget(:used) = other;
     return Text(used);
+  }
+}
+
+class LocalHelperLeakWidget extends StatelessWidget {
+  const LocalHelperLeakWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(helper(this));
+}
+
+void ownerOfDeadLocalHelper() {
+  String helper(LocalHelperLeakWidget widget) {
+    final LocalHelperLeakWidget(:used) = widget;
+    return used;
+  }
+  helper(const LocalHelperLeakWidget(used: 'dead', unused: 'dead'));
+}
+
+class ThisMethodPatternWidget extends StatelessWidget {
+  const ThisMethodPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  String fromDisplay(ThisMethodPatternWidget widget) {
+    final ThisMethodPatternWidget(:used) = widget;
+    return used;
+  }
+  Widget build(BuildContext context) => Text(this.fromDisplay(this));
+}
+
+class WrappedPatternWidget extends StatelessWidget {
+  const WrappedPatternWidget({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.unused,
+  });
+  final String? title;
+  final Object subtitle;
+  final String unused;
+  Widget build(BuildContext context) {
+    final WrappedPatternWidget(:title?, :subtitle as String) = this;
+    return Text('$title$subtitle');
   }
 }
 

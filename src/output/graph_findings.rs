@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::PathBuf;
+
+use tree_sitter::Node;
 
 use super::format::{dependency_kind, display_path};
 use super::{Finding, FindingAction, FindingEdge, FindingKind, Severity};
@@ -250,20 +253,188 @@ fn is_typed_go_router_navigation_helper(helper_file: &DartFile, route_file: &Dar
     let route_classes = route_file
         .routes
         .iter()
-        .map(|route| route.route_class.as_str())
+        .map(|route| route.route_class.clone())
         .collect::<BTreeSet<_>>();
-    if route_classes.is_empty()
-        || !helper_file
-            .references
-            .iter()
-            .any(|reference| route_classes.contains(reference.name.as_str()))
-    {
+    if route_classes.is_empty() {
         return false;
     }
-    helper_file
-        .references
+    let Ok(source) = fs::read_to_string(&helper_file.path) else {
+        return false;
+    };
+    let Ok(parsed) = crate::dart_parser::parse_dart_source_lossy(&helper_file.path, &source) else {
+        return false;
+    };
+    helper_has_typed_route_navigation_call(
+        parsed.tree().root_node(),
+        parsed.source(),
+        &route_classes,
+    )
+}
+
+fn helper_has_typed_route_navigation_call(
+    root: Node<'_>,
+    source: &str,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found {
+            return;
+        }
+        if typed_route_navigation_call(node, source, route_classes) {
+            found = true;
+        }
+    });
+    found
+}
+
+fn typed_route_navigation_call(
+    node: Node<'_>,
+    source: &str,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    if !matches!(
+        node.kind(),
+        "call_expression" | "function_expression_invocation"
+    ) {
+        return false;
+    }
+    let Some(arguments) = argument_list(node) else {
+        return false;
+    };
+    let Some(prefix) = source.get(node.start_byte()..arguments.start_byte()) else {
+        return false;
+    };
+    let Some(navigation_name) = navigation_call_name(prefix) else {
+        return false;
+    };
+    route_extension_navigation_call(prefix, &navigation_name, route_classes)
+        || arguments_contain_route_location(arguments, route_classes, source)
+}
+
+fn argument_list(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("arguments")
+        .or_else(|| direct_named_child(node, "arguments"))
+        .or_else(|| direct_named_child(node, "argument_part"))
+}
+
+fn navigation_call_name(prefix: &str) -> Option<String> {
+    let compact = strip_whitespace(prefix);
+    let name = compact.rsplit('.').next().unwrap_or(compact.as_str());
+    is_typed_route_navigation_reference(name).then(|| name.to_owned())
+}
+
+fn route_extension_navigation_call(
+    prefix: &str,
+    navigation_name: &str,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let compact = strip_whitespace(prefix);
+    let suffix = format!(".{navigation_name}");
+    let Some(receiver) = compact.strip_suffix(&suffix) else {
+        return false;
+    };
+    let receiver = receiver
+        .strip_prefix("const")
+        .or_else(|| receiver.strip_prefix("new"))
+        .unwrap_or(receiver);
+    route_classes
         .iter()
-        .any(|reference| is_typed_route_navigation_reference(&reference.name))
+        .any(|route_class| contains_constructor_call(receiver, route_class))
+}
+
+fn arguments_contain_route_location(
+    arguments: Node<'_>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    let mut found = false;
+    visit_named(arguments, &mut |node| {
+        if found {
+            return;
+        }
+        if route_location_member(node, route_classes, source) {
+            found = true;
+        }
+    });
+    found
+}
+
+fn route_location_member(node: Node<'_>, route_classes: &BTreeSet<String>, source: &str) -> bool {
+    if !matches!(
+        node.kind(),
+        "member_expression" | "null_aware_member_expression" | "assignable_expression"
+    ) {
+        return false;
+    }
+    let Some(property) = node.child_by_field_name("property") else {
+        return false;
+    };
+    if property.utf8_text(source.as_bytes()).ok() != Some("location") {
+        return false;
+    }
+    node.child_by_field_name("object")
+        .is_some_and(|object| node_contains_route_constructor(object, route_classes, source))
+}
+
+fn node_contains_route_constructor(
+    node: Node<'_>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    if matches!(
+        node.kind(),
+        "constructor_invocation" | "const_object_expression" | "new_expression"
+    ) && node
+        .child_by_field_name("type")
+        .and_then(|type_node| type_node.utf8_text(source.as_bytes()).ok())
+        .map(simple_type_name)
+        .is_some_and(|type_name| route_classes.contains(&type_name))
+    {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| node_contains_route_constructor(child, route_classes, source))
+}
+
+fn contains_constructor_call(text: &str, route_class: &str) -> bool {
+    let mut cursor = 0usize;
+    while let Some(relative) = text[cursor..].find(route_class) {
+        let start = cursor + relative;
+        let end = start + route_class.len();
+        if !identifier_continues_before(text, start)
+            && text
+                .get(end..)
+                .is_some_and(|after| after.starts_with('(') || after.starts_with('<'))
+        {
+            return true;
+        }
+        cursor = end;
+    }
+    false
+}
+
+fn identifier_continues_before(text: &str, index: usize) -> bool {
+    text[..index]
+        .chars()
+        .next_back()
+        .is_some_and(is_identifier_character)
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character == '_' || character == '$' || character.is_ascii_alphanumeric()
+}
+
+fn simple_type_name(text: &str) -> String {
+    text.trim_end_matches('?')
+        .rsplit('.')
+        .next()
+        .unwrap_or(text)
+        .split('<')
+        .next()
+        .unwrap_or(text)
+        .to_owned()
 }
 
 fn is_typed_route_navigation_reference(name: &str) -> bool {
@@ -296,6 +467,26 @@ fn is_typed_go_router_registry(file: &DartFile) -> bool {
     }
 
     file.parts.iter().any(|part| part.uri.ends_with(".g.dart"))
+}
+
+fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
+}
+
+fn strip_whitespace(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
+    visitor(node);
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_named(child, visitor);
+    }
 }
 
 pub(super) fn add_re_export_cycle_findings(
