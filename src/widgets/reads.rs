@@ -142,26 +142,58 @@ fn enclosing_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> b
     ) {
         return false;
     }
+    let parameter_lists = enclosing_parameter_lists(node);
+    if parameter_lists.is_empty() {
+        return false;
+    }
     let mut found = false;
-    visit_named(node, &mut |candidate| {
-        if found {
-            return;
-        }
-        if candidate.kind() == "formal_parameter"
-            && formal_parameter_name(candidate, source).as_deref() == Some(name)
-        {
-            found = true;
-            return;
-        }
-        if matches!(
-            candidate.kind(),
-            "initialized_identifier" | "typed_identifier"
-        ) && binding_name(candidate, source).as_deref() == Some(name)
-        {
-            found = true;
-        }
-    });
+    for parameters in parameter_lists {
+        visit_named(parameters, &mut |candidate| {
+            if !found
+                && candidate.kind() == "formal_parameter"
+                && formal_parameter_name(candidate, source).as_deref() == Some(name)
+            {
+                found = true;
+            }
+        });
+    }
     found
+}
+
+fn enclosing_parameter_lists<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
+    match node.kind() {
+        "function_expression" => parameter_field_lists(node),
+        "method_declaration" => node
+            .child_by_field_name("signature")
+            .map_or_else(Vec::new, collect_parameter_lists),
+        "local_function_declaration" | "declaration" => {
+            direct_named_child(node, "function_signature")
+                .map_or_else(Vec::new, collect_parameter_lists)
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn parameter_field_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children_by_field_name("parameters", &mut cursor)
+        .filter_map(formal_parameter_list)
+        .collect()
+}
+
+fn collect_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut lists = Vec::new();
+    collect_nodes(node, "formal_parameter_list", &mut lists);
+    lists
+}
+
+fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "formal_parameter_list")
 }
 
 fn earlier_local_binding_exists(
@@ -248,6 +280,22 @@ fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
     for child in node.named_children(&mut cursor) {
         visit_named(child, visitor);
     }
+}
+
+fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tree>>) {
+    if node.kind() == kind {
+        nodes.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_nodes(child, kind, nodes);
+    }
+}
+
+fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
 }
 
 fn name_field_of(parent: Node<'_>, child: Node<'_>) -> bool {

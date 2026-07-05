@@ -149,6 +149,80 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
+fn cycles_keeps_mixed_go_router_sccs_as_errors() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+import 'package:app/features/home/home_helpers.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => const HomeRoute().go(context);
+  HomeHelpers helpers() => HomeHelpers();
+}
+
+extension HomeRouteNavigation on HomeRoute {
+  void go(BuildContext context) {}
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_helpers.dart",
+        "import 'package:app/features/home/home_cycle.dart';\nclass HomeHelpers {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_cycle.dart",
+        "import 'package:app/features/home/home_screen.dart';\nclass HomeCycle {}\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_severity(&json, "dart-decimate/circular-dependency", "error");
+    Ok(())
+}
+
+#[test]
 fn check_treats_scripts_as_dynamic_entry_points() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

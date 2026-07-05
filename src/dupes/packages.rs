@@ -5,6 +5,9 @@ use crate::dependencies::{LocalPubPackage, local_pub_package_from_pubspec};
 
 use super::{CodeClone, CodeCloneInstance};
 
+type PackageIdentity = (String, PathBuf);
+type InstanceKey = (PathBuf, usize, usize, usize);
+
 pub(super) struct CopiedPackageFilter {
     root: PathBuf,
     package_cache: BTreeMap<PathBuf, Option<LocalPubPackage>>,
@@ -37,6 +40,7 @@ impl CopiedPackageFilter {
                 relative_path.to_path_buf(),
                 instance.start_line,
                 instance.end_line,
+                instance.column,
             );
             if identity.is_none() {
                 identity = Some(current);
@@ -52,7 +56,8 @@ impl CopiedPackageFilter {
             return;
         }
 
-        let mut roots_by_identity = BTreeMap::<(String, PathBuf), BTreeSet<PathBuf>>::new();
+        let mut instances_by_identity =
+            BTreeMap::<PackageIdentity, BTreeMap<PathBuf, Vec<CodeCloneInstance>>>::new();
         for instance in &group.instances {
             let Some(package) = self.owning_package(&instance.path) else {
                 continue;
@@ -60,30 +65,26 @@ impl CopiedPackageFilter {
             let Ok(relative_path) = instance.path.strip_prefix(&package.root) else {
                 continue;
             };
-            roots_by_identity
+            instances_by_identity
                 .entry((package.name, relative_path.to_path_buf()))
                 .or_default()
-                .insert(package.root);
+                .entry(package.root)
+                .or_default()
+                .push(instance.clone());
         }
 
-        let canonical_roots = roots_by_identity
-            .into_iter()
-            .filter(|(_, roots)| roots.len() > 1)
-            .filter_map(|(identity, roots)| {
-                roots
-                    .into_iter()
-                    .min_by(package_root_order)
-                    .map(|root| (identity, root))
-            })
-            .collect::<BTreeMap<_, _>>();
-        if canonical_roots.is_empty() {
+        let canonical_instances = canonical_instances_by_occurrence(instances_by_identity);
+        if canonical_instances.is_empty() {
             return;
         }
 
         let mut seen = BTreeSet::<(PathBuf, usize, usize, usize)>::new();
         let mut instances = Vec::new();
         for instance in &group.instances {
-            let canonical = self.canonical_instance(instance, &canonical_roots);
+            let canonical = canonical_instances
+                .get(&instance_key(instance))
+                .cloned()
+                .unwrap_or_else(|| instance.clone());
             if seen.insert((
                 canonical.path.clone(),
                 canonical.start_line,
@@ -101,26 +102,6 @@ impl CopiedPackageFilter {
             ))
         });
         group.instances = instances;
-    }
-
-    fn canonical_instance(
-        &mut self,
-        instance: &CodeCloneInstance,
-        canonical_roots: &BTreeMap<(String, PathBuf), PathBuf>,
-    ) -> CodeCloneInstance {
-        let Some(package) = self.owning_package(&instance.path) else {
-            return instance.clone();
-        };
-        let Ok(relative_path) = instance.path.strip_prefix(&package.root) else {
-            return instance.clone();
-        };
-        let identity = (package.name, relative_path.to_path_buf());
-        let Some(canonical_root) = canonical_roots.get(&identity) else {
-            return instance.clone();
-        };
-        let mut canonical = instance.clone();
-        canonical.path = canonical_root.join(relative_path);
-        canonical
     }
 
     fn owning_package(&mut self, path: &Path) -> Option<LocalPubPackage> {
@@ -150,4 +131,56 @@ fn package_root_order(left: &PathBuf, right: &PathBuf) -> std::cmp::Ordering {
     let left_components = left.components().count();
     let right_components = right.components().count();
     (left_components, left).cmp(&(right_components, right))
+}
+
+fn canonical_instances_by_occurrence(
+    instances_by_identity: BTreeMap<PackageIdentity, BTreeMap<PathBuf, Vec<CodeCloneInstance>>>,
+) -> BTreeMap<InstanceKey, CodeCloneInstance> {
+    let mut canonical_instances = BTreeMap::new();
+    for roots in instances_by_identity.into_values() {
+        if roots.len() < 2 {
+            continue;
+        }
+        let Some((canonical_root, canonical_root_instances)) = roots
+            .iter()
+            .min_by(|left, right| package_root_order(left.0, right.0))
+        else {
+            continue;
+        };
+        let canonical_root_instances = sorted_instances(canonical_root_instances);
+        for (root, root_instances) in &roots {
+            if root == canonical_root {
+                continue;
+            }
+            for (index, instance) in sorted_instances(root_instances).into_iter().enumerate() {
+                let Some(canonical) = canonical_root_instances.get(index) else {
+                    continue;
+                };
+                canonical_instances.insert(instance_key(&instance), canonical.clone());
+            }
+        }
+    }
+    canonical_instances
+}
+
+fn sorted_instances(instances: &[CodeCloneInstance]) -> Vec<CodeCloneInstance> {
+    let mut instances = instances.to_vec();
+    instances.sort_by(|left, right| {
+        (left.start_line, left.end_line, left.column, &left.path).cmp(&(
+            right.start_line,
+            right.end_line,
+            right.column,
+            &right.path,
+        ))
+    });
+    instances
+}
+
+fn instance_key(instance: &CodeCloneInstance) -> InstanceKey {
+    (
+        instance.path.clone(),
+        instance.start_line,
+        instance.end_line,
+        instance.column,
+    )
 }

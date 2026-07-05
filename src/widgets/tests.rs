@@ -128,6 +128,24 @@ class DirectFieldCard extends StatelessWidget {
   final String title;
   Widget build(BuildContext context) => Text(title);
 }
+class LaterLocalShadowCard extends StatelessWidget {
+  const LaterLocalShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final child = Text(title);
+    const title = 'local';
+    return child;
+  }
+}
+class LaterCallbackShadowCard extends StatelessWidget {
+  const LaterCallbackShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final child = Text(title);
+    ['local'].map((title) => Text(title)).toList();
+    return child;
+  }
+}
 ";
     let unused = parse_findings(source)?.unused_params;
     let targets = unused

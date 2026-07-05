@@ -1,3 +1,6 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+
 use super::format::{dependency_kind, display_path};
 use super::{Finding, FindingAction, FindingEdge, FindingKind, Severity};
 use crate::{
@@ -146,36 +149,67 @@ fn cycle_classification(project: &ScannedProject, cycle: &DependencyCycle) -> Cy
 }
 
 fn is_typed_go_router_registry_cycle(project: &ScannedProject, cycle: &DependencyCycle) -> bool {
-    let cycle_files = cycle
-        .files
-        .iter()
-        .collect::<std::collections::BTreeSet<_>>();
+    let cycle_files = cycle.files.iter().cloned().collect::<BTreeSet<_>>();
     let route_files = project
         .files
         .iter()
         .filter(|file| cycle_files.contains(&file.path) && is_typed_go_router_registry(file))
         .map(|file| file.path.clone())
-        .collect::<Vec<_>>();
+        .collect::<BTreeSet<_>>();
     if route_files.is_empty() {
         return false;
     }
 
     let dependencies = project.graph.dependencies();
-    route_files.iter().any(|route_file| {
-        let route_imports_cycle_file = dependencies.iter().any(|dependency| {
+    let internal_imports = dependencies
+        .iter()
+        .filter(|dependency| {
             dependency.kind == DependencyKind::Import
-                && dependency.from_path == *route_file
-                && cycle_files.contains(&dependency.to_path)
-                && dependency.to_path != *route_file
-        });
-        let cycle_file_imports_route = dependencies.iter().any(|dependency| {
-            dependency.kind == DependencyKind::Import
-                && dependency.to_path == *route_file
                 && cycle_files.contains(&dependency.from_path)
-                && dependency.from_path != *route_file
-        });
-        route_imports_cycle_file && cycle_file_imports_route
-    })
+                && cycle_files.contains(&dependency.to_path)
+                && dependency.from_path != dependency.to_path
+        })
+        .collect::<Vec<_>>();
+    if internal_imports.is_empty()
+        || internal_imports.iter().any(|dependency| {
+            route_files.contains(&dependency.from_path) == route_files.contains(&dependency.to_path)
+        })
+    {
+        return false;
+    }
+
+    let mut route_helpers = BTreeMap::<PathBuf, BTreeSet<PathBuf>>::new();
+    for dependency in internal_imports {
+        if route_files.contains(&dependency.from_path) {
+            route_helpers
+                .entry(dependency.from_path.clone())
+                .or_default()
+                .insert(dependency.to_path.clone());
+        }
+    }
+
+    let helper_files = cycle_files
+        .difference(&route_files)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    !helper_files.is_empty()
+        && route_files.iter().all(|route_file| {
+            route_helpers
+                .get(route_file)
+                .is_some_and(|helpers| !helpers.is_empty())
+        })
+        && helper_files.iter().all(|helper_file| {
+            route_files.iter().any(|route_file| {
+                route_helpers
+                    .get(route_file)
+                    .is_some_and(|helpers| helpers.contains(helper_file))
+                    && dependencies.iter().any(|dependency| {
+                        dependency.kind == DependencyKind::Import
+                            && dependency.from_path == *helper_file
+                            && dependency.to_path == *route_file
+                    })
+            })
+        })
 }
 
 fn is_typed_go_router_registry(file: &DartFile) -> bool {
