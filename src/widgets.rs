@@ -23,7 +23,7 @@ use forwarding::{forwarded_param_used, widget_forwarded_param_uses};
 pub use lifecycle::MissingContextMountedAfterAwait;
 use lifecycle::lifecycle_findings;
 use params::constructor_params;
-use patterns::object_pattern_field_reads_by_type;
+use patterns::object_pattern_field_reads_for_widget;
 use reads::{state_body_uses_param, widget_body_uses_param};
 use top_level::top_level_widget_functions;
 use unrendered::unrendered_widgets;
@@ -324,7 +324,6 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
     collect_class_declarations(root, &mut classes);
     let states = state_classes_by_widget(&classes, source);
     let forwarded_uses = widget_forwarded_param_uses(&classes, source);
-    let object_pattern_reads = object_pattern_field_reads_by_type(root, source);
     let mut findings = FileWidgetFindings::default();
     let has_widget_class = classes
         .iter()
@@ -354,11 +353,16 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
         let Some(body) = class.child_by_field_name("body") else {
             continue;
         };
+        let object_pattern_reads = object_pattern_field_reads_for_widget(
+            root,
+            &widget_class,
+            body,
+            states.get(&widget_class),
+            source,
+        );
         for param in constructor_params(class, &widget_class, source) {
             if widget_body_uses_param(body, &param.field_name, source)
-                || object_pattern_reads
-                    .get(&widget_class)
-                    .is_some_and(|fields| fields.contains(&param.field_name))
+                || object_pattern_reads.contains(&param.field_name)
                 || states.get(&widget_class).is_some_and(|state_bodies| {
                     state_bodies.iter().any(|state_body| {
                         state_body_uses_param(*state_body, &param.field_name, source)

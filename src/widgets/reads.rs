@@ -281,12 +281,19 @@ fn catch_header_binding_exists(
             return previous.is_some_and(|header| {
                 header.kind() == "catch_clause"
                     && header.end_byte() <= usage_start
+                    && !source_between_contains_finally(header, path_child, source)
                     && catch_clause_binds_name(header, name, source)
             });
         }
         previous = Some(child);
     }
     false
+}
+
+fn source_between_contains_finally(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
+    source
+        .get(left.end_byte()..right.start_byte())
+        .is_some_and(|text| text.contains("finally"))
 }
 
 fn catch_clause_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {

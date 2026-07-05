@@ -1,28 +1,562 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use tree_sitter::Node;
 
 use super::simple_type_name;
 
-pub(super) fn object_pattern_field_reads_by_type(
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ObjectPatternHelper {
+    names: BTreeSet<String>,
+    parameter: HelperParameter,
+    fields: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HelperParameter {
+    name: String,
+    positional_index: Option<usize>,
+}
+
+pub(super) fn object_pattern_field_reads_for_widget(
     root: Node<'_>,
+    widget_class: &str,
+    widget_body: Node<'_>,
+    state_bodies: Option<&Vec<Node<'_>>>,
     source: &str,
-) -> BTreeMap<String, BTreeSet<String>> {
-    let mut reads = BTreeMap::<String, BTreeSet<String>>::new();
-    visit_named(root, &mut |node| {
+) -> BTreeSet<String> {
+    let mut reads =
+        object_pattern_field_reads_in_body(widget_body, widget_class, &["this"], source);
+    if let Some(state_bodies) = state_bodies {
+        for state_body in state_bodies {
+            reads.extend(object_pattern_field_reads_in_body(
+                *state_body,
+                widget_class,
+                &["widget", "oldWidget"],
+                source,
+            ));
+        }
+    }
+
+    let helpers = object_pattern_helpers(root, widget_class, source);
+    for helper in helpers {
+        let widget_call = body_calls_helper_with_roots(
+            widget_body,
+            &helper.names,
+            &helper.parameter,
+            &["this"],
+            source,
+        );
+        if widget_call
+            || state_bodies.is_some_and(|state_bodies| {
+                state_bodies.iter().any(|state_body| {
+                    body_calls_helper_with_roots(
+                        *state_body,
+                        &helper.names,
+                        &helper.parameter,
+                        &["widget", "oldWidget"],
+                        source,
+                    )
+                })
+            })
+        {
+            reads.extend(helper.fields);
+        }
+    }
+    reads
+}
+
+fn object_pattern_helpers(
+    root: Node<'_>,
+    widget_class: &str,
+    source: &str,
+) -> Vec<ObjectPatternHelper> {
+    let mut declarations = Vec::new();
+    collect_nodes_in(
+        root,
+        &[
+            "function_declaration",
+            "local_function_declaration",
+            "method_declaration",
+        ],
+        &mut declarations,
+    );
+
+    let mut helpers = Vec::new();
+    for declaration in declarations {
+        let Some(signature) = helper_signature(declaration) else {
+            continue;
+        };
+        let names = helper_names(declaration, signature, source);
+        if names.is_empty() {
+            continue;
+        }
+        let body = helper_body(declaration).unwrap_or(declaration);
+        for parameter in helper_widget_parameters(signature, widget_class, source) {
+            let fields =
+                object_pattern_field_reads_in_body(body, widget_class, &[&parameter.name], source);
+            if fields.is_empty() {
+                continue;
+            }
+            helpers.push(ObjectPatternHelper {
+                names: names.clone(),
+                parameter,
+                fields,
+            });
+        }
+    }
+    helpers
+}
+
+fn helper_signature(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("signature")
+        .or_else(|| direct_named_child(node, "function_signature"))
+}
+
+fn helper_body(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("body")
+        .or_else(|| direct_named_child(node, "function_body"))
+}
+
+fn helper_names(declaration: Node<'_>, signature: Node<'_>, source: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let Some(name) = field_text(signature, "name", source)
+        .or_else(|| identifier_before_parameters(signature, source))
+    else {
+        return names;
+    };
+    names.insert(name.clone());
+    if declaration.kind() == "method_declaration" {
+        if let Some(owner) = owner_class_name(declaration, source) {
+            names.insert(format!("{owner}.{name}"));
+        }
+    }
+    names
+}
+
+fn owner_class_name(node: Node<'_>, source: &str) -> Option<String> {
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent {
+        if ancestor.kind() == "class_declaration" {
+            return field_text(ancestor, "name", source);
+        }
+        parent = ancestor.parent();
+    }
+    None
+}
+
+fn helper_widget_parameters(
+    signature: Node<'_>,
+    widget_class: &str,
+    source: &str,
+) -> Vec<HelperParameter> {
+    let parameters = parameter_list(signature).unwrap_or(signature);
+    let mut formal_parameters = Vec::new();
+    collect_nodes(parameters, "formal_parameter", &mut formal_parameters);
+    let mut positional_index = 0usize;
+    let mut widget_parameters = Vec::new();
+    for param in formal_parameters {
+        let is_named = is_named_parameter(param, source);
+        let current_positional_index = (!is_named).then_some(positional_index);
+        if !is_named {
+            positional_index += 1;
+        }
+        let Some(name) = formal_parameter_name(param, source) else {
+            continue;
+        };
+        if formal_parameter_type(param, &name, source).as_deref() != Some(widget_class) {
+            continue;
+        }
+        widget_parameters.push(HelperParameter {
+            name,
+            positional_index: current_positional_index,
+        });
+    }
+    widget_parameters
+}
+
+fn parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("parameters")
+        .or_else(|| direct_named_child(node, "formal_parameter_list"))
+}
+
+fn is_named_parameter(param: Node<'_>, source: &str) -> bool {
+    let Some(parent) = param.parent() else {
+        return false;
+    };
+    parent.kind() == "optional_formal_parameters"
+        && parent
+            .utf8_text(source.as_bytes())
+            .ok()
+            .is_some_and(|text| text.trim_start().starts_with('{'))
+}
+
+fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {
+    param
+        .child_by_field_name("name")
+        .or_else(|| last_identifier_child(param, source))
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
+}
+
+fn formal_parameter_type(param: Node<'_>, name: &str, source: &str) -> Option<String> {
+    let text = param.utf8_text(source.as_bytes()).ok()?;
+    let name_index = text.rfind(name)?;
+    let before_name = text[..name_index].trim();
+    let type_name = before_name
+        .split_whitespace()
+        .rfind(|part| !matches!(*part, "required" | "covariant" | "final" | "var"))?;
+    Some(simple_type_name(type_name.trim_end_matches('?')))
+}
+
+fn object_pattern_field_reads_in_body(
+    body: Node<'_>,
+    widget_class: &str,
+    root_names: &[&str],
+    source: &str,
+) -> BTreeSet<String> {
+    let roots = body_root_aliases(body, root_names, source);
+    let mut fields = BTreeSet::new();
+    visit_named(body, &mut |node| {
         if node.kind() != "object_pattern" {
             return;
         }
-        let Some(type_name) = object_pattern_type_name(node, source) else {
-            return;
-        };
-        let fields = object_pattern_field_names(node, source);
-        if fields.is_empty() {
+        if object_pattern_type_name(node, source).as_deref() != Some(widget_class) {
             return;
         }
-        reads.entry(type_name).or_default().extend(fields);
+        if !object_pattern_matches_roots(node, &roots, source) {
+            return;
+        }
+        fields.extend(object_pattern_field_names(node, source));
     });
-    reads
+    fields
+}
+
+fn body_root_aliases(body: Node<'_>, root_names: &[&str], source: &str) -> BTreeSet<String> {
+    let mut roots = root_names
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect::<BTreeSet<_>>();
+    loop {
+        let before = roots.len();
+        visit_named(body, &mut |node| {
+            if let Some(alias) = local_alias_for_root(node, &roots, source) {
+                roots.insert(alias);
+            }
+        });
+        if roots.len() == before {
+            return roots;
+        }
+    }
+}
+
+fn local_alias_for_root(node: Node<'_>, roots: &BTreeSet<String>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "initialized_identifier" | "initialized_variable_definition"
+    ) {
+        return None;
+    }
+    let text = node.utf8_text(source.as_bytes()).ok()?;
+    let (_, right) = text.split_once('=')?;
+    if !expression_matches_roots(right, roots) {
+        return None;
+    }
+    field_text(node, "name", source).or_else(|| identifier_before_equals(text))
+}
+
+fn object_pattern_matches_roots(pattern: Node<'_>, roots: &BTreeSet<String>, source: &str) -> bool {
+    let mut parent = pattern.parent();
+    while let Some(ancestor) = parent {
+        match ancestor.kind() {
+            "pattern_assignment" | "pattern_variable_declaration" => {
+                return pattern_variable_expression_matches(pattern, ancestor, roots, source);
+            }
+            "if_element" | "if_statement" => {
+                return if_case_expression_matches(pattern, ancestor, roots, source);
+            }
+            "switch_expression" | "switch_statement" => {
+                return switch_expression_matches(ancestor, roots, source);
+            }
+            "class_body" | "class_declaration" => return false,
+            _ => {}
+        }
+        parent = ancestor.parent();
+    }
+    false
+}
+
+fn pattern_variable_expression_matches(
+    pattern: Node<'_>,
+    owner: Node<'_>,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    let Some(after_pattern) = source.get(pattern.end_byte()..owner.end_byte()) else {
+        return false;
+    };
+    let Some((_, right)) = after_pattern.split_once('=') else {
+        return false;
+    };
+    expression_matches_roots(right, roots)
+}
+
+fn if_case_expression_matches(
+    pattern: Node<'_>,
+    owner: Node<'_>,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    let Some(before_pattern) = source.get(owner.start_byte()..pattern.start_byte()) else {
+        return false;
+    };
+    let Some(case_index) = before_pattern.rfind("case") else {
+        return false;
+    };
+    let before_case = &before_pattern[..case_index];
+    let expression = before_case
+        .rfind('(')
+        .map_or(before_case, |start| &before_case[start + 1..]);
+    expression_matches_roots(expression, roots)
+}
+
+fn switch_expression_matches(node: Node<'_>, roots: &BTreeSet<String>, source: &str) -> bool {
+    let Some(text) = node.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    let Some(expression) = parenthesized_after_keyword(text, "switch") else {
+        return false;
+    };
+    expression_matches_roots(expression, roots)
+}
+
+fn expression_matches_roots(expression: &str, roots: &BTreeSet<String>) -> bool {
+    let expression = normalized_expression(expression);
+    roots.contains(&expression)
+}
+
+fn normalized_expression(expression: &str) -> String {
+    let mut expression = expression
+        .split([';', ',', '}'])
+        .next()
+        .unwrap_or(expression)
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_owned();
+    while expression.starts_with('(') && expression.ends_with(')') {
+        expression = expression[1..expression.len() - 1].trim().to_owned();
+    }
+    strip_whitespace(&expression)
+}
+
+fn parenthesized_after_keyword<'source>(text: &'source str, keyword: &str) -> Option<&'source str> {
+    let keyword_index = text.find(keyword)?;
+    let open = text[keyword_index + keyword.len()..].find('(')? + keyword_index + keyword.len();
+    let mut depth = 0usize;
+    for (offset, character) in text[open..].char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return text.get(open + 1..open + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn body_calls_helper_with_roots(
+    body: Node<'_>,
+    helper_names: &BTreeSet<String>,
+    parameter: &HelperParameter,
+    root_names: &[&str],
+    source: &str,
+) -> bool {
+    let roots = body_root_aliases(body, root_names, source);
+    let mut found = false;
+    visit_named(body, &mut |node| {
+        if found {
+            return;
+        }
+        if invocation_name(node, source).is_some_and(|name| helper_names.contains(&name))
+            && invocation_arguments_pass_roots(node, parameter, &roots, source)
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn invocation_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "call_expression"
+            | "constructor_invocation"
+            | "const_object_expression"
+            | "new_expression"
+            | "function_expression_invocation"
+    ) {
+        return None;
+    }
+    if let Some(name) = constructor_invocation_name(node, source) {
+        return Some(name);
+    }
+    let arguments = argument_list(node)?;
+    source
+        .get(node.start_byte()..arguments.start_byte())
+        .map(normalized_invocation_prefix)
+}
+
+fn argument_list(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("arguments")
+        .or_else(|| direct_named_child(node, "arguments"))
+        .or_else(|| direct_named_child(node, "argument_part"))
+}
+
+fn constructor_invocation_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "constructor_invocation" | "const_object_expression" | "new_expression"
+    ) {
+        return None;
+    }
+    let type_name = node
+        .child_by_field_name("type")?
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(strip_whitespace)?;
+    node.child_by_field_name("constructor")
+        .and_then(|constructor| constructor.utf8_text(source.as_bytes()).ok())
+        .map_or(Some(type_name.clone()), |constructor| {
+            Some(format!("{type_name}.{constructor}"))
+        })
+}
+
+fn normalized_invocation_prefix(prefix: &str) -> String {
+    strip_whitespace(
+        prefix
+            .trim()
+            .strip_prefix("const ")
+            .or_else(|| prefix.trim().strip_prefix("new "))
+            .unwrap_or(prefix.trim()),
+    )
+}
+
+fn invocation_arguments_pass_roots(
+    node: Node<'_>,
+    parameter: &HelperParameter,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    let Some(arguments) = argument_list(node) else {
+        return false;
+    };
+    let mut positional_index = 0usize;
+    let mut saw_named_child = false;
+    let mut cursor = arguments.walk();
+    for argument in arguments.named_children(&mut cursor) {
+        saw_named_child = true;
+        if argument.kind() == "named_argument" {
+            if named_argument_label(argument, source).as_deref() == Some(parameter.name.as_str())
+                && named_argument_value(argument)
+                    .is_some_and(|value| argument_matches_roots(value, roots, source))
+            {
+                return true;
+            }
+            continue;
+        }
+        if parameter.positional_index == Some(positional_index)
+            && argument_matches_roots(argument, roots, source)
+        {
+            return true;
+        }
+        positional_index += 1;
+    }
+    if !saw_named_child {
+        return argument_texts_pass_roots(arguments, parameter, roots, source);
+    }
+    false
+}
+
+fn argument_texts_pass_roots(
+    arguments: Node<'_>,
+    parameter: &HelperParameter,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    let Some(text) = arguments.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    let mut positional_index = 0usize;
+    for argument in split_argument_texts(text) {
+        if let Some((label, value)) = argument.split_once(':') {
+            if label.trim() == parameter.name && expression_matches_roots(value, roots) {
+                return true;
+            }
+            continue;
+        }
+        if parameter.positional_index == Some(positional_index)
+            && expression_matches_roots(argument, roots)
+        {
+            return true;
+        }
+        positional_index += 1;
+    }
+    false
+}
+
+fn split_argument_texts(text: &str) -> Vec<&str> {
+    let inner = text
+        .trim()
+        .strip_prefix('(')
+        .and_then(|text| text.strip_suffix(')'))
+        .unwrap_or(text)
+        .trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+    for (index, character) in inner.char_indices() {
+        match character {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(inner[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(inner[start..].trim());
+    parts
+}
+
+fn named_argument_label(node: Node<'_>, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "label")
+        .and_then(|label| label.utf8_text(source.as_bytes()).ok())
+        .map(str::trim)
+        .and_then(|label| label.strip_suffix(':'))
+        .map(str::to_owned)
+}
+
+fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() != "label")
+}
+
+fn argument_matches_roots(argument: Node<'_>, roots: &BTreeSet<String>, source: &str) -> bool {
+    argument
+        .utf8_text(source.as_bytes())
+        .ok()
+        .is_some_and(|text| expression_matches_roots(text, roots))
 }
 
 pub(super) fn pattern_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -154,6 +688,73 @@ fn is_identifier_text(text: &str) -> bool {
         && chars.all(|character| {
             character == '_' || character == '$' || character.is_ascii_alphanumeric()
         })
+}
+
+fn identifier_before_equals(text: &str) -> Option<String> {
+    let before_equals = text.split_once('=')?.0;
+    before_equals
+        .split(|character: char| {
+            !(character == '_' || character == '$' || character.is_ascii_alphanumeric())
+        })
+        .filter(|part| !part.is_empty())
+        .next_back()
+        .map(str::to_owned)
+}
+
+fn identifier_before_parameters(node: Node<'_>, source: &str) -> Option<String> {
+    let text = node.utf8_text(source.as_bytes()).ok()?;
+    let before_parameters = text.split_once('(')?.0;
+    before_parameters
+        .split(|character: char| {
+            !(character == '_' || character == '$' || character.is_ascii_alphanumeric())
+        })
+        .filter(|part| !part.is_empty())
+        .next_back()
+        .map(str::to_owned)
+}
+
+fn last_identifier_child<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|child| {
+            matches!(
+                child.kind(),
+                "identifier" | "identifier_dollar_escaped" | "type_identifier"
+            ) && child.utf8_text(source.as_bytes()).ok() != Some("key")
+        })
+        .last()
+}
+
+fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tree>>) {
+    if node.kind() == kind {
+        nodes.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_nodes(child, kind, nodes);
+    }
+}
+
+fn collect_nodes_in<'tree>(node: Node<'tree>, kinds: &[&str], nodes: &mut Vec<Node<'tree>>) {
+    if kinds.contains(&node.kind()) {
+        nodes.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_nodes_in(child, kinds, nodes);
+    }
+}
+
+fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
+}
+
+fn strip_whitespace(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 
 fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {

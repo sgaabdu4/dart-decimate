@@ -233,6 +233,20 @@ class CatchStackShadowCard extends StatelessWidget {
     return const SizedBox();
   }
 }
+class CatchFinallyFieldCard extends StatelessWidget {
+  const CatchFinallyFieldCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    try {
+      throw Exception();
+    } catch (title) {
+      Text(title);
+    } finally {
+      Text(title);
+    }
+    return const SizedBox();
+  }
+}
 class DirectFieldCard extends StatelessWidget {
   const DirectFieldCard({super.key, required this.title});
   final String title;

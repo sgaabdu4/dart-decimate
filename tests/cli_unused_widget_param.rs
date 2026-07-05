@@ -349,6 +349,8 @@ void main() {
   DifferentFieldPatternWidget(used: 'ok', unused: 'x');
   LocalShadowWidget(title: 'real');
   UnrelatedPatternWidget(value: 'real');
+  DeadHelperPatternWidget(used: 'real', unused: 'x');
+  OtherInstancePatternWidget(used: 'real', unused: 'x');
 }
 ",
     )?;
@@ -383,6 +385,10 @@ void main() {
     assert!(targets.contains(&"DifferentFieldPatternWidget.unused".to_owned()));
     assert!(targets.contains(&"LocalShadowWidget.title".to_owned()));
     assert!(targets.contains(&"UnrelatedPatternWidget.value".to_owned()));
+    assert!(targets.contains(&"DeadHelperPatternWidget.used".to_owned()));
+    assert!(targets.contains(&"DeadHelperPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"OtherInstancePatternWidget.used".to_owned()));
+    assert!(targets.contains(&"OtherInstancePatternWidget.unused".to_owned()));
 
     for target in [
         "DirectPatternWidget.used",
@@ -521,6 +527,29 @@ class UnrelatedPatternWidget extends StatelessWidget {
   const UnrelatedPatternWidget({super.key, required this.value});
   final String value;
   Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class DeadHelperPatternWidget extends StatelessWidget {
+  const DeadHelperPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+String deadHelperPattern(DeadHelperPatternWidget widget) {
+  final DeadHelperPatternWidget(:used) = widget;
+  return used;
+}
+
+class OtherInstancePatternWidget extends StatelessWidget {
+  const OtherInstancePatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    const other = OtherInstancePatternWidget(used: 'other', unused: 'other');
+    final OtherInstancePatternWidget(:used) = other;
+    return Text(used);
+  }
 }
 
 class OtherThing {
