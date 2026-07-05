@@ -310,6 +310,107 @@ fn check_command_includes_code_duplication_findings() -> Result<(), Box<dyn std:
 }
 
 #[test]
+fn dupes_ignores_interface_declaration_clones() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let declarations = "\
+  Future<List<Item>> loadItems(String ownerId);
+  Future<Item?> findItem(String id);
+  Future<void> saveItem(Item item);
+  Stream<List<Item>> watchItems(String ownerId);
+  Future<void> deleteItem(String id);
+";
+    write(
+        &fixture,
+        "lib/repository.dart",
+        &format!("abstract interface class ItemRepository {{\n{declarations}}}\nclass Item {{}}\n"),
+    )?;
+    write(
+        &fixture,
+        "lib/datasource.dart",
+        &format!("abstract interface class ItemDatasource {{\n{declarations}}}\n"),
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["code_duplications"], 0);
+    assert_eq!(json["clone_groups"].as_array().map(Vec::len), Some(0));
+
+    Ok(())
+}
+
+#[test]
+fn dupes_collapses_copied_local_package_mirrors_to_canonical_source_clone()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let source = pagination_clone_source();
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(&fixture, "functions/shared/lib/pagination.dart", source)?;
+    for function in ["delete_user", "squad_operations"] {
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/pubspec.yaml"),
+            "name: shared\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/lib/pagination.dart"),
+            source,
+        )?;
+    }
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--min-lines",
+            "8",
+            "--min-tokens",
+            "20",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["code_duplications"], 1);
+    let instances = json["clone_groups"][0]["instances"].as_array().unwrap();
+    assert_eq!(instances.len(), 2);
+    assert!(instances.iter().all(|instance| {
+        instance["path"] == "functions/shared/lib/pagination.dart"
+            && instance["start_line"].as_u64().is_some_and(|line| line > 1)
+    }));
+    assert!(instances.iter().all(|instance| {
+        !instance["path"].as_str().is_some_and(|path| {
+            path.contains("/delete_user/") || path.contains("/squad_operations/")
+        })
+    }));
+
+    Ok(())
+}
+
+#[test]
 fn workspace_scope_prunes_clone_group_instances() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
@@ -482,6 +583,35 @@ fn write_import_only_duplicate_pair(fixture: &TempDir) -> Result<(), std::io::Er
     let source = "import 'dart:async';\nimport 'dart:collection';\nimport 'dart:convert';\nimport 'dart:io';\nimport 'dart:math';\n";
     write(fixture, "lib/a.dart", source)?;
     write(fixture, "lib/b.dart", source)
+}
+
+fn pagination_clone_source() -> &'static str {
+    r"Future<List<String>> fetchAllRowIds(Pages pages) async {
+  final values = <String>[];
+  var cursor = '';
+  do {
+    final page = await pages.list(cursor: cursor);
+    for (final row in page.rows) {
+      values.add(row.id);
+    }
+    cursor = page.nextCursor;
+  } while (cursor.isNotEmpty);
+  return values;
+}
+
+Future<List<String>> fetchAllFieldValues(Pages pages) async {
+  final values = <String>[];
+  var cursor = '';
+  do {
+    final page = await pages.list(cursor: cursor);
+    for (final row in page.rows) {
+      values.add(row.id);
+    }
+    cursor = page.nextCursor;
+  } while (cursor.isNotEmpty);
+  return values;
+}
+"
 }
 
 fn git_fixture() -> Result<TempDir, Box<dyn std::error::Error>> {

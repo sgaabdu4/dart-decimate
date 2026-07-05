@@ -394,8 +394,13 @@ pub fn detect_duplicates(
                 &right.fingerprint,
             ))
     });
-    clone_groups = collapse_overlapping_groups(clone_groups);
     let mut copied_packages = CopiedPackageFilter::new(&project.root);
+    for group in &mut clone_groups {
+        copied_packages.canonicalize_copied_package_instances(group);
+    }
+    clone_groups.retain(|group| group.instances.len() >= options.min_occurrences);
+    clone_groups = collapse_overlapping_groups(clone_groups);
+    clone_groups.retain(|group| !is_declaration_only_clone(group));
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));
     let stats = duplicate_stats(analyzed_lines, &clone_groups, options.threshold);
     if let Some(top) = options.top {
@@ -487,6 +492,56 @@ fn ranges_overlap(
     right_end: usize,
 ) -> bool {
     left_start <= right_end && right_start <= left_end
+}
+
+fn is_declaration_only_clone(group: &CodeClone) -> bool {
+    group
+        .instances
+        .iter()
+        .all(clone_instance_is_declaration_only)
+}
+
+fn clone_instance_is_declaration_only(instance: &CodeCloneInstance) -> bool {
+    let Ok(source) = fs::read_to_string(&instance.path) else {
+        return false;
+    };
+    let lines = source
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let line_number = index + 1;
+            (line_number >= instance.start_line && line_number <= instance.end_line)
+                .then_some(strip_line_comment(line).trim())
+        })
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    !lines.is_empty() && lines.iter().all(|line| declaration_only_line(line))
+}
+
+fn strip_line_comment(line: &str) -> &str {
+    line.split_once("//").map_or(line, |(code, _)| code)
+}
+
+fn declaration_only_line(line: &str) -> bool {
+    abstract_type_header(line) || line == "}" || line == "};" || abstract_member_signature(line)
+}
+
+fn abstract_type_header(line: &str) -> bool {
+    line.ends_with('{')
+        && (line.starts_with("abstract interface class ")
+            || line.starts_with("abstract class ")
+            || line.starts_with("interface class ")
+            || line.starts_with("mixin ")
+            || line.starts_with("abstract mixin class "))
+}
+
+fn abstract_member_signature(line: &str) -> bool {
+    line.ends_with(';')
+        && !line.contains('=')
+        && !line.starts_with("import ")
+        && !line.starts_with("export ")
+        && !line.starts_with("part ")
+        && (line.contains('(') || line.starts_with("get ") || line.contains(" get "))
 }
 
 fn clone_windows(lines: &[lex::NormalizedLine], options: &DuplicateOptions) -> Vec<CloneWindow> {

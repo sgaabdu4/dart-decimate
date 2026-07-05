@@ -155,6 +155,317 @@ fn unused_widget_param_rule_can_error_or_turn_off() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+#[test]
+fn check_counts_pattern_reads_and_view_data_forwarding_as_usage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'widgets.dart';
+
+void main() {
+  PatternDisplay(value: 'ok');
+  ForwardingPanel(items: const ['a'], height: 240, suffix: 'kg', unused: 'x');
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"
+class PatternDisplay extends StatelessWidget {
+  const PatternDisplay({super.key, required this.value});
+  final String value;
+  Widget build(BuildContext context) {
+    final PatternDisplay(:value) = this;
+    return Text(value);
+  }
+}
+
+class ForwardingPanel extends StatefulWidget {
+  const ForwardingPanel({
+    super.key,
+    required this.items,
+    required this.height,
+    required this.suffix,
+    required this.unused,
+  });
+  final List<String> items;
+  final double height;
+  final String suffix;
+  final String unused;
+  State<ForwardingPanel> createState() => _ForwardingPanelState();
+}
+
+class _ForwardingPanelState extends State<ForwardingPanel> {
+  Widget build(BuildContext context) {
+    return ForwardedBody(
+      viewData: ForwardedViewData.fromOwner(
+        selectedIndex: 0,
+        source: widget,
+      ),
+    );
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromOwner({
+    required this.selectedIndex,
+    required ForwardingPanel source,
+  })  : items = source.items,
+        height = source.height,
+        suffix = source.suffix;
+  final int selectedIndex;
+  final List<String> items;
+  final double height;
+  final String suffix;
+}
+
+class ForwardedBody extends StatelessWidget {
+  const ForwardedBody({super.key, required this.viewData});
+  final ForwardedViewData viewData;
+  Widget build(BuildContext context) => Text('${viewData.items.length}${viewData.suffix}');
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_no_widget_target(&json, "PatternDisplay.value");
+    assert_no_widget_target(&json, "ForwardingPanel.items");
+    assert_no_widget_target(&json, "ForwardingPanel.height");
+    assert_no_widget_target(&json, "ForwardingPanel.suffix");
+    assert_widget_param_for(&json, "ForwardingPanel.unused");
+
+    Ok(())
+}
+
+#[test]
+fn check_counts_only_matching_widget_object_pattern_fields_as_usage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'widgets.dart';
+
+void main() {
+  DirectPatternWidget(used: 'ok', unused: 'x');
+  StaticPatternWidget(title: 'T', subtitle: 'S', unused: 'x');
+  ChartDisplay(data: const [1], selectedIndex: 0, tooltipSuffix: 'kg', unused: 'x');
+  IfCasePatternWidget(used: 'ok', unused: 'x');
+  SwitchPatternWidget(used: 'ok', unused: 'x');
+  OtherPatternWidget(used: 'ok', unused: 'x');
+  DifferentFieldPatternWidget(used: 'ok', unused: 'x');
+  LocalShadowWidget(title: 'real');
+  UnrelatedPatternWidget(value: 'real');
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"
+class DirectPatternWidget extends StatelessWidget {
+  const DirectPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final DirectPatternWidget(:used) = this;
+    return Text(used);
+  }
+}
+
+class StaticPatternWidget extends StatelessWidget {
+  const StaticPatternWidget({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.unused,
+  });
+  final String title;
+  final String subtitle;
+  final String unused;
+  static String label(StaticPatternWidget widget) {
+    final StaticPatternWidget(:title, :subtitle) = widget;
+    return '$title - $subtitle';
+  }
+  Widget build(BuildContext context) => Text(label(this));
+}
+
+class ChartDisplay extends StatelessWidget {
+  const ChartDisplay({
+    super.key,
+    required this.data,
+    required this.selectedIndex,
+    required this.tooltipSuffix,
+    required this.unused,
+  });
+  final List<double> data;
+  final int selectedIndex;
+  final String tooltipSuffix;
+  final String unused;
+  Widget build(BuildContext context) {
+    final details = ChartDetails.fromDisplay(this);
+    return Text(details);
+  }
+}
+
+abstract final class ChartDetails {
+  static String fromDisplay(ChartDisplay display) {
+    final ChartDisplay(:data, :selectedIndex, tooltipSuffix: suffix) = display;
+    return '${data[selectedIndex]}$suffix';
+  }
+}
+
+class IfCasePatternWidget extends StatelessWidget {
+  const IfCasePatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final Object value = this;
+    if (value case IfCasePatternWidget(:used)) {
+      return Text(used);
+    }
+    return const SizedBox.shrink();
+  }
+}
+
+class SwitchPatternWidget extends StatelessWidget {
+  const SwitchPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    return switch (this) {
+      SwitchPatternWidget(:used) => Text(used),
+      _ => const SizedBox.shrink(),
+    };
+  }
+}
+
+class OtherWidget {
+  const OtherWidget({required this.used});
+  final String used;
+}
+
+class OtherPatternWidget extends StatelessWidget {
+  const OtherPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final other = const OtherWidget(used: 'x');
+    final OtherWidget(:used) = other;
+    return Text(used);
+  }
+}
+
+class DifferentFieldPatternWidget extends StatelessWidget {
+  const DifferentFieldPatternWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final DifferentFieldPatternWidget(:used) = this;
+    return Text(used);
+  }
+}
+
+class LocalShadowWidget extends StatelessWidget {
+  const LocalShadowWidget({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    const title = 'local';
+    return Text(title);
+  }
+}
+
+class UnrelatedPatternWidget extends StatelessWidget {
+  const UnrelatedPatternWidget({super.key, required this.value});
+  final String value;
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class OtherThing {
+  const OtherThing(this.value);
+  final String value;
+}
+
+String helper(OtherThing thing) {
+  final OtherThing(:value) = thing;
+  return value;
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    let targets = unused_widget_targets(&json);
+
+    assert!(targets.contains(&"DirectPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"StaticPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"ChartDisplay.unused".to_owned()));
+    assert!(targets.contains(&"IfCasePatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"SwitchPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"OtherPatternWidget.used".to_owned()));
+    assert!(targets.contains(&"OtherPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"DifferentFieldPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"LocalShadowWidget.title".to_owned()));
+    assert!(targets.contains(&"UnrelatedPatternWidget.value".to_owned()));
+
+    for target in [
+        "DirectPatternWidget.used",
+        "StaticPatternWidget.title",
+        "StaticPatternWidget.subtitle",
+        "ChartDisplay.data",
+        "ChartDisplay.selectedIndex",
+        "ChartDisplay.tooltipSuffix",
+        "IfCasePatternWidget.used",
+        "SwitchPatternWidget.used",
+        "DifferentFieldPatternWidget.used",
+    ] {
+        assert!(
+            !targets.contains(&target.to_owned()),
+            "{target} should be used"
+        );
+    }
+
+    Ok(())
+}
+
 fn widget_fixture() -> Result<TempDir, std::io::Error> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -257,6 +568,30 @@ fn assert_widget_param_for(json: &Value, target_symbol: &str) {
                 && finding["actions"][0]["target_symbol"] == target_symbol
         })
     }));
+}
+
+fn assert_no_widget_target(json: &Value, target_symbol: &str) {
+    assert!(
+        json["findings"].as_array().is_some_and(|findings| {
+            findings.iter().all(|finding| {
+                finding["rule_id"] != "dart-decimate/unused-widget-param"
+                    || finding["actions"][0]["target_symbol"] != target_symbol
+            })
+        }),
+        "{target_symbol} should not be reported: {:?}",
+        json["findings"]
+    );
+}
+
+fn unused_widget_targets(json: &Value) -> Vec<String> {
+    json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["rule_id"] == "dart-decimate/unused-widget-param")
+        .filter_map(|finding| finding["actions"][0]["target_symbol"].as_str())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {

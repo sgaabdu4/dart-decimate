@@ -141,6 +141,10 @@ fn is_object_constructor(node: Node<'_>) -> bool {
 }
 
 fn constructor_type_name(node: Node<'_>, source: &str) -> Option<String> {
+    if let Some(constructor) = function_expression_body_constructor_name(node, source) {
+        return Some(constructor);
+    }
+
     let arguments = node.child_by_field_name("arguments")?;
     let prefix = source.get(node.start_byte()..arguments.start_byte())?;
     let constructor = prefix
@@ -153,6 +157,25 @@ fn constructor_type_name(node: Node<'_>, source: &str) -> Option<String> {
         .unwrap_or("")
         .replace(' ', "");
     (!constructor.is_empty()).then_some(constructor)
+}
+
+fn function_expression_body_constructor_name(node: Node<'_>, source: &str) -> Option<String> {
+    if node.kind() != "call_expression" {
+        return None;
+    }
+    let function = node.child_by_field_name("function")?;
+    if function.kind() != "function_expression" {
+        return None;
+    }
+    let body = function.child_by_field_name("body")?;
+    let expression = body.named_child(0)?;
+    match expression.kind() {
+        "identifier" | "type_identifier" | "member_expression" => expression
+            .utf8_text(source.as_bytes())
+            .ok()
+            .map(str::to_owned),
+        _ => None,
+    }
 }
 
 fn is_arrow_body_constructor_identifier(node: Node<'_>, source: &str) -> bool {
@@ -368,6 +391,30 @@ void open(BuildContext context) {
         let names = object_constructor_names(parsed.tree().root_node(), parsed.source());
 
         assert!(names.iter().any(|name| name == "CartScreen"));
+        Ok(())
+    }
+
+    #[test]
+    fn object_constructor_names_include_generic_builder_children()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source = r"
+class RoutineConceptFlow extends StatelessWidget {
+  Widget build(BuildContext context) => BentoList<RoutineConceptItem>(
+    items: const [],
+    itemBuilder: (context, item, _) => RoutineConceptCard(
+      title: item.title,
+    ),
+  );
+}
+";
+        let parsed = parse_tree(Path::new("lib/routine_concept_flow.dart"), source)?;
+        let names = object_constructor_names(parsed.tree().root_node(), parsed.source());
+
+        assert!(names.iter().any(|name| name == "BentoList"), "{names:?}");
+        assert!(
+            names.iter().any(|name| name == "RoutineConceptCard"),
+            "{names:?}"
+        );
         Ok(())
     }
 }

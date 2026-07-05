@@ -11,14 +11,20 @@ use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
 use crate::{DeadCodeReport, Location, ScannedProject};
 
+mod forwarding;
 mod lifecycle;
 mod params;
+mod patterns;
+mod reads;
 mod top_level;
 mod unrendered;
 
+use forwarding::{forwarded_param_used, widget_forwarded_param_uses};
 pub use lifecycle::MissingContextMountedAfterAwait;
 use lifecycle::lifecycle_findings;
 use params::constructor_params;
+use patterns::object_pattern_field_reads_by_type;
+use reads::{state_body_uses_param, widget_body_uses_param};
 use top_level::top_level_widget_functions;
 use unrendered::unrendered_widgets;
 
@@ -317,6 +323,8 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
     let mut classes = Vec::new();
     collect_class_declarations(root, &mut classes);
     let states = state_classes_by_widget(&classes, source);
+    let forwarded_uses = widget_forwarded_param_uses(&classes, source);
+    let object_pattern_reads = object_pattern_field_reads_by_type(root, source);
     let mut findings = FileWidgetFindings::default();
     let has_widget_class = classes
         .iter()
@@ -348,11 +356,20 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
         };
         for param in constructor_params(class, &widget_class, source) {
             if widget_body_uses_param(body, &param.field_name, source)
+                || object_pattern_reads
+                    .get(&widget_class)
+                    .is_some_and(|fields| fields.contains(&param.field_name))
                 || states.get(&widget_class).is_some_and(|state_bodies| {
                     state_bodies.iter().any(|state_body| {
                         state_body_uses_param(*state_body, &param.field_name, source)
                     })
                 })
+                || forwarded_param_used(
+                    forwarded_uses.get(&widget_class),
+                    states.get(&widget_class),
+                    &param.field_name,
+                    source,
+                )
             {
                 continue;
             }
@@ -468,94 +485,12 @@ pub(super) fn simple_type_name(text: &str) -> String {
         .to_owned()
 }
 
-fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -> bool {
-    let mut found = false;
-    visit_named(body, &mut |node| {
-        if !found && is_body_identifier_use(node, name, source) {
-            found = true;
-        }
-    });
-    found
-}
-
-fn is_body_identifier_use(node: Node<'_>, name: &str, source: &str) -> bool {
-    if !matches!(node.kind(), "identifier" | "identifier_dollar_escaped") {
-        return false;
-    }
-    if node.utf8_text(source.as_bytes()).ok() != Some(name) {
-        return false;
-    }
-    if has_ancestor_kind(node, BODY_USAGE_SKIP_ANCESTORS) {
-        return false;
-    }
-    let Some(parent) = node.parent() else {
-        return true;
-    };
-    if parent.kind() == "label" || name_field_of(parent, node) {
-        return false;
-    }
-    !(parent.kind() == "identifier_list" && has_ancestor_kind(parent, &["declaration"]))
-}
-
-const BODY_USAGE_SKIP_ANCESTORS: &[&str] = &[
-    "constructor_signature",
-    "constant_constructor_signature",
-    "factory_constructor_signature",
-    "redirecting_factory_constructor_signature",
-    "constructor_param",
-    "super_formal_parameter",
-    "initializers",
-    "initializer_list_entry",
-    "field_initializer",
-    "type",
-    "typed_identifier",
-];
-
-fn state_body_uses_param(body: Node<'_>, name: &str, source: &str) -> bool {
-    let mut found = false;
-    visit_named(body, &mut |node| {
-        if !found && is_widget_member_access(node, name, source) {
-            found = true;
-        }
-    });
-    found
-}
-
-fn is_widget_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
-    if !matches!(
-        node.kind(),
-        "member_expression" | "null_aware_member_expression" | "assignable_expression"
-    ) {
-        return false;
-    }
-    let Some(property) = node.child_by_field_name("property") else {
-        return false;
-    };
-    if property.utf8_text(source.as_bytes()).ok() != Some(name) {
-        return false;
-    }
-    let Some(object) = node.child_by_field_name("object") else {
-        return false;
-    };
-    matches!(
-        object.utf8_text(source.as_bytes()).ok(),
-        Some("widget" | "oldWidget")
-    )
-}
-
 fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
     visitor(node);
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         visit_named(child, visitor);
     }
-}
-
-fn name_field_of(parent: Node<'_>, child: Node<'_>) -> bool {
-    let mut cursor = parent.walk();
-    parent
-        .children_by_field_name("name", &mut cursor)
-        .any(|field| same_node(field, child))
 }
 
 fn has_ancestor_kind(node: Node<'_>, kinds: &[&str]) -> bool {
@@ -567,12 +502,6 @@ fn has_ancestor_kind(node: Node<'_>, kinds: &[&str]) -> bool {
         parent = ancestor.parent();
     }
     false
-}
-
-fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
-    left.kind() == right.kind()
-        && left.start_byte() == right.start_byte()
-        && left.end_byte() == right.end_byte()
 }
 
 fn is_test_path(path: &Path) -> bool {

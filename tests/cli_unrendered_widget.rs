@@ -118,6 +118,68 @@ fn check_skips_public_exported_package_widgets() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[test]
+fn check_counts_widgets_rendered_from_generic_builder_callbacks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'routine_concept_flow.dart';\nvoid main() { const RoutineConceptFlow(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/routine_concept_flow.dart",
+        r"import 'routine_concept_card.dart';
+
+class RoutineConceptItem {
+  const RoutineConceptItem(this.title);
+  final String title;
+}
+
+class RoutineConceptFlow extends StatelessWidget {
+  const RoutineConceptFlow({super.key});
+
+  Widget build(BuildContext context) => BentoList<RoutineConceptItem>(
+    items: const [RoutineConceptItem('one')],
+    itemBuilder: (context, item, _) => RoutineConceptCard(title: item.title),
+  );
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/routine_concept_card.dart",
+        r"class RoutineConceptCard extends StatelessWidget {
+  const RoutineConceptCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Text(title);
+}
+
+class UnusedConceptCard extends StatelessWidget {
+  const UnusedConceptCard({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_check(&fixture, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
+    assert_no_unrendered_widget_for(&json, "RoutineConceptCard");
+    assert_unrendered_widget_for(&json, "UnusedConceptCard");
+
+    Ok(())
+}
+
 fn unrendered_widget_fixture() -> Result<TempDir, std::io::Error> {
     let fixture = tempfile::tempdir()?;
     write(
@@ -245,6 +307,15 @@ fn assert_no_unrendered_widget_for(json: &Value, class_name: &str) {
         findings.iter().all(|finding| {
             finding["rule_id"] != "dart-decimate/unrendered-widget"
                 || finding["actions"][0]["target_symbol"] != class_name
+        })
+    }));
+}
+
+fn assert_unrendered_widget_for(json: &Value, class_name: &str) {
+    assert!(json["findings"].as_array().is_some_and(|findings| {
+        findings.iter().any(|finding| {
+            finding["rule_id"] == "dart-decimate/unrendered-widget"
+                && finding["actions"][0]["target_symbol"] == class_name
         })
     }));
 }

@@ -106,6 +106,43 @@ class _UsedViaStateState extends State<UsedViaState> {
 }
 
 #[test]
+fn direct_field_reads_ignore_local_and_parameter_shadows() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class LocalShadowCard extends StatelessWidget {
+  const LocalShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    const title = 'local';
+    return Text(title);
+  }
+}
+class ParameterShadowCard extends StatelessWidget {
+  const ParameterShadowCard({super.key, required this.title});
+  final String title;
+  Widget label(String title) => Text(title);
+  Widget build(BuildContext context) => label('local');
+}
+class DirectFieldCard extends StatelessWidget {
+  const DirectFieldCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Text(title);
+}
+";
+    let unused = parse_findings(source)?.unused_params;
+    let targets = unused
+        .iter()
+        .map(|param| format!("{}.{}", param.widget_class, param.param_name))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        targets,
+        vec!["LocalShadowCard.title", "ParameterShadowCard.title"]
+    );
+    Ok(())
+}
+
+#[test]
 fn recognizes_consumer_and_hook_widget_bases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class A extends ConsumerWidget {
