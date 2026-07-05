@@ -11,6 +11,7 @@ mod html;
 mod human;
 mod human_details;
 mod next_steps;
+mod route_cycle;
 mod route_findings;
 mod runtime_coverage;
 mod scope;

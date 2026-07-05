@@ -195,12 +195,100 @@ fn last_identifier_child<'tree>(node: Node<'tree>, source: &str) -> Option<Node<
 
 fn member_fields_read_from(node: Node<'_>, object_name: &str, source: &str) -> BTreeSet<String> {
     let mut fields = BTreeSet::new();
-    visit_named(node, &mut |child| {
-        if let Some(field) = member_property_for_object(child, object_name, source) {
-            fields.insert(field);
-        }
-    });
+    collect_member_fields_read_from(node, node, object_name, source, &mut fields);
     fields
+}
+
+fn collect_member_fields_read_from(
+    root: Node<'_>,
+    node: Node<'_>,
+    object_name: &str,
+    source: &str,
+    fields: &mut BTreeSet<String>,
+) {
+    if !same_node(root, node) && callable_direct_parameters_bind_name(node, object_name, source) {
+        return;
+    }
+    if let Some(field) = member_property_for_object(node, object_name, source) {
+        fields.insert(field);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_member_fields_read_from(root, child, object_name, source, fields);
+    }
+}
+
+fn callable_direct_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if !matches!(
+        node.kind(),
+        "function_declaration"
+            | "function_expression"
+            | "local_function_declaration"
+            | "method_declaration"
+    ) {
+        return false;
+    }
+    direct_parameter_lists(node)
+        .into_iter()
+        .any(|parameters| parameter_list_directly_binds_name(parameters, name, source))
+}
+
+fn direct_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    match node.kind() {
+        "function_expression" => parameter_field_lists(node),
+        "function_declaration" | "local_function_declaration" | "method_declaration" => {
+            helper_signature(node)
+                .and_then(parameter_list)
+                .into_iter()
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn helper_signature(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("signature")
+        .or_else(|| direct_named_child(node, "function_signature"))
+}
+
+fn parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    node.child_by_field_name("parameters")
+        .or_else(|| direct_named_child(node, "formal_parameter_list"))
+}
+
+fn parameter_field_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children_by_field_name("parameters", &mut cursor)
+        .filter_map(formal_parameter_list)
+        .collect()
+}
+
+fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "formal_parameter_list")
+}
+
+fn parameter_list_directly_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|candidate| {
+        if candidate.kind() == "formal_parameter" {
+            return formal_parameter_name(candidate, source).as_deref() == Some(name);
+        }
+        candidate.kind() == "optional_formal_parameters"
+            && optional_parameters_directly_bind_name(candidate, name, source)
+    })
+}
+
+fn optional_parameters_directly_bind_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .filter(|candidate| candidate.kind() == "formal_parameter")
+        .any(|candidate| formal_parameter_name(candidate, source).as_deref() == Some(name))
 }
 
 fn member_property_for_object(node: Node<'_>, object_name: &str, source: &str) -> Option<String> {
@@ -227,6 +315,12 @@ fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tre
     for child in node.named_children(&mut cursor) {
         collect_nodes(child, kind, nodes);
     }
+}
+
+fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
 }
 
 fn state_body_calls_forwarder(
@@ -367,4 +461,10 @@ fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
     for child in node.named_children(&mut cursor) {
         visit_named(child, visitor);
     }
+}
+
+fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
+    left.kind() == right.kind()
+        && left.start_byte() == right.start_byte()
+        && left.end_byte() == right.end_byte()
 }

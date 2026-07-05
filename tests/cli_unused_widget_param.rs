@@ -356,6 +356,8 @@ void main() {
   LocalHelperLeakWidget(used: 'real', unused: 'x');
   ThisMethodPatternWidget(used: 'real', unused: 'x');
   WrappedPatternWidget(title: 'real', subtitle: 'sub', unused: 'x');
+  NestedHelperShadowWidget(used: 'real', unused: 'x');
+  LocalTopLevelHelperShadowWidget(used: 'real', unused: 'x');
 }
 ",
     )?;
@@ -402,6 +404,10 @@ void main() {
     assert!(targets.contains(&"LocalHelperLeakWidget.unused".to_owned()));
     assert!(targets.contains(&"ThisMethodPatternWidget.unused".to_owned()));
     assert!(targets.contains(&"WrappedPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"NestedHelperShadowWidget.used".to_owned()));
+    assert!(targets.contains(&"NestedHelperShadowWidget.unused".to_owned()));
+    assert!(targets.contains(&"LocalTopLevelHelperShadowWidget.used".to_owned()));
+    assert!(targets.contains(&"LocalTopLevelHelperShadowWidget.unused".to_owned()));
 
     for target in [
         "DirectPatternWidget.used",
@@ -639,6 +645,36 @@ class WrappedPatternWidget extends StatelessWidget {
     final WrappedPatternWidget(:title?, :subtitle as String) = this;
     return Text('$title$subtitle');
   }
+}
+
+class NestedHelperShadowWidget extends StatelessWidget {
+  const NestedHelperShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(nestedHelperShadow(this));
+}
+
+String nestedHelperShadow(NestedHelperShadowWidget widget) {
+  String read(NestedHelperShadowWidget widget) {
+    final NestedHelperShadowWidget(:used) = widget;
+    return used;
+  }
+  return read(const NestedHelperShadowWidget(used: 'other', unused: 'other'));
+}
+
+class LocalTopLevelHelperShadowWidget extends StatelessWidget {
+  const LocalTopLevelHelperShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    String topLevelShadowedHelper(LocalTopLevelHelperShadowWidget widget) => 'local';
+    return Text(topLevelShadowedHelper(this));
+  }
+}
+
+String topLevelShadowedHelper(LocalTopLevelHelperShadowWidget widget) {
+  final LocalTopLevelHelperShadowWidget(:used) = widget;
+  return used;
 }
 
 class OtherThing {

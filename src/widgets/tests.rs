@@ -181,6 +181,11 @@ class ElseBranchShadowCard extends StatelessWidget {
     }
   }
 }
+class FunctionTypedSignatureShadowCard extends StatelessWidget {
+  const FunctionTypedSignatureShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context, String Function(String title) format) => Text(title);
+}
 ";
     let unused = parse_findings(source)?.unused_params;
     let targets = unused
@@ -292,6 +297,36 @@ class ForwardedViewData {
 
 class NotForwardedViewData {
   NotForwardedViewData.fromOwner({required ForwardingPanel source});
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["ForwardingPanel.items"]);
+    Ok(())
+}
+
+#[test]
+fn forwarded_usage_ignores_nested_parameter_shadows() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ForwardingPanel extends StatefulWidget {
+  const ForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<ForwardingPanel> createState() => _ForwardingPanelState();
+}
+
+class _ForwardingPanelState extends State<ForwardingPanel> {
+  Widget build(BuildContext context) {
+    final data = ForwardedViewData.fromOwner(source: widget);
+    return Text(data.label);
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromOwner({required ForwardingPanel source})
+      : label = [const ForwardingPanel(items: ['fallback'])]
+            .map((source) => source.items.join(','))
+            .first;
+  final String label;
 }
 ";
     let targets = unused_param_targets(parse_findings(source)?.unused_params);

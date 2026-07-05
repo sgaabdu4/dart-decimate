@@ -148,18 +148,31 @@ fn enclosing_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> b
     if parameter_lists.is_empty() {
         return false;
     }
-    let mut found = false;
     for parameters in parameter_lists {
-        visit_named(parameters, &mut |candidate| {
-            if !found
-                && candidate.kind() == "formal_parameter"
-                && formal_parameter_name(candidate, source).as_deref() == Some(name)
-            {
-                found = true;
-            }
-        });
+        if parameter_list_directly_binds_name(parameters, name, source) {
+            return true;
+        }
     }
-    found
+    false
+}
+
+fn parameter_list_directly_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|candidate| {
+        if candidate.kind() == "formal_parameter" {
+            return formal_parameter_name(candidate, source).as_deref() == Some(name);
+        }
+        candidate.kind() == "optional_formal_parameters"
+            && optional_parameters_directly_bind_name(candidate, name, source)
+    })
+}
+
+fn optional_parameters_directly_bind_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .filter(|candidate| candidate.kind() == "formal_parameter")
+        .any(|candidate| formal_parameter_name(candidate, source).as_deref() == Some(name))
 }
 
 fn enclosing_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
