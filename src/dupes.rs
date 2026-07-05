@@ -400,9 +400,9 @@ pub fn detect_duplicates(
     for group in &mut clone_groups {
         copied_packages.canonicalize_copied_package_instances(group);
     }
-    clone_groups.retain(|group| group.instances.len() >= options.min_occurrences);
-    clone_groups = collapse_overlapping_groups(clone_groups);
+    clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
     clone_groups.retain(|group| !is_declaration_only_clone(group));
+    clone_groups = collapse_overlapping_groups(clone_groups);
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));
     let stats = duplicate_stats(analyzed_lines, &clone_groups, options.threshold);
     if let Some(top) = options.top {
@@ -471,6 +471,25 @@ fn collapse_overlapping_groups(groups: Vec<CodeClone>) -> Vec<CodeClone> {
         }
     }
     collapsed
+}
+
+fn group_satisfies_occurrence_options(group: &CodeClone, options: &DuplicateOptions) -> bool {
+    group.instances.len() >= options.min_occurrences
+        && (!options.skip_local || clone_parent_count(group) >= 2)
+}
+
+fn clone_parent_count(group: &CodeClone) -> usize {
+    group
+        .instances
+        .iter()
+        .map(|instance| {
+            instance
+                .path
+                .parent()
+                .map_or_else(PathBuf::new, Path::to_path_buf)
+        })
+        .collect::<BTreeSet<_>>()
+        .len()
 }
 
 fn groups_overlap(left: &CodeClone, right: &CodeClone) -> bool {

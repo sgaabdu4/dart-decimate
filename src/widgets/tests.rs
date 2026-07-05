@@ -146,6 +146,41 @@ class LaterCallbackShadowCard extends StatelessWidget {
     return child;
   }
 }
+class EarlierBlockShadowCard extends StatelessWidget {
+  const EarlierBlockShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    if (true) {
+      const title = 'local';
+      Text(title);
+    }
+    return Text(title);
+  }
+}
+class EarlierFunctionShadowCard extends StatelessWidget {
+  const EarlierFunctionShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    void label() {
+      const title = 'local';
+      Text(title);
+    }
+    label();
+    return Text(title);
+  }
+}
+class ElseBranchShadowCard extends StatelessWidget {
+  const ElseBranchShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context, bool useLocal) {
+    if (useLocal) {
+      const title = 'local';
+      return Text(title);
+    } else {
+      return Text(title);
+    }
+  }
+}
 ";
     let unused = parse_findings(source)?.unused_params;
     let targets = unused

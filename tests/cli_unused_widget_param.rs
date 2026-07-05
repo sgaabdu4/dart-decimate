@@ -259,6 +259,76 @@ class ForwardedBody extends StatelessWidget {
 }
 
 #[test]
+fn check_forwarded_usage_matches_the_read_constructor_parameter()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'widgets.dart';
+
+void main() {
+  ForwardingPanel(items: const ['a'], unused: 'x');
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"
+class ForwardingPanel extends StatefulWidget {
+  const ForwardingPanel({super.key, required this.items, required this.unused});
+  final List<String> items;
+  final String unused;
+  State<ForwardingPanel> createState() => _ForwardingPanelState();
+}
+
+class _ForwardingPanelState extends State<ForwardingPanel> {
+  Widget build(BuildContext context) {
+    final data = ForwardedViewData.fromOwner(
+      source: widget,
+      other: const ForwardingPanel(items: ['fallback'], unused: 'fallback'),
+    );
+    return Text('${data.items.length}');
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromOwner({
+    required ForwardingPanel source,
+    required ForwardingPanel other,
+  }) : items = other.items;
+  final List<String> items;
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_widget_param_for(&json, "ForwardingPanel.items");
+    assert_widget_param_for(&json, "ForwardingPanel.unused");
+
+    Ok(())
+}
+
+#[test]
 fn check_counts_only_matching_widget_object_pattern_fields_as_usage()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

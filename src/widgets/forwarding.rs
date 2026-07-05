@@ -5,7 +5,14 @@ use tree_sitter::Node;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WidgetParamForwarder {
     name: String,
+    parameter: ForwardedParameter,
     fields: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ForwardedParameter {
+    name: String,
+    positional_index: Option<usize>,
 }
 
 pub(super) fn forwarded_param_used(
@@ -22,9 +29,14 @@ pub(super) fn forwarded_param_used(
     };
     forwarders.iter().any(|forwarder| {
         forwarder.fields.contains(field_name)
-            && state_bodies
-                .iter()
-                .any(|state_body| state_body_calls_forwarder(*state_body, &forwarder.name, source))
+            && state_bodies.iter().any(|state_body| {
+                state_body_calls_forwarder(
+                    *state_body,
+                    &forwarder.name,
+                    &forwarder.parameter,
+                    source,
+                )
+            })
     })
 }
 
@@ -43,15 +55,19 @@ pub(super) fn widget_forwarded_param_uses<'tree>(
             let Some(name) = constructor_qualified_name(*class, signature, source) else {
                 continue;
             };
-            for (param_name, widget_class) in constructor_widget_params(signature, source) {
-                let fields = member_fields_read_from(declaration, &param_name, source);
+            for parameter in constructor_widget_params(signature, source) {
+                let fields = member_fields_read_from(declaration, &parameter.name, source);
                 if fields.is_empty() {
                     continue;
                 }
-                uses.entry(widget_class.clone())
+                uses.entry(parameter.widget_class.clone())
                     .or_default()
                     .push(WidgetParamForwarder {
                         name: name.clone(),
+                        parameter: ForwardedParameter {
+                            name: parameter.name,
+                            positional_index: parameter.positional_index,
+                        },
                         fields,
                     });
             }
@@ -101,20 +117,50 @@ fn member_name_without_owner(name: &str, owner: &str) -> String {
         .to_owned()
 }
 
-fn constructor_widget_params(signature: Node<'_>, source: &str) -> Vec<(String, String)> {
+struct ConstructorWidgetParam {
+    name: String,
+    widget_class: String,
+    positional_index: Option<usize>,
+}
+
+fn constructor_widget_params(signature: Node<'_>, source: &str) -> Vec<ConstructorWidgetParam> {
     let Some(parameters) = signature.child_by_field_name("parameters") else {
         return Vec::new();
     };
     let mut formal_parameters = Vec::new();
     collect_nodes(parameters, "formal_parameter", &mut formal_parameters);
-    formal_parameters
-        .into_iter()
-        .filter_map(|param| {
-            let name = formal_parameter_name(param, source)?;
-            let type_name = formal_parameter_type(param, &name, source)?;
-            Some((name, type_name))
-        })
-        .collect()
+    let mut positional_index = 0usize;
+    let mut widget_params = Vec::new();
+    for param in formal_parameters {
+        let is_named = is_named_parameter(param, source);
+        let current_positional_index = (!is_named).then_some(positional_index);
+        if !is_named {
+            positional_index += 1;
+        }
+        let Some(name) = formal_parameter_name(param, source) else {
+            continue;
+        };
+        let Some(widget_class) = formal_parameter_type(param, &name, source) else {
+            continue;
+        };
+        widget_params.push(ConstructorWidgetParam {
+            name,
+            widget_class,
+            positional_index: current_positional_index,
+        });
+    }
+    widget_params
+}
+
+fn is_named_parameter(param: Node<'_>, source: &str) -> bool {
+    let Some(parent) = param.parent() else {
+        return false;
+    };
+    parent.kind() == "optional_formal_parameters"
+        && parent
+            .utf8_text(source.as_bytes())
+            .ok()
+            .is_some_and(|text| text.trim_start().starts_with('{'))
 }
 
 fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {
@@ -184,13 +230,18 @@ fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tre
     }
 }
 
-fn state_body_calls_forwarder(body: Node<'_>, forwarder_name: &str, source: &str) -> bool {
+fn state_body_calls_forwarder(
+    body: Node<'_>,
+    forwarder_name: &str,
+    parameter: &ForwardedParameter,
+    source: &str,
+) -> bool {
     let Ok(text) = body.utf8_text(source.as_bytes()) else {
         return false;
     };
     call_arguments_for_name(text, forwarder_name)
         .iter()
-        .any(|arguments| arguments_pass_widget(arguments))
+        .any(|arguments| arguments_pass_widget(arguments, parameter))
 }
 
 fn call_arguments_for_name<'source>(source: &'source str, name: &str) -> Vec<&'source str> {
@@ -237,13 +288,47 @@ fn matching_paren(source: &str, open: usize) -> Option<usize> {
     None
 }
 
-fn arguments_pass_widget(arguments: &str) -> bool {
-    split_arguments(arguments).iter().any(|argument| {
-        let compact = strip_whitespace(argument);
-        matches!(compact.as_str(), "widget" | "oldWidget")
-            || compact.ends_with(":widget")
-            || compact.ends_with(":oldWidget")
-    })
+fn arguments_pass_widget(arguments: &str, parameter: &ForwardedParameter) -> bool {
+    let mut positional_index = 0usize;
+    for argument in split_arguments(arguments) {
+        if let Some((name, value)) = split_named_argument(argument) {
+            if name.trim() == parameter.name && is_widget_argument(value) {
+                return true;
+            }
+            continue;
+        }
+        if parameter.positional_index == Some(positional_index) && is_widget_argument(argument) {
+            return true;
+        }
+        positional_index += 1;
+    }
+    false
+}
+
+fn split_named_argument(argument: &str) -> Option<(&str, &str)> {
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut brace_depth = 0usize;
+    for (index, byte) in argument.bytes().enumerate() {
+        match byte {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth = paren_depth.saturating_sub(1),
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth = bracket_depth.saturating_sub(1),
+            b'{' => brace_depth += 1,
+            b'}' => brace_depth = brace_depth.saturating_sub(1),
+            b':' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
+                let (name, value) = argument.split_at(index);
+                return Some((name, &value[1..]));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn is_widget_argument(argument: &str) -> bool {
+    matches!(strip_whitespace(argument).as_str(), "widget" | "oldWidget")
 }
 
 fn split_arguments(arguments: &str) -> Vec<&str> {

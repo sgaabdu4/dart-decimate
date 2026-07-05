@@ -403,6 +403,50 @@ fn dupes_reports_executable_call_blocks_that_look_like_signatures()
 }
 
 #[test]
+fn dupes_keeps_executable_overlap_after_declaration_clone_filter()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let source = r"abstract interface class TrackerContract {
+  Future<void> loadItems(String ownerId);
+  Future<void> findItem(String id);
+  Future<void> saveItem(String item);
+  Future<void> watchItems(String ownerId);
+  Future<void> deleteItem(String id);
+}
+void record(analytics, userId) {
+  analytics.trackView(userId);
+  analytics.flushEvents(userId);
+}
+";
+    write(&fixture, "lib/a.dart", source)?;
+    write(&fixture, "lib/b.dart", source)?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--min-lines",
+            "6",
+            "--min-tokens",
+            "10",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["code_duplications"], 1);
+    assert_eq!(json["clone_groups"].as_array().map(Vec::len), Some(1));
+
+    Ok(())
+}
+
+#[test]
 fn dupes_collapses_copied_local_package_mirrors_to_canonical_source_clone()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -453,6 +497,52 @@ fn dupes_collapses_copied_local_package_mirrors_to_canonical_source_clone()
             path.contains("/delete_user/") || path.contains("/squad_operations/")
         })
     }));
+
+    Ok(())
+}
+
+#[test]
+fn dupes_skip_local_rechecks_after_copied_package_canonicalization()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let source = pagination_clone_source();
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(&fixture, "functions/shared/lib/pagination.dart", source)?;
+    for function in ["delete_user", "squad_operations"] {
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/pubspec.yaml"),
+            "name: shared\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/lib/pagination.dart"),
+            source,
+        )?;
+    }
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--min-lines",
+            "8",
+            "--min-tokens",
+            "20",
+            "--skip-local",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["code_duplications"], 0);
+    assert_eq!(json["clone_groups"].as_array().map(Vec::len), Some(0));
 
     Ok(())
 }

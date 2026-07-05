@@ -120,16 +120,18 @@ fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
 }
 
 fn direct_identifier_shadowed(node: Node<'_>, name: &str, source: &str) -> bool {
+    let mut child = node;
     let mut parent = node.parent();
     while let Some(ancestor) = parent {
         if matches!(ancestor.kind(), "class_body" | "class_declaration") {
             return false;
         }
         if enclosing_parameters_bind_name(ancestor, name, source)
-            || earlier_local_binding_exists(ancestor, node.start_byte(), name, source)
+            || earlier_local_binding_exists(ancestor, child, node.start_byte(), name, source)
         {
             return true;
         }
+        child = ancestor;
         parent = ancestor.parent();
     }
     false
@@ -198,29 +200,119 @@ fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
 
 fn earlier_local_binding_exists(
     scope: Node<'_>,
+    path_child: Node<'_>,
     usage_start: usize,
     name: &str,
     source: &str,
 ) -> bool {
-    let mut found = false;
-    visit_named(scope, &mut |candidate| {
-        if found || candidate.start_byte() >= usage_start || candidate.end_byte() > usage_start {
-            return;
+    if scoped_header_binding_exists(scope, path_child, usage_start, name, source) {
+        return true;
+    }
+
+    let mut cursor = scope.walk();
+    for sibling in scope.named_children(&mut cursor) {
+        if same_node(sibling, path_child) || sibling.start_byte() >= path_child.start_byte() {
+            break;
         }
-        if matches!(
-            candidate.kind(),
-            "local_variable_declaration"
-                | "object_pattern"
-                | "pattern_variable_declaration"
-                | "record_pattern"
-                | "switch_expression_case"
-                | "switch_statement_case"
-        ) && node_contains_binding_name(candidate, name, source)
+        if lexical_sibling_binds_name(sibling, name, source) {
+            return true;
+        }
+    }
+    false
+}
+
+fn scoped_header_binding_exists(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if !matches!(
+        scope.kind(),
+        "for_element"
+            | "for_statement"
+            | "if_element"
+            | "if_statement"
+            | "switch_expression_case"
+            | "switch_statement_case"
+    ) {
+        return false;
+    }
+    let mut cursor = scope.walk();
+    for child in scope.named_children(&mut cursor) {
+        if same_node(child, path_child) || child.start_byte() >= path_child.start_byte() {
+            break;
+        }
+        if header_binding_child(scope.kind(), child)
+            && child.end_byte() <= usage_start
+            && node_contains_binding_name(child, name, source)
         {
+            return true;
+        }
+    }
+    false
+}
+
+fn lexical_sibling_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    matches!(
+        node.kind(),
+        "local_variable_declaration" | "pattern_variable_declaration"
+    ) && node_contains_binding_name(node, name, source)
+}
+
+fn pattern_or_local_binding_owner(node: Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "list_pattern"
+            | "local_variable_declaration"
+            | "map_pattern"
+            | "object_pattern"
+            | "pattern_variable_declaration"
+            | "record_pattern"
+            | "variable_pattern"
+    )
+}
+
+fn header_binding_child(scope_kind: &str, child: Node<'_>) -> bool {
+    if matches!(scope_kind, "for_element" | "for_statement") {
+        return !is_body_statement_child(child.kind())
+            || child.kind() == "local_variable_declaration";
+    }
+    !is_body_statement_child(child.kind()) && node_can_contain_pattern_binding(child)
+}
+
+fn node_can_contain_pattern_binding(node: Node<'_>) -> bool {
+    let mut found = false;
+    visit_named(node, &mut |candidate| {
+        if !found && pattern_or_local_binding_owner(candidate) {
             found = true;
         }
     });
     found
+}
+
+fn is_body_statement_child(kind: &str) -> bool {
+    matches!(
+        kind,
+        "assert_statement"
+            | "block"
+            | "break_statement"
+            | "continue_statement"
+            | "declaration"
+            | "do_statement"
+            | "empty_statement"
+            | "expression_statement"
+            | "for_statement"
+            | "if_statement"
+            | "local_function_declaration"
+            | "local_variable_declaration"
+            | "return_statement"
+            | "switch_statement"
+            | "try_statement"
+            | "while_statement"
+            | "yield_statement"
+    )
 }
 
 fn node_contains_binding_name(node: Node<'_>, name: &str, source: &str) -> bool {

@@ -6,7 +6,7 @@ use super::{Finding, FindingAction, FindingEdge, FindingKind, Severity};
 use crate::{
     BoundaryCallViolation, BoundaryCoverageGap, BoundaryViolation, DartFile, DeadCodeReport,
     DependencyCycle, DependencyKind, InvalidPartReason, InvalidPartRelationship, PolicySeverity,
-    PolicyViolation, ReExportCycle, UnresolvedDependency, scan::ScannedProject,
+    PolicyViolation, ReExportCycle, ResolvedDependency, UnresolvedDependency, scan::ScannedProject,
 };
 
 pub(super) fn add_dead_code_findings(
@@ -161,25 +161,24 @@ fn is_typed_go_router_registry_cycle(project: &ScannedProject, cycle: &Dependenc
     }
 
     let dependencies = project.graph.dependencies();
-    let internal_imports = dependencies
+    let internal_dependencies = dependencies
         .iter()
         .filter(|dependency| {
-            dependency.kind == DependencyKind::Import
-                && cycle_files.contains(&dependency.from_path)
+            cycle_files.contains(&dependency.from_path)
                 && cycle_files.contains(&dependency.to_path)
                 && dependency.from_path != dependency.to_path
         })
         .collect::<Vec<_>>();
-    if internal_imports.is_empty()
-        || internal_imports.iter().any(|dependency| {
-            route_files.contains(&dependency.from_path) == route_files.contains(&dependency.to_path)
-        })
+    if internal_dependencies.is_empty()
+        || internal_dependencies
+            .iter()
+            .any(|dependency| !is_typed_go_router_registry_edge(dependency, &route_files))
     {
         return false;
     }
 
     let mut route_helpers = BTreeMap::<PathBuf, BTreeSet<PathBuf>>::new();
-    for dependency in internal_imports {
+    for dependency in &internal_dependencies {
         if route_files.contains(&dependency.from_path) {
             route_helpers
                 .entry(dependency.from_path.clone())
@@ -203,13 +202,19 @@ fn is_typed_go_router_registry_cycle(project: &ScannedProject, cycle: &Dependenc
                 route_helpers
                     .get(route_file)
                     .is_some_and(|helpers| helpers.contains(helper_file))
-                    && dependencies.iter().any(|dependency| {
-                        dependency.kind == DependencyKind::Import
-                            && dependency.from_path == *helper_file
-                            && dependency.to_path == *route_file
+                    && internal_dependencies.iter().any(|dependency| {
+                        dependency.from_path == *helper_file && dependency.to_path == *route_file
                     })
             })
         })
+}
+
+fn is_typed_go_router_registry_edge(
+    dependency: &ResolvedDependency,
+    route_files: &BTreeSet<PathBuf>,
+) -> bool {
+    dependency.kind == DependencyKind::Import
+        && route_files.contains(&dependency.from_path) != route_files.contains(&dependency.to_path)
 }
 
 fn is_typed_go_router_registry(file: &DartFile) -> bool {
