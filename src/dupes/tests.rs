@@ -136,6 +136,48 @@ fn copied_package_filter_ignores_unrelated_malformed_pubspec()
 }
 
 #[test]
+fn top_uses_canonicalized_clone_ranking() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let mirrored = pagination_clone_source();
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(&fixture, "functions/shared/lib/pagination.dart", mirrored)?;
+    for function in ["delete_user", "squad_operations"] {
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/pubspec.yaml"),
+            "name: shared\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/lib/pagination.dart"),
+            mirrored,
+        )?;
+    }
+    let real = "String visibleClone(String owner) {\n  final normalized = owner.trim().toLowerCase();\n  final words = normalized.split(' ');\n  final compact = words.where((word) => word.isNotEmpty).join('-');\n  return 'owner:$compact';\n}\n";
+    for path in ["lib/alpha.dart", "lib/beta.dart", "lib/gamma.dart"] {
+        write(&fixture, path, real)?;
+    }
+    let project = scan_project(fixture.path())?;
+    let mut opts = options(DuplicateMode::Strict, 5, 10);
+    opts.top = Some(1);
+
+    let report = detect_duplicates(&project, &opts)?;
+
+    assert_eq!(report.clone_groups.len(), 1);
+    let clone = &report.clone_groups[0];
+    assert_eq!(clone.instances.len(), 3);
+    assert!(
+        clone
+            .instances
+            .iter()
+            .all(|instance| { instance.path.starts_with(fixture.path().join("lib")) })
+    );
+
+    Ok(())
+}
+
+#[test]
 fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -155,6 +197,35 @@ fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::
     assert_eq!(by_line.clone_groups[0].instances[0].path, "lib/a.dart");
 
     Ok(())
+}
+
+fn pagination_clone_source() -> &'static str {
+    r"Future<List<String>> fetchAllRowIds(Pages pages) async {
+  final values = <String>[];
+  var cursor = '';
+  do {
+    final page = await pages.list(cursor: cursor);
+    for (final row in page.rows) {
+      values.add(row.id);
+    }
+    cursor = page.nextCursor;
+  } while (cursor.isNotEmpty);
+  return values;
+}
+
+Future<List<String>> fetchAllFieldValues(Pages pages) async {
+  final values = <String>[];
+  var cursor = '';
+  do {
+    final page = await pages.list(cursor: cursor);
+    for (final row in page.rows) {
+      values.add(row.id);
+    }
+    cursor = page.nextCursor;
+  } while (cursor.isNotEmpty);
+  return values;
+}
+"
 }
 
 fn options(mode: DuplicateMode, min_lines: usize, min_tokens: usize) -> DuplicateOptions {

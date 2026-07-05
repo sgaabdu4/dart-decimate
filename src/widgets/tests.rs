@@ -196,6 +196,97 @@ class ElseBranchShadowCard extends StatelessWidget {
 }
 
 #[test]
+fn direct_field_reads_ignore_for_in_and_catch_header_shadows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ForInShadowCard extends StatelessWidget {
+  const ForInShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    for (final title in ['local']) {
+      Text(title);
+    }
+    return const SizedBox();
+  }
+}
+class CatchExceptionShadowCard extends StatelessWidget {
+  const CatchExceptionShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    try {
+      throw Exception();
+    } catch (title) {
+      return Text(title);
+    }
+    return const SizedBox();
+  }
+}
+class CatchStackShadowCard extends StatelessWidget {
+  const CatchStackShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    try {
+      throw Exception();
+    } catch (error, title) {
+      return Text(title);
+    }
+    return const SizedBox();
+  }
+}
+class DirectFieldCard extends StatelessWidget {
+  const DirectFieldCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Text(title);
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "ForInShadowCard.title",
+            "CatchExceptionShadowCard.title",
+            "CatchStackShadowCard.title"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn forwarded_usage_requires_exact_constructor_invocation() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class ForwardingPanel extends StatefulWidget {
+  const ForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<ForwardingPanel> createState() => _ForwardingPanelState();
+}
+
+class _ForwardingPanelState extends State<ForwardingPanel> {
+  Widget build(BuildContext context) {
+    final ignored = NotForwardedViewData.fromOwner(source: widget);
+    final label = 'ForwardedViewData.fromOwner(source: widget)';
+    return Text('$ignored $label');
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromOwner({required ForwardingPanel source})
+      : items = source.items;
+  final List<String> items;
+}
+
+class NotForwardedViewData {
+  NotForwardedViewData.fromOwner({required ForwardingPanel source});
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["ForwardingPanel.items"]);
+    Ok(())
+}
+
+#[test]
 fn recognizes_consumer_and_hook_widget_bases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class A extends ConsumerWidget {
@@ -517,4 +608,11 @@ fn parse_findings_at(path: &str, source: &str) -> Result<FileWidgetFindings, Wid
         parsed.tree().root_node(),
         parsed.source(),
     ))
+}
+
+fn unused_param_targets(unused: Vec<UnusedWidgetParam>) -> Vec<String> {
+    unused
+        .into_iter()
+        .map(|param| format!("{}.{}", param.widget_class, param.param_name))
+        .collect()
 }

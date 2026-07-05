@@ -380,28 +380,13 @@ pub fn detect_duplicates(
         })
         .collect::<Vec<_>>();
 
-    clone_groups.sort_by(|left, right| {
-        (
-            std::cmp::Reverse(left.instances.len()),
-            std::cmp::Reverse(left.line_count),
-            &left.instances[0].path,
-            left.instances[0].start_line,
-            &left.fingerprint,
-        )
-            .cmp(&(
-                std::cmp::Reverse(right.instances.len()),
-                std::cmp::Reverse(right.line_count),
-                &right.instances[0].path,
-                right.instances[0].start_line,
-                &right.fingerprint,
-            ))
-    });
     let mut copied_packages = CopiedPackageFilter::new(&project.root);
     for group in &mut clone_groups {
         copied_packages.canonicalize_copied_package_instances(group);
     }
     clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
     clone_groups.retain(|group| !is_declaration_only_clone(group));
+    sort_clone_groups(&mut clone_groups);
     clone_groups = collapse_overlapping_groups(clone_groups);
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));
     let stats = duplicate_stats(analyzed_lines, &clone_groups, options.threshold);
@@ -458,6 +443,25 @@ pub fn render_clone_trace(report: &CloneTraceReport) -> String {
         report.clone_groups.len(),
         report.reason
     )
+}
+
+fn sort_clone_groups(clone_groups: &mut [CodeClone]) {
+    clone_groups.sort_by(|left, right| {
+        (
+            std::cmp::Reverse(left.instances.len()),
+            std::cmp::Reverse(left.line_count),
+            &left.instances[0].path,
+            left.instances[0].start_line,
+            &left.fingerprint,
+        )
+            .cmp(&(
+                std::cmp::Reverse(right.instances.len()),
+                std::cmp::Reverse(right.line_count),
+                &right.instances[0].path,
+                right.instances[0].start_line,
+                &right.fingerprint,
+            ))
+    });
 }
 
 fn collapse_overlapping_groups(groups: Vec<CodeClone>) -> Vec<CodeClone> {

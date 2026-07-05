@@ -40,8 +40,8 @@ pub(super) fn forwarded_param_used(
     })
 }
 
-pub(super) fn widget_forwarded_param_uses<'tree>(
-    classes: &[Node<'tree>],
+pub(super) fn widget_forwarded_param_uses(
+    classes: &[Node<'_>],
     source: &str,
 ) -> BTreeMap<String, Vec<WidgetParamForwarder>> {
     let mut uses = BTreeMap::<String, Vec<WidgetParamForwarder>>::new();
@@ -177,8 +177,7 @@ fn formal_parameter_type(param: Node<'_>, name: &str, source: &str) -> Option<St
     let before_name = text[..name_index].trim();
     let type_name = before_name
         .split_whitespace()
-        .filter(|part| !matches!(*part, "required" | "covariant" | "final" | "var"))
-        .next_back()?;
+        .rfind(|part| !matches!(*part, "required" | "covariant" | "final" | "var"))?;
     Some(simple_type_name(type_name.trim_end_matches('?')))
 }
 
@@ -236,68 +235,88 @@ fn state_body_calls_forwarder(
     parameter: &ForwardedParameter,
     source: &str,
 ) -> bool {
-    let Ok(text) = body.utf8_text(source.as_bytes()) else {
+    let mut found = false;
+    visit_named(body, &mut |node| {
+        if found {
+            return;
+        }
+        if invocation_name(node, source).as_deref() == Some(forwarder_name)
+            && invocation_arguments_pass_widget(node, parameter, source)
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn invocation_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "call_expression" | "constructor_invocation" | "const_object_expression" | "new_expression"
+    ) {
+        return None;
+    }
+    if let Some(name) = constructor_invocation_name(node, source) {
+        return Some(name);
+    }
+    let arguments = node.child_by_field_name("arguments")?;
+    source
+        .get(node.start_byte()..arguments.start_byte())
+        .map(normalized_invocation_prefix)
+}
+
+fn constructor_invocation_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "constructor_invocation" | "const_object_expression" | "new_expression"
+    ) {
+        return None;
+    }
+    let type_name = node
+        .child_by_field_name("type")?
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(strip_whitespace)?;
+    node.child_by_field_name("constructor")
+        .and_then(|constructor| constructor.utf8_text(source.as_bytes()).ok())
+        .map_or(Some(type_name.clone()), |constructor| {
+            Some(format!("{type_name}.{constructor}"))
+        })
+}
+
+fn normalized_invocation_prefix(prefix: &str) -> String {
+    strip_whitespace(
+        prefix
+            .trim()
+            .strip_prefix("const ")
+            .or_else(|| prefix.trim().strip_prefix("new "))
+            .unwrap_or(prefix.trim()),
+    )
+}
+
+fn invocation_arguments_pass_widget(
+    node: Node<'_>,
+    parameter: &ForwardedParameter,
+    source: &str,
+) -> bool {
+    let Some(arguments) = node.child_by_field_name("arguments") else {
         return false;
     };
-    call_arguments_for_name(text, forwarder_name)
-        .iter()
-        .any(|arguments| arguments_pass_widget(arguments, parameter))
-}
-
-fn call_arguments_for_name<'source>(source: &'source str, name: &str) -> Vec<&'source str> {
-    let mut arguments = Vec::new();
-    let mut search_start = 0;
-    while let Some(relative) = source[search_start..].find(name) {
-        let name_start = search_start + relative;
-        let mut open = name_start + name.len();
-        while source
-            .as_bytes()
-            .get(open)
-            .is_some_and(|byte| byte.is_ascii_whitespace())
-        {
-            open += 1;
-        }
-        if source.as_bytes().get(open) != Some(&b'(') {
-            search_start = open;
-            continue;
-        }
-        if let Some(close) = matching_paren(source, open) {
-            arguments.push(&source[open + 1..close]);
-            search_start = close + 1;
-        } else {
-            break;
-        }
-    }
-    arguments
-}
-
-fn matching_paren(source: &str, open: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    for (index, byte) in source.as_bytes().iter().enumerate().skip(open) {
-        match byte {
-            b'(' => depth += 1,
-            b')' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(index);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn arguments_pass_widget(arguments: &str, parameter: &ForwardedParameter) -> bool {
     let mut positional_index = 0usize;
-    for argument in split_arguments(arguments) {
-        if let Some((name, value)) = split_named_argument(argument) {
-            if name.trim() == parameter.name && is_widget_argument(value) {
+    let mut cursor = arguments.walk();
+    for argument in arguments.named_children(&mut cursor) {
+        if argument.kind() == "named_argument" {
+            if named_argument_label(argument, source).as_deref() == Some(parameter.name.as_str())
+                && named_argument_value(argument)
+                    .is_some_and(|value| is_widget_argument(value, source))
+            {
                 return true;
             }
             continue;
         }
-        if parameter.positional_index == Some(positional_index) && is_widget_argument(argument) {
+        if parameter.positional_index == Some(positional_index)
+            && is_widget_argument(argument, source)
+        {
             return true;
         }
         positional_index += 1;
@@ -305,57 +324,27 @@ fn arguments_pass_widget(arguments: &str, parameter: &ForwardedParameter) -> boo
     false
 }
 
-fn split_named_argument(argument: &str) -> Option<(&str, &str)> {
-    let mut paren_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    let mut brace_depth = 0usize;
-    for (index, byte) in argument.bytes().enumerate() {
-        match byte {
-            b'(' => paren_depth += 1,
-            b')' => paren_depth = paren_depth.saturating_sub(1),
-            b'[' => bracket_depth += 1,
-            b']' => bracket_depth = bracket_depth.saturating_sub(1),
-            b'{' => brace_depth += 1,
-            b'}' => brace_depth = brace_depth.saturating_sub(1),
-            b':' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
-                let (name, value) = argument.split_at(index);
-                return Some((name, &value[1..]));
-            }
-            _ => {}
-        }
-    }
-    None
+fn named_argument_label(node: Node<'_>, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "label")
+        .and_then(|label| label.utf8_text(source.as_bytes()).ok())
+        .map(str::trim)
+        .and_then(|label| label.strip_suffix(':'))
+        .map(str::to_owned)
 }
 
-fn is_widget_argument(argument: &str) -> bool {
-    matches!(strip_whitespace(argument).as_str(), "widget" | "oldWidget")
+fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() != "label")
 }
 
-fn split_arguments(arguments: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0usize;
-    let mut paren_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    let mut brace_depth = 0usize;
-    for (index, byte) in arguments.bytes().enumerate() {
-        match byte {
-            b'(' => paren_depth += 1,
-            b')' => paren_depth = paren_depth.saturating_sub(1),
-            b'[' => bracket_depth += 1,
-            b']' => bracket_depth = bracket_depth.saturating_sub(1),
-            b'{' => brace_depth += 1,
-            b'}' => brace_depth = brace_depth.saturating_sub(1),
-            b',' if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 => {
-                parts.push(arguments[start..index].trim());
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if start < arguments.len() {
-        parts.push(arguments[start..].trim());
-    }
-    parts
+fn is_widget_argument(argument: Node<'_>, source: &str) -> bool {
+    argument
+        .utf8_text(source.as_bytes())
+        .ok()
+        .is_some_and(|text| matches!(strip_whitespace(text).as_str(), "widget" | "oldWidget"))
 }
 
 fn strip_whitespace(text: &str) -> String {

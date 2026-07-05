@@ -162,7 +162,7 @@ fn enclosing_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> b
     found
 }
 
-fn enclosing_parameter_lists<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
+fn enclosing_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
     match node.kind() {
         "function_expression" => parameter_field_lists(node),
         "method_declaration" => node
@@ -228,6 +228,9 @@ fn scoped_header_binding_exists(
     name: &str,
     source: &str,
 ) -> bool {
+    if catch_header_binding_exists(scope, path_child, usage_start, name, source) {
+        return true;
+    }
     if !matches!(
         scope.kind(),
         "for_element"
@@ -238,6 +241,9 @@ fn scoped_header_binding_exists(
             | "switch_statement_case"
     ) {
         return false;
+    }
+    if header_field_binding_exists(scope, path_child, usage_start, name, source) {
+        return true;
     }
     let mut cursor = scope.walk();
     for child in scope.named_children(&mut cursor) {
@@ -252,6 +258,60 @@ fn scoped_header_binding_exists(
         }
     }
     false
+}
+
+fn catch_header_binding_exists(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if scope.kind() == "catch_clause" {
+        return scope.start_byte() < path_child.start_byte()
+            && catch_clause_binds_name(scope, name, source);
+    }
+    if scope.kind() != "try_statement" {
+        return false;
+    }
+    let mut previous: Option<Node<'_>> = None;
+    let mut cursor = scope.walk();
+    for child in scope.named_children(&mut cursor) {
+        if same_node(child, path_child) || child.start_byte() >= path_child.start_byte() {
+            return previous.is_some_and(|header| {
+                header.kind() == "catch_clause"
+                    && header.end_byte() <= usage_start
+                    && catch_clause_binds_name(header, name, source)
+            });
+        }
+        previous = Some(child);
+    }
+    false
+}
+
+fn catch_clause_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    field_text(node, "exception", source).as_deref() == Some(name)
+        || field_text(node, "stack_trace", source).as_deref() == Some(name)
+}
+
+fn header_field_binding_exists(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if !matches!(scope.kind(), "for_element" | "for_statement") {
+        return false;
+    }
+    let mut cursor = scope.walk();
+    scope
+        .children_by_field_name("name", &mut cursor)
+        .any(|field| {
+            field.end_byte() <= usage_start
+                && field.start_byte() < path_child.start_byte()
+                && field.utf8_text(source.as_bytes()).ok() == Some(name)
+        })
 }
 
 fn lexical_sibling_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -343,6 +403,12 @@ fn binding_name(node: Node<'_>, source: &str) -> Option<String> {
     }
     node.child_by_field_name("name")
         .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
+}
+
+fn field_text(node: Node<'_>, field_name: &str, source: &str) -> Option<String> {
+    node.child_by_field_name(field_name)
+        .and_then(|field| field.utf8_text(source.as_bytes()).ok())
         .map(str::to_owned)
 }
 

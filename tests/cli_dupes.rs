@@ -486,7 +486,9 @@ fn dupes_collapses_copied_local_package_mirrors_to_canonical_source_clone()
     let json = serde_json::from_slice::<Value>(&output)?;
     assert_eq!(code, 0);
     assert_eq!(json["summary"]["code_duplications"], 1);
-    let instances = json["clone_groups"][0]["instances"].as_array().unwrap();
+    let Some(instances) = json["clone_groups"][0]["instances"].as_array() else {
+        panic!("clone group instances array");
+    };
     assert_eq!(instances.len(), 2);
     assert!(instances.iter().all(|instance| {
         instance["path"] == "functions/shared/lib/pagination.dart"
@@ -587,7 +589,9 @@ fn dupes_collapses_shifted_copied_package_mirrors_to_canonical_source_ranges()
     let json = serde_json::from_slice::<Value>(&output)?;
     assert_eq!(code, 0);
     assert_eq!(json["summary"]["code_duplications"], 1);
-    let instances = json["clone_groups"][0]["instances"].as_array().unwrap();
+    let Some(instances) = json["clone_groups"][0]["instances"].as_array() else {
+        panic!("clone group instances array");
+    };
     assert_eq!(instances.len(), 2);
     assert!(
         instances
@@ -596,7 +600,12 @@ fn dupes_collapses_shifted_copied_package_mirrors_to_canonical_source_ranges()
     );
     let starts = instances
         .iter()
-        .map(|instance| instance["start_line"].as_u64().unwrap())
+        .map(|instance| {
+            let Some(line) = instance["start_line"].as_u64() else {
+                panic!("clone instance start_line number");
+            };
+            line
+        })
         .collect::<Vec<_>>();
     assert_eq!(starts, vec![2, 15]);
 

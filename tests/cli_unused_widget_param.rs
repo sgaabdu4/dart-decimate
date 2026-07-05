@@ -352,10 +352,59 @@ void main() {
 }
 ",
     )?;
-    write(
-        &fixture,
-        "lib/widgets.dart",
-        r"
+    write(&fixture, "lib/widgets.dart", OBJECT_PATTERN_WIDGETS_SOURCE)?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    let targets = unused_widget_targets(&json);
+
+    assert!(targets.contains(&"DirectPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"StaticPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"ChartDisplay.unused".to_owned()));
+    assert!(targets.contains(&"IfCasePatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"SwitchPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"OtherPatternWidget.used".to_owned()));
+    assert!(targets.contains(&"OtherPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"DifferentFieldPatternWidget.unused".to_owned()));
+    assert!(targets.contains(&"LocalShadowWidget.title".to_owned()));
+    assert!(targets.contains(&"UnrelatedPatternWidget.value".to_owned()));
+
+    for target in [
+        "DirectPatternWidget.used",
+        "StaticPatternWidget.title",
+        "StaticPatternWidget.subtitle",
+        "ChartDisplay.data",
+        "ChartDisplay.selectedIndex",
+        "ChartDisplay.tooltipSuffix",
+        "IfCasePatternWidget.used",
+        "SwitchPatternWidget.used",
+        "DifferentFieldPatternWidget.used",
+    ] {
+        assert!(
+            !targets.contains(&target.to_owned()),
+            "{target} should be used"
+        );
+    }
+
+    Ok(())
+}
+
+const OBJECT_PATTERN_WIDGETS_SOURCE: &str = r"
 class DirectPatternWidget extends StatelessWidget {
   const DirectPatternWidget({super.key, required this.used, required this.unused});
   final String used;
@@ -483,58 +532,7 @@ String helper(OtherThing thing) {
   final OtherThing(:value) = thing;
   return value;
 }
-",
-    )?;
-    let mut output = Vec::new();
-
-    let code = run_from(
-        [
-            "dart-decimate",
-            "check",
-            fixture.path().to_str().unwrap_or("."),
-            "--format",
-            "json",
-            "--entry",
-            "lib/main.dart",
-        ],
-        &mut output,
-    )?;
-
-    let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
-    assert_eq!(json["verdict"], "pass");
-    let targets = unused_widget_targets(&json);
-
-    assert!(targets.contains(&"DirectPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"StaticPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"ChartDisplay.unused".to_owned()));
-    assert!(targets.contains(&"IfCasePatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"SwitchPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"OtherPatternWidget.used".to_owned()));
-    assert!(targets.contains(&"OtherPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"DifferentFieldPatternWidget.unused".to_owned()));
-    assert!(targets.contains(&"LocalShadowWidget.title".to_owned()));
-    assert!(targets.contains(&"UnrelatedPatternWidget.value".to_owned()));
-
-    for target in [
-        "DirectPatternWidget.used",
-        "StaticPatternWidget.title",
-        "StaticPatternWidget.subtitle",
-        "ChartDisplay.data",
-        "ChartDisplay.selectedIndex",
-        "ChartDisplay.tooltipSuffix",
-        "IfCasePatternWidget.used",
-        "SwitchPatternWidget.used",
-        "DifferentFieldPatternWidget.used",
-    ] {
-        assert!(
-            !targets.contains(&target.to_owned()),
-            "{target} should be used"
-        );
-    }
-
-    Ok(())
-}
+";
 
 fn widget_fixture() -> Result<TempDir, std::io::Error> {
     let fixture = tempfile::tempdir()?;
