@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use super::patterns::pattern_binds_name;
+use super::patterns::{declaration_binds_name, pattern_binds_name};
 
 pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -> bool {
     let mut found = false;
@@ -448,7 +448,7 @@ fn lexical_sibling_binds_name(node: Node<'_>, name: &str, source: &str) -> bool 
     matches!(
         node.kind(),
         "local_variable_declaration" | "pattern_variable_declaration"
-    ) && node_contains_binding_name(node, name, source)
+    ) && declaration_binds_name(node, name, source)
 }
 
 fn local_function_name(node: Node<'_>, source: &str) -> Option<String> {

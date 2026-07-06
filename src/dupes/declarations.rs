@@ -43,13 +43,7 @@ impl DeclarationCloneFilter {
             })
             .filter(|(_, line)| !line.is_empty())
             .collect::<Vec<_>>();
-        !lines.is_empty()
-            && lines.iter().all(|(line_number, line)| {
-                declaration_only_line(
-                    line,
-                    file.context.direct_type_body_lines.contains(line_number),
-                )
-            })
+        !lines.is_empty() && declaration_only_lines(&lines, &file.context.direct_type_body_lines)
     }
 
     #[cfg(test)]
@@ -190,6 +184,57 @@ mod tests {
         assert!(filter.is_declaration_only_clone(&group));
         Ok(())
     }
+
+    #[test]
+    fn declaration_filter_accepts_multiline_member_signatures()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract interface class Contract {\n  Future<void> save({\n    required String title,\n    required int count,\n  });\n  Stream<List<Item>> watchItems({\n    required String ownerId,\n  });\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "multiline-contract".to_owned(),
+            instances: vec![CodeCloneInstance {
+                path,
+                start_line: 1,
+                end_line: 9,
+                column: 0,
+            }],
+            line_count: 9,
+            token_count: 24,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(filter.is_declaration_only_clone(&group));
+        Ok(())
+    }
+
+    #[test]
+    fn declaration_filter_rejects_multiline_defaults() -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract class Contract {\n  void save({\n    String label = 'x',\n  });\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "multiline-default".to_owned(),
+            instances: vec![CodeCloneInstance {
+                path,
+                start_line: 1,
+                end_line: 5,
+                column: 0,
+            }],
+            line_count: 5,
+            token_count: 12,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(!filter.is_declaration_only_clone(&group));
+        Ok(())
+    }
 }
 
 fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
@@ -197,6 +242,45 @@ fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
         || line == "}"
         || line == "};"
         || (in_declaration_body && abstract_member_signature(line))
+}
+
+fn declaration_only_lines(
+    lines: &[(usize, &str)],
+    direct_type_body_lines: &BTreeSet<usize>,
+) -> bool {
+    let mut index = 0;
+    while index < lines.len() {
+        let (line_number, line) = lines[index];
+        let in_declaration_body = direct_type_body_lines.contains(&line_number);
+        if declaration_only_line(line, in_declaration_body) {
+            index += 1;
+            continue;
+        }
+        if in_declaration_body && let Some(end) = multiline_signature_end(lines, index) {
+            let signature = lines[index..=end]
+                .iter()
+                .map(|(_, line)| *line)
+                .collect::<Vec<_>>()
+                .join(" ");
+            if abstract_member_signature(&signature) {
+                index = end + 1;
+                continue;
+            }
+        }
+        return false;
+    }
+    true
+}
+
+fn multiline_signature_end(lines: &[(usize, &str)], start: usize) -> Option<usize> {
+    if lines[start].1.ends_with(';') {
+        return None;
+    }
+    lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find_map(|(index, (_, line))| line.ends_with(';').then_some(index))
 }
 
 fn abstract_type_header(line: &str) -> bool {

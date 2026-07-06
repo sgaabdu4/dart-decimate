@@ -290,6 +290,25 @@ class EarlierFunctionShadowCard extends StatelessWidget {
     return Text(title);
   }
 }
+class PriorCallbackShadowThenUseCard extends StatelessWidget {
+  const PriorCallbackShadowThenUseCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final labels = ['local'].map((title) => title).toList();
+    return Text(title);
+  }
+}
+class PriorCallbackLocalThenUseCard extends StatelessWidget {
+  const PriorCallbackLocalThenUseCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final labels = ['local'].map((value) {
+      final title = value;
+      return title;
+    }).toList();
+    return Text(title);
+  }
+}
 class ElseBranchShadowCard extends StatelessWidget {
   const ElseBranchShadowCard({super.key, required this.title});
   final String title;
@@ -1570,6 +1589,31 @@ class ForwardedThisMemberAliasData {
     let targets = unused_param_targets(parse_findings(source)?.unused_params);
 
     assert_eq!(targets, vec!["ThisMemberAssignmentAliasPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn bare_object_pattern_helper_calls_ignore_prior_callback_shadows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class CallbackShadowHelperPanel extends StatelessWidget {
+  const CallbackShadowHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final callbacks = ['local'].map((readCallbackHelper) => readCallbackHelper).toList();
+    return Text(readCallbackHelper(this));
+  }
+}
+
+String readCallbackHelper(CallbackShadowHelperPanel widget) {
+  final CallbackShadowHelperPanel(:used) = widget;
+  return used;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["CallbackShadowHelperPanel.unused"]);
     Ok(())
 }
 

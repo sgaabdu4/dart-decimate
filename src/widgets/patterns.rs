@@ -641,7 +641,7 @@ fn collect_root_aliases_from_declaration_shape(
     }
 }
 
-fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+pub(super) fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
     if binding_name(node, source).as_deref() == Some(name) {
         return true;
     }
@@ -1506,7 +1506,7 @@ fn lexical_sibling_binds_name(node: Node<'_>, name: &str, source: &str) -> bool 
     matches!(
         node.kind(),
         "local_variable_declaration" | "pattern_variable_declaration"
-    ) && node_contains_binding_name(node, name, source)
+    ) && declaration_binds_name(node, name, source)
 }
 
 fn local_function_name(node: Node<'_>, source: &str) -> Option<String> {
@@ -2327,21 +2327,6 @@ pub(super) fn pattern_binds_name(node: Node<'_>, name: &str, source: &str) -> bo
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
         .any(|child| pattern_binds_name(child, name, source))
-}
-
-fn node_contains_binding_name(node: Node<'_>, name: &str, source: &str) -> bool {
-    let mut found = false;
-    visit_named(node, &mut |candidate| {
-        if found {
-            return;
-        }
-        if binding_name(candidate, source).as_deref() == Some(name)
-            || pattern_binds_name(candidate, name, source)
-        {
-            found = true;
-        }
-    });
-    found
 }
 
 fn binding_name(node: Node<'_>, source: &str) -> Option<String> {
