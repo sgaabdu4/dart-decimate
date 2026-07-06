@@ -28,6 +28,9 @@ fn class_or_local_superclass_extends_state(
     if framework_state_type_reference(root, &superclass, source) {
         return true;
     }
+    if superclass.contains('.') {
+        return false;
+    }
     let simple_superclass = simple_type_name(&superclass);
     if matches!(simple_superclass.as_str(), "State" | "ConsumerState")
         && let Some(declaration) = find_class_declaration(root, &simple_superclass, source)
@@ -39,9 +42,6 @@ fn class_or_local_superclass_extends_state(
     }
     if unprefixed_framework_state_import(root, &simple_superclass, source) {
         return true;
-    }
-    if superclass.contains('.') {
-        return false;
     }
     if !visited.insert(simple_superclass.clone()) {
         return false;

@@ -116,3 +116,23 @@ class ScreenState extends fake.State<Screen> {
     assert!(!typed_route_navigation_found(source)?);
     Ok(())
 }
+
+#[test]
+fn prefixed_state_does_not_fall_back_to_local_state_shadow()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'package:flutter/widgets.dart' as f;
+import 'package:not_flutter/fake.dart' as fake;
+
+class State<T> extends f.State<T> {}
+
+class ScreenState extends fake.State<Screen> {
+  void open() {
+    context.go(const HomeRoute().location);
+  }
+}
+";
+
+    assert!(!typed_route_navigation_found(source)?);
+    Ok(())
+}
