@@ -280,6 +280,19 @@ pub(super) fn remove_roots_shadowed_by_enclosing_callable(
     }
 }
 
+pub(super) fn top_level_name_shadowed_at(
+    body: Node<'_>,
+    site: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    lexical_local_binding_before(body, site, name, source)
+        || lexical_header_binding_before(body, site, name, source)
+        || enclosing_callable_parameter_binds_name(site, body, name, source)
+        || current_class_member_shadows_top_level(site, name, source)
+        || import_alias_exists(root_node(site), name, source)
+}
+
 fn owner_parameter_preserves_root(owner: Node<'_>, name: &str, source: &str) -> bool {
     name == "oldWidget"
         && owner.kind() == "method_declaration"
@@ -1407,11 +1420,7 @@ fn qualified_helper_qualifier_shadowed(
     qualifier: &str,
     source: &str,
 ) -> bool {
-    lexical_local_binding_before(body, invocation, qualifier, source)
-        || lexical_header_binding_before(body, invocation, qualifier, source)
-        || enclosing_callable_parameter_binds_name(invocation, body, qualifier, source)
-        || current_class_member_shadows_top_level(invocation, qualifier, source)
-        || import_alias_exists(root_node(invocation), qualifier, source)
+    top_level_name_shadowed_at(body, invocation, qualifier, source)
 }
 
 fn import_alias_exists(root: Node<'_>, alias: &str, source: &str) -> bool {

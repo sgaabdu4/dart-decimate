@@ -727,6 +727,119 @@ class ForwardedViewData {
 }
 
 #[test]
+fn forwarded_usage_ignores_shadowed_forwarder_owners() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class LocalVariableForwarderOwnerShadowPanel extends StatelessWidget {
+  const LocalVariableForwarderOwnerShadowPanel({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    {
+      final ForwardedViewData = ShadowForwarder();
+      ForwardedViewData.fromOwner(source: this);
+    }
+    {
+      ShadowForwarder ForwardedViewData() => ShadowForwarder();
+      ForwardedViewData.fromOwner(source: this);
+    }
+    return const SizedBox();
+  }
+}
+
+class ParameterForwarderOwnerShadowPanel extends StatelessWidget {
+  const ParameterForwarderOwnerShadowPanel({super.key, required this.title});
+  final String title;
+  Widget render(ShadowForwarder ParameterForwardedViewData) {
+    final data = ParameterForwardedViewData.fromOwner(source: this);
+    return Text(data.title);
+  }
+  Widget build(BuildContext context) => render(ShadowForwarder());
+}
+
+class PatternForwarderOwnerShadowPanel extends StatelessWidget {
+  const PatternForwarderOwnerShadowPanel({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final record = (PatternForwardedViewData: ShadowForwarder());
+    final (:PatternForwardedViewData) = record;
+    final data = PatternForwardedViewData.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class MemberForwarderOwnerShadowPanel extends StatelessWidget {
+  const MemberForwarderOwnerShadowPanel({super.key, required this.title});
+  final String title;
+  ShadowForwarder get MemberForwardedViewData => ShadowForwarder();
+  Widget build(BuildContext context) {
+    final data = MemberForwardedViewData.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class RealForwarderPanel extends StatelessWidget {
+  const RealForwarderPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    final data = RealForwardedViewData.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromOwner({required LocalVariableForwarderOwnerShadowPanel source})
+      : title = source.title;
+  final String title;
+}
+
+class ParameterForwardedViewData {
+  ParameterForwardedViewData.fromOwner({required ParameterForwarderOwnerShadowPanel source})
+      : title = source.title;
+  final String title;
+}
+
+class PatternForwardedViewData {
+  PatternForwardedViewData.fromOwner({required PatternForwarderOwnerShadowPanel source})
+      : title = source.title;
+  final String title;
+}
+
+class MemberForwardedViewData {
+  MemberForwardedViewData.fromOwner({required MemberForwarderOwnerShadowPanel source})
+      : title = source.title;
+  final String title;
+}
+
+class RealForwardedViewData {
+  RealForwardedViewData.fromOwner({required RealForwarderPanel source})
+      : title = source.title;
+  final String title;
+}
+
+class ShadowForwarder {
+  ShadowForwardedData fromOwner({required Object source}) => ShadowForwardedData();
+}
+
+class ShadowForwardedData {
+  String get title => 'shadow';
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "LocalVariableForwarderOwnerShadowPanel.title",
+            "ParameterForwarderOwnerShadowPanel.title",
+            "PatternForwarderOwnerShadowPanel.title",
+            "MemberForwarderOwnerShadowPanel.title",
+            "RealForwarderPanel.unused"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn object_pattern_usage_ignores_shadowed_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class AliasPatternPanel extends StatefulWidget {

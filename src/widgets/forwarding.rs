@@ -4,7 +4,7 @@ use tree_sitter::Node;
 
 use super::patterns::{
     object_pattern_field_reads_in_body, remove_roots_shadowed_by_enclosing_callable,
-    root_aliases_at,
+    root_aliases_at, top_level_name_shadowed_at,
 };
 use super::reads::direct_identifier_shadowed_before;
 
@@ -424,7 +424,13 @@ fn body_calls_forwarder_with_roots(
         if found {
             return;
         }
-        if invocation_name(node, source).as_deref() != Some(forwarder_name) {
+        let Some(invocation_name) = invocation_name(node, source) else {
+            return;
+        };
+        if invocation_name != forwarder_name {
+            return;
+        }
+        if forwarder_owner_shadowed(body, node, &invocation_name, source) {
             return;
         }
         let mut roots = root_aliases_at(body, node, root_names, source);
@@ -434,6 +440,18 @@ fn body_calls_forwarder_with_roots(
         }
     });
     found
+}
+
+fn forwarder_owner_shadowed(
+    body: Node<'_>,
+    invocation: Node<'_>,
+    forwarder_name: &str,
+    source: &str,
+) -> bool {
+    let owner = forwarder_name
+        .split_once('.')
+        .map_or(forwarder_name, |(owner, _)| owner);
+    top_level_name_shadowed_at(body, invocation, owner, source)
 }
 
 fn invocation_name(node: Node<'_>, source: &str) -> Option<String> {
