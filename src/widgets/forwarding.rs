@@ -17,6 +17,7 @@ struct ForwardedParameter {
 
 pub(super) fn forwarded_param_used(
     forwarders: Option<&Vec<WidgetParamForwarder>>,
+    widget_body: Node<'_>,
     state_bodies: Option<&Vec<Node<'_>>>,
     field_name: &str,
     source: &str,
@@ -24,19 +25,25 @@ pub(super) fn forwarded_param_used(
     let Some(forwarders) = forwarders else {
         return false;
     };
-    let Some(state_bodies) = state_bodies else {
-        return false;
-    };
     forwarders.iter().any(|forwarder| {
         forwarder.fields.contains(field_name)
-            && state_bodies.iter().any(|state_body| {
-                state_body_calls_forwarder(
-                    *state_body,
-                    &forwarder.name,
-                    &forwarder.parameter,
-                    source,
-                )
-            })
+            && (body_calls_forwarder_with_roots(
+                widget_body,
+                &forwarder.name,
+                &forwarder.parameter,
+                &["this"],
+                source,
+            ) || state_bodies.is_some_and(|state_bodies| {
+                state_bodies.iter().any(|state_body| {
+                    body_calls_forwarder_with_roots(
+                        *state_body,
+                        &forwarder.name,
+                        &forwarder.parameter,
+                        &["widget", "oldWidget"],
+                        source,
+                    )
+                })
+            }))
     })
 }
 
@@ -323,10 +330,11 @@ fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree
         .find(|child| child.kind() == kind)
 }
 
-fn state_body_calls_forwarder(
+fn body_calls_forwarder_with_roots(
     body: Node<'_>,
     forwarder_name: &str,
     parameter: &ForwardedParameter,
+    roots: &[&str],
     source: &str,
 ) -> bool {
     let mut found = false;
@@ -335,7 +343,7 @@ fn state_body_calls_forwarder(
             return;
         }
         if invocation_name(node, source).as_deref() == Some(forwarder_name)
-            && invocation_arguments_pass_widget(node, parameter, source)
+            && invocation_arguments_pass_roots(node, parameter, roots, source)
         {
             found = true;
         }
@@ -388,32 +396,37 @@ fn normalized_invocation_prefix(prefix: &str) -> String {
     )
 }
 
-fn invocation_arguments_pass_widget(
+fn invocation_arguments_pass_roots(
     node: Node<'_>,
     parameter: &ForwardedParameter,
+    roots: &[&str],
     source: &str,
 ) -> bool {
     let Some(arguments) = node.child_by_field_name("arguments") else {
         return false;
     };
     let mut positional_index = 0usize;
+    let mut saw_named_child = false;
     let mut cursor = arguments.walk();
     for argument in arguments.named_children(&mut cursor) {
+        saw_named_child = true;
         if argument.kind() == "named_argument" {
             if named_argument_label(argument, source).as_deref() == Some(parameter.name.as_str())
-                && named_argument_value(argument)
-                    .is_some_and(|value| is_widget_argument(value, source))
+                && named_argument_matches_roots(argument, roots, source)
             {
                 return true;
             }
             continue;
         }
         if parameter.positional_index == Some(positional_index)
-            && is_widget_argument(argument, source)
+            && argument_matches_roots(argument, roots, source)
         {
             return true;
         }
         positional_index += 1;
+    }
+    if !saw_named_child {
+        return argument_texts_pass_roots(arguments, parameter, roots, source);
     }
     false
 }
@@ -434,11 +447,96 @@ fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
         .find(|child| child.kind() != "label")
 }
 
-fn is_widget_argument(argument: Node<'_>, source: &str) -> bool {
+fn named_argument_matches_roots(argument: Node<'_>, roots: &[&str], source: &str) -> bool {
+    named_argument_value(argument).is_some_and(|value| argument_matches_roots(value, roots, source))
+        || argument
+            .utf8_text(source.as_bytes())
+            .ok()
+            .and_then(|text| text.split_once(':').map(|(_, value)| value))
+            .is_some_and(|value| expression_matches_roots(value, roots))
+}
+
+fn argument_matches_roots(argument: Node<'_>, roots: &[&str], source: &str) -> bool {
     argument
         .utf8_text(source.as_bytes())
         .ok()
-        .is_some_and(|text| matches!(strip_whitespace(text).as_str(), "widget" | "oldWidget"))
+        .map(strip_whitespace)
+        .is_some_and(|text| roots.iter().any(|root| text == *root))
+}
+
+fn argument_texts_pass_roots(
+    arguments: Node<'_>,
+    parameter: &ForwardedParameter,
+    roots: &[&str],
+    source: &str,
+) -> bool {
+    let Some(text) = arguments.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    let mut positional_index = 0usize;
+    for argument in split_argument_texts(text) {
+        if let Some((label, value)) = argument.split_once(':') {
+            if label.trim() == parameter.name && expression_matches_roots(value, roots) {
+                return true;
+            }
+            continue;
+        }
+        if parameter.positional_index == Some(positional_index)
+            && expression_matches_roots(argument, roots)
+        {
+            return true;
+        }
+        positional_index += 1;
+    }
+    false
+}
+
+fn split_argument_texts(text: &str) -> Vec<&str> {
+    let inner = text
+        .trim()
+        .strip_prefix('(')
+        .and_then(|text| text.strip_suffix(')'))
+        .unwrap_or(text)
+        .trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0usize;
+    for (index, character) in inner.char_indices() {
+        match character {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(inner[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(inner[start..].trim());
+    parts
+}
+
+fn expression_matches_roots(expression: &str, roots: &[&str]) -> bool {
+    let expression = normalized_expression(expression);
+    roots.iter().any(|root| expression == *root)
+}
+
+fn normalized_expression(expression: &str) -> String {
+    let mut expression = expression
+        .split([';', ',', '}'])
+        .next()
+        .unwrap_or(expression)
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_owned();
+    while expression.starts_with('(') && expression.ends_with(')') {
+        expression = expression[1..expression.len() - 1].trim().to_owned();
+    }
+    strip_whitespace(&expression)
 }
 
 fn strip_whitespace(text: &str) -> String {

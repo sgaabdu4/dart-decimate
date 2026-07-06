@@ -329,6 +329,73 @@ class ForwardedViewData {
 }
 
 #[test]
+fn check_counts_stateless_widget_forwarding_as_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'widgets.dart';
+
+void main() {
+  StatelessForwardingPanel(title: 'ready', unused: 'x');
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"
+class StatelessForwardingPanel extends StatelessWidget {
+  const StatelessForwardingPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    return ForwardedTitleBody(
+      viewData: ForwardedTitleData.fromOwner(source: this),
+    );
+  }
+}
+
+class ForwardedTitleData {
+  ForwardedTitleData.fromOwner({required StatelessForwardingPanel source})
+      : title = source.title;
+  final String title;
+}
+
+class ForwardedTitleBody extends StatelessWidget {
+  const ForwardedTitleBody({super.key, required this.viewData});
+  final ForwardedTitleData viewData;
+  Widget build(BuildContext context) => Text(viewData.title);
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_no_widget_target(&json, "StatelessForwardingPanel.title");
+    assert_widget_param_for(&json, "StatelessForwardingPanel.unused");
+
+    Ok(())
+}
+
+#[test]
 fn check_counts_only_matching_widget_object_pattern_fields_as_usage()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -363,6 +430,7 @@ void main() {
   StateOwnerParamShadowWidget(used: 'real', unused: 'x');
   StatePatternRootShadowWidget(used: 'real', unused: 'x');
   ParameterShadowHelperWidget(used: 'real', unused: 'x');
+  MemberShadowHelperWidget(used: 'real', unused: 'x');
 }
 ",
     )?;
@@ -429,6 +497,8 @@ const OBJECT_PATTERN_UNUSED_TARGETS: &[&str] = &[
     "StatePatternRootShadowWidget.unused",
     "ParameterShadowHelperWidget.used",
     "ParameterShadowHelperWidget.unused",
+    "MemberShadowHelperWidget.used",
+    "MemberShadowHelperWidget.unused",
 ];
 
 const OBJECT_PATTERN_USED_TARGETS: &[&str] = &[
@@ -766,6 +836,19 @@ class ParameterShadowHelperWidget extends StatelessWidget {
 
 String parameterShadowHelper(ParameterShadowHelperWidget widget) {
   final ParameterShadowHelperWidget(:used) = widget;
+  return used;
+}
+
+class MemberShadowHelperWidget extends StatelessWidget {
+  const MemberShadowHelperWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  String memberShadowHelper(MemberShadowHelperWidget widget) => 'member';
+  Widget build(BuildContext context) => Text(memberShadowHelper(this));
+}
+
+String memberShadowHelper(MemberShadowHelperWidget widget) {
+  final MemberShadowHelperWidget(:used) = widget;
   return used;
 }
 

@@ -569,6 +569,11 @@ fn helper_name_matches(
     if enclosing_callable_parameter_binds_name(invocation, body, &helper_name.name, source) {
         return false;
     }
+    if helper_name.method_owner.is_none()
+        && current_class_member_shadows_top_level(invocation, &helper_name.name, source)
+    {
+        return false;
+    }
     helper_name.method_owner.as_ref().is_none_or(|owner| {
         current_lexical_owner(invocation, source)
             .as_deref()
@@ -789,14 +794,120 @@ fn optional_parameters_directly_bind_name(parameters: Node<'_>, name: &str, sour
 }
 
 fn current_lexical_owner(node: Node<'_>, source: &str) -> Option<String> {
+    current_lexical_class(node).and_then(|class| field_text(class, "name", source))
+}
+
+fn current_lexical_class(node: Node<'_>) -> Option<Node<'_>> {
     let mut parent = node.parent();
     while let Some(ancestor) = parent {
         if ancestor.kind() == "class_declaration" {
-            return field_text(ancestor, "name", source);
+            return Some(ancestor);
         }
         parent = ancestor.parent();
     }
     None
+}
+
+fn current_class_member_shadows_top_level(invocation: Node<'_>, name: &str, source: &str) -> bool {
+    current_lexical_class(invocation)
+        .is_some_and(|class| class_declares_member(class, name, source))
+}
+
+fn class_declares_member(class: Node<'_>, name: &str, source: &str) -> bool {
+    let Some(body) = class.child_by_field_name("body") else {
+        return false;
+    };
+    let mut cursor = body.walk();
+    body.named_children(&mut cursor)
+        .any(|child| match child.kind() {
+            "class_member" => class_member_declares_name(child, name, source),
+            "method_declaration" => member_signature_name(child, source).as_deref() == Some(name),
+            "declaration" => declaration_declares_member(child, name, source),
+            _ => false,
+        })
+}
+
+fn class_member_declares_name(member: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = member.walk();
+    member
+        .named_children(&mut cursor)
+        .any(|child| match child.kind() {
+            "method_declaration" => member_signature_name(child, source).as_deref() == Some(name),
+            "declaration" => declaration_declares_member(child, name, source),
+            _ => false,
+        })
+}
+
+fn declaration_declares_member(declaration: Node<'_>, name: &str, source: &str) -> bool {
+    if member_signature_name(declaration, source).as_deref() == Some(name) {
+        return true;
+    }
+    let mut names = Vec::new();
+    collect_member_field_names(declaration, source, &mut names);
+    names.iter().any(|candidate| candidate == name)
+}
+
+fn member_signature_name(node: Node<'_>, source: &str) -> Option<String> {
+    if matches!(
+        node.kind(),
+        "function_signature" | "getter_signature" | "setter_signature"
+    ) {
+        return field_text(node, "name", source);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| member_signature_name(child, source))
+}
+
+fn collect_member_field_names(node: Node<'_>, source: &str, names: &mut Vec<String>) {
+    collect_named_fields(
+        node,
+        source,
+        &["static_final_declaration", "initialized_identifier"],
+        names,
+    );
+    if names.is_empty()
+        && let Some(identifier_list) = find_first_named_descendant(node, "identifier_list")
+    {
+        collect_direct_identifier_children(identifier_list, source, names);
+    }
+}
+
+fn collect_named_fields(
+    node: Node<'_>,
+    source: &str,
+    owner_kinds: &[&str],
+    names: &mut Vec<String>,
+) {
+    if owner_kinds.contains(&node.kind())
+        && let Some(name) = field_text(node, "name", source)
+    {
+        names.push(name);
+    }
+
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_named_fields(child, source, owner_kinds, names);
+    }
+}
+
+fn find_first_named_descendant<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| find_first_named_descendant(child, kind))
+}
+
+fn collect_direct_identifier_children(node: Node<'_>, source: &str, names: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    names.extend(
+        node.named_children(&mut cursor)
+            .filter(|child| child.kind() == "identifier")
+            .filter_map(|child| child.utf8_text(source.as_bytes()).ok())
+            .map(str::to_owned),
+    );
 }
 
 fn invocation_name(node: Node<'_>, source: &str) -> Option<String> {

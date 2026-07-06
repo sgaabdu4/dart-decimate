@@ -204,7 +204,7 @@ fn route_extension_navigation_call(
         .unwrap_or(receiver);
     route_classes
         .iter()
-        .any(|route_class| contains_constructor_call(receiver, route_class))
+        .any(|route_class| direct_constructor_call_text(receiver, route_class))
 }
 
 fn route_location_navigation_call(
@@ -278,14 +278,20 @@ fn route_location_member(node: Node<'_>, route_classes: &BTreeSet<String>, sourc
         return false;
     }
     node.child_by_field_name("object")
-        .is_some_and(|object| node_contains_route_constructor(object, route_classes, source))
+        .is_some_and(|object| route_constructor_receiver(object, route_classes, source))
 }
 
-fn node_contains_route_constructor(
+fn route_constructor_receiver(
     node: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
+    if matches!(node.kind(), "parenthesized_expression" | "expression") {
+        let mut cursor = node.walk();
+        return node
+            .named_children(&mut cursor)
+            .any(|child| route_constructor_receiver(child, route_classes, source));
+    }
     if matches!(
         node.kind(),
         "constructor_invocation" | "const_object_expression" | "new_expression"
@@ -297,26 +303,74 @@ fn node_contains_route_constructor(
     {
         return true;
     }
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .any(|child| node_contains_route_constructor(child, route_classes, source))
+    false
 }
 
-fn contains_constructor_call(text: &str, route_class: &str) -> bool {
-    let mut cursor = 0usize;
-    while let Some(relative) = text[cursor..].find(route_class) {
-        let start = cursor + relative;
-        let end = start + route_class.len();
-        if !identifier_continues_before(text, start)
-            && text
-                .get(end..)
-                .is_some_and(|after| after.starts_with('(') || after.starts_with('<'))
-        {
-            return true;
-        }
-        cursor = end;
+fn direct_constructor_call_text(text: &str, route_class: &str) -> bool {
+    let Some(receiver) = unwrap_parenthesized_text(text.trim()) else {
+        return false;
+    };
+    let Some(after_type) = receiver_after_route_type(receiver, route_class) else {
+        return false;
+    };
+    if after_type.starts_with('(') {
+        return balanced_enclosed_text(after_type, '(', ')');
+    }
+    if after_type.starts_with('<')
+        && let Some(arguments_start) =
+            matching_enclosed_end(after_type, '<', '>').and_then(|end| after_type.get(end + 1..))
+    {
+        return arguments_start.starts_with('(')
+            && balanced_enclosed_text(arguments_start, '(', ')');
     }
     false
+}
+
+fn receiver_after_route_type<'source>(
+    receiver: &'source str,
+    route_class: &str,
+) -> Option<&'source str> {
+    if let Some(after_type) = receiver.strip_prefix(route_class) {
+        return Some(after_type);
+    }
+    let qualified_suffix = format!(".{route_class}");
+    let route_start = receiver.find(&qualified_suffix)? + 1;
+    receiver.get(route_start + route_class.len()..)
+}
+
+fn unwrap_parenthesized_text(text: &str) -> Option<&str> {
+    let mut current = text;
+    while current.starts_with('(') && current.ends_with(')') {
+        let end = matching_enclosed_end(current, '(', ')')?;
+        if end + 1 != current.len() {
+            break;
+        }
+        current = current.get(1..end)?.trim();
+    }
+    Some(current)
+}
+
+fn balanced_enclosed_text(text: &str, open: char, close: char) -> bool {
+    matching_enclosed_end(text, open, close).is_some_and(|end| end + 1 == text.len())
+}
+
+fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
+    let mut chars = text.char_indices();
+    if chars.next().is_none_or(|(_, character)| character != open) {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (index, character) in text.char_indices() {
+        if character == open {
+            depth += 1;
+        } else if character == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 fn contains_identifier(text: &str, identifier: &str) -> bool {

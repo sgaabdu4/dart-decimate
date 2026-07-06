@@ -370,6 +370,7 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
                 })
                 || forwarded_param_used(
                     forwarded_uses.get(&widget_class),
+                    body,
                     states.get(&widget_class),
                     &param.field_name,
                     source,
