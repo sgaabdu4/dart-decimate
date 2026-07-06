@@ -31,7 +31,7 @@ pub(super) fn route_aliases_at(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> BTreeSet<String> {
-    let mut aliases = BTreeSet::new();
+    let mut aliases = RouteAliasSet::default();
     let mut steps = Vec::new();
     let mut path_child = site;
     let mut parent = site.parent();
@@ -58,12 +58,94 @@ pub(super) fn route_aliases_at(
         );
         collect_prior_route_aliases(scope, child, &mut aliases, route_classes, source);
     }
-    aliases
+    aliases.names()
+}
+
+#[derive(Default)]
+struct RouteAliasSet {
+    member: BTreeSet<String>,
+    local: BTreeSet<String>,
+    shadowed_unqualified: BTreeSet<String>,
+}
+
+#[derive(Clone)]
+struct RouteAliasEntry {
+    text: String,
+    origin: RouteAliasOrigin,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RouteAliasOrigin {
+    Member,
+    Local,
+}
+
+impl RouteAliasSet {
+    fn insert_member(&mut self, alias: String) {
+        self.member.insert(alias);
+    }
+
+    fn insert_local(&mut self, alias: String) {
+        self.shadowed_unqualified.insert(alias.clone());
+        self.local.insert(alias);
+    }
+
+    fn remove_unqualified(&mut self, name: &str) {
+        self.member.remove(name);
+        self.local.remove(name);
+        self.shadowed_unqualified.insert(name.to_owned());
+    }
+
+    fn remove_entry(&mut self, entry: &RouteAliasEntry) {
+        match entry.origin {
+            RouteAliasOrigin::Member => {
+                self.member.remove(&entry.text);
+            }
+            RouteAliasOrigin::Local => {
+                self.local.remove(&entry.text);
+            }
+        }
+    }
+
+    fn unqualified_names(&self) -> BTreeSet<String> {
+        self.member
+            .iter()
+            .chain(self.local.iter())
+            .filter(|alias| !alias.contains('.'))
+            .cloned()
+            .collect()
+    }
+
+    fn entries(&self) -> Vec<RouteAliasEntry> {
+        self.member
+            .iter()
+            .map(|alias| RouteAliasEntry {
+                text: alias.clone(),
+                origin: RouteAliasOrigin::Member,
+            })
+            .chain(self.local.iter().map(|alias| RouteAliasEntry {
+                text: alias.clone(),
+                origin: RouteAliasOrigin::Local,
+            }))
+            .collect()
+    }
+
+    fn unqualified_shadowed(&self, name: &str) -> bool {
+        self.shadowed_unqualified.contains(name)
+    }
+
+    fn names(&self) -> BTreeSet<String> {
+        self.member
+            .iter()
+            .chain(self.local.iter())
+            .cloned()
+            .collect()
+    }
 }
 
 fn collect_route_member_aliases(
     class_body: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) {
@@ -75,7 +157,7 @@ fn collect_route_member_aliases(
 
 fn collect_route_aliases_from_member(
     node: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) {
@@ -91,14 +173,14 @@ fn collect_route_aliases_from_member(
 
 fn remove_aliases_shadowed_by_callable_parameters(
     scope: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     source: &str,
 ) {
     if !is_callable_node(scope.kind()) {
         return;
     }
     for parameter in callable_direct_parameter_names(scope, source) {
-        aliases.remove(&parameter);
+        aliases.remove_unqualified(&parameter);
     }
 }
 
@@ -106,26 +188,23 @@ fn remove_aliases_shadowed_by_header_scope(
     scope: Node<'_>,
     path_child: Node<'_>,
     usage_start: usize,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     source: &str,
 ) {
     let shadowed = aliases
-        .iter()
-        .filter(|alias| {
-            !alias.contains('.')
-                && scoped_header_binding_exists(scope, path_child, usage_start, alias, source)
-        })
-        .cloned()
+        .unqualified_names()
+        .into_iter()
+        .filter(|alias| scoped_header_binding_exists(scope, path_child, usage_start, alias, source))
         .collect::<Vec<_>>();
     for alias in shadowed {
-        aliases.remove(&alias);
+        aliases.remove_unqualified(&alias);
     }
 }
 
 fn collect_prior_route_aliases(
     scope: Node<'_>,
     path_child: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) {
@@ -140,7 +219,7 @@ fn collect_prior_route_aliases(
 
 fn collect_route_aliases_from_lexical_declaration(
     node: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) {
@@ -172,50 +251,56 @@ fn collect_route_aliases_from_lexical_declaration(
 
 fn remove_aliases_shadowed_by_lexical_sibling(
     node: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     source: &str,
 ) {
     if node.kind() == "local_function_declaration"
         && let Some(name) = local_function_name(node, source)
     {
-        aliases.remove(&name);
+        aliases.remove_unqualified(&name);
     }
 }
 
 fn remove_aliases_changed_by_lexical_sibling(
     node: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     source: &str,
 ) {
     let changed = aliases
-        .iter()
-        .filter(|alias| lexical_sibling_changes_alias(node, alias, source))
-        .cloned()
+        .entries()
+        .into_iter()
+        .filter(|entry| lexical_sibling_changes_alias(node, entry, aliases, source))
         .collect::<Vec<_>>();
-    for alias in changed {
-        aliases.remove(&alias);
+    for entry in changed {
+        aliases.remove_entry(&entry);
     }
 }
 
-fn lexical_sibling_changes_alias(node: Node<'_>, alias: &str, source: &str) -> bool {
+fn lexical_sibling_changes_alias(
+    node: Node<'_>,
+    alias: &RouteAliasEntry,
+    aliases: &RouteAliasSet,
+    source: &str,
+) -> bool {
     if is_callable_node(node.kind()) || node.kind() == "function_body" {
         return false;
     }
-    lexical_node_changes_alias(node, alias, false, source)
+    lexical_node_changes_alias(node, alias, aliases, false, source)
 }
 
 fn lexical_node_changes_alias(
     node: Node<'_>,
-    alias: &str,
+    alias: &RouteAliasEntry,
+    aliases: &RouteAliasSet,
     unqualified_shadowed: bool,
     source: &str,
 ) -> bool {
     if is_callable_node(node.kind()) || node.kind() == "function_body" {
         return false;
     }
-    let alias_name = unqualified_alias_name(alias);
+    let alias_name = unqualified_alias_name(&alias.text);
     let mut shadowed = unqualified_shadowed || lexical_node_binds_name(node, alias_name, source);
-    if assignment_or_update_changes_alias(node, alias, shadowed, source) {
+    if assignment_or_update_changes_alias(node, alias, aliases, shadowed, source) {
         return true;
     }
     let mut cursor = node.walk();
@@ -227,7 +312,7 @@ fn lexical_node_changes_alias(
                 alias_name,
                 source,
             );
-        if lexical_node_changes_alias(child, alias, child_shadowed, source) {
+        if lexical_node_changes_alias(child, alias, aliases, child_shadowed, source) {
             return true;
         }
         if lexical_child_binds_name_for_following_siblings(node.kind(), child, alias_name, source) {
@@ -276,7 +361,8 @@ fn lexical_child_binds_name_for_following_siblings(
 
 fn assignment_or_update_changes_alias(
     node: Node<'_>,
-    alias: &str,
+    alias: &RouteAliasEntry,
+    aliases: &RouteAliasSet,
     unqualified_shadowed: bool,
     source: &str,
 ) -> bool {
@@ -295,10 +381,18 @@ fn assignment_or_update_changes_alias(
     };
     assigned.is_some_and(|assigned| match assigned {
         AssignedTarget::Name(name) => {
-            !unqualified_shadowed
-                && (alias == name || alias.strip_prefix("this.") == Some(name.as_str()))
+            if unqualified_shadowed {
+                return false;
+            }
+            alias.text == name
+                || (alias.origin == RouteAliasOrigin::Member
+                    && alias.text.strip_prefix("this.") == Some(name.as_str())
+                    && !aliases.unqualified_shadowed(&name))
         }
-        AssignedTarget::ThisMember(name) => alias.strip_prefix("this.") == Some(name.as_str()),
+        AssignedTarget::ThisMember(name) => {
+            alias.origin == RouteAliasOrigin::Member
+                && (alias.text == name || alias.text.strip_prefix("this.") == Some(name.as_str()))
+        }
     })
 }
 
@@ -333,17 +427,17 @@ fn assigned_target_from_assignable(node: Node<'_>, source: &str) -> Option<Assig
 
 fn collect_route_aliases_from_declaration_shape(
     node: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) {
     let shadowed = aliases
-        .iter()
-        .filter(|alias| !alias.contains('.') && declaration_binds_name(node, alias, source))
-        .cloned()
+        .unqualified_names()
+        .into_iter()
+        .filter(|alias| declaration_binds_name(node, alias, source))
         .collect::<Vec<_>>();
     for alias in shadowed {
-        aliases.remove(&alias);
+        aliases.remove_unqualified(&alias);
     }
     collect_route_alias_from_initialized_node(node, aliases, route_classes, false, source);
     let mut cursor = node.walk();
@@ -362,7 +456,7 @@ fn collect_route_aliases_from_declaration_shape(
 
 fn collect_route_alias_from_initialized_node(
     node: Node<'_>,
-    aliases: &mut BTreeSet<String>,
+    aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     include_this: bool,
     source: &str,
@@ -371,9 +465,11 @@ fn collect_route_alias_from_initialized_node(
         return;
     };
     if include_this {
-        aliases.insert(format!("this.{alias}"));
+        aliases.insert_member(format!("this.{alias}"));
+        aliases.insert_member(alias);
+    } else {
+        aliases.insert_local(alias);
     }
-    aliases.insert(alias);
 }
 
 fn route_alias_from_initialized_node(

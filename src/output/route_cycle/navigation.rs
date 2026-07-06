@@ -1,7 +1,7 @@
 use tree_sitter::Node;
 
 use super::{
-    class_extends_state, direct_constructor_call_text, direct_named_child,
+    balanced_enclosed_text, class_extends_state, direct_constructor_call_text, direct_named_child,
     direct_static_member_call_text, is_identifier_character, simple_type_name,
     strip_constructor_keyword_prefix, strip_whitespace, unwrap_parenthesized_text,
 };
@@ -27,6 +27,11 @@ impl NameResolution {
 struct NavigationTargetName {
     name: String,
     member_only: bool,
+}
+
+struct GoRouterFactoryCall {
+    method: &'static str,
+    prefix: Option<String>,
 }
 
 pub(super) fn route_extension_navigation_has_context_argument(
@@ -70,25 +75,62 @@ fn go_router_receiver_expression(
     if direct_constructor_call_text(receiver, GO_ROUTER) {
         return !term_identifier_shadowed_at(root, site, GO_ROUTER, source);
     }
-    let Some(method) = go_router_factory_method(receiver) else {
+    let Some(factory) = go_router_factory_call(receiver) else {
         return false;
     };
+    if let Some(prefix) = factory.prefix.as_deref() {
+        return !term_identifier_shadowed_at(root, site, prefix, source)
+            && go_router_import(root, Some(prefix), source);
+    }
     !term_identifier_shadowed_at(root, site, GO_ROUTER, source)
-        && go_router_factory_available(root, method, source)
+        && go_router_factory_available(root, factory.method, source)
 }
 
-fn go_router_factory_method(receiver: &str) -> Option<&'static str> {
-    GO_ROUTER_FACTORY_METHODS
-        .iter()
-        .copied()
-        .find(|method| direct_static_member_call_text(receiver, GO_ROUTER, method))
+fn go_router_factory_call(receiver: &str) -> Option<GoRouterFactoryCall> {
+    for &method in GO_ROUTER_FACTORY_METHODS {
+        if direct_static_member_call_text(receiver, GO_ROUTER, method) {
+            return Some(GoRouterFactoryCall {
+                method,
+                prefix: None,
+            });
+        }
+        if let Some(prefix) = direct_prefixed_static_member_call_text(receiver, GO_ROUTER, method) {
+            return Some(GoRouterFactoryCall {
+                method,
+                prefix: Some(prefix),
+            });
+        }
+    }
+    None
+}
+
+fn direct_prefixed_static_member_call_text(
+    text: &str,
+    type_name: &str,
+    member_name: &str,
+) -> Option<String> {
+    let receiver = unwrap_parenthesized_text(text.trim())?;
+    let type_marker = format!(".{type_name}");
+    let type_start = receiver.find(&type_marker)?;
+    let prefix = &receiver[..type_start];
+    if !is_simple_identifier(prefix) {
+        return None;
+    }
+    let after_type = receiver.get(type_start + type_marker.len()..)?;
+    let after_dot = after_type.strip_prefix('.')?;
+    let args_start = after_dot.find('(')?;
+    let method = after_dot[..args_start].split('<').next().unwrap_or("");
+    (method == member_name
+        && is_simple_identifier(method)
+        && balanced_enclosed_text(&after_dot[args_start..], '(', ')'))
+    .then(|| prefix.to_owned())
 }
 
 fn go_router_factory_available(root: Node<'_>, method: &str, source: &str) -> bool {
     if let Some(class) = local_go_router_class(root, source) {
         return local_go_router_class_has_factory(class, method, source);
     }
-    unprefixed_go_router_import(root, source)
+    go_router_import(root, None, source)
 }
 
 fn local_go_router_class<'tree>(root: Node<'tree>, source: &str) -> Option<Node<'tree>> {
@@ -140,10 +182,13 @@ fn class_has_named_constructor(node: Node<'_>, method: &str, source: &str) -> bo
     .any(|prefix| compact.starts_with(prefix))
 }
 
-fn unprefixed_go_router_import(root: Node<'_>, source: &str) -> bool {
+fn go_router_import(root: Node<'_>, prefix: Option<&str>, source: &str) -> bool {
     let mut found = false;
     visit_named(root, &mut |node| {
-        if found || node.kind() != "library_import" || import_alias(node, source).is_some() {
+        if found || node.kind() != "library_import" {
+            return;
+        }
+        if import_alias(node, source).as_deref() != prefix {
             return;
         }
         if import_uri(node, source).as_deref() == Some("package:go_router/go_router.dart") {

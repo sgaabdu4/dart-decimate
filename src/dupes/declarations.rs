@@ -112,6 +112,58 @@ mod tests {
         assert_eq!(filter.cached_file_count(), 1);
         Ok(())
     }
+
+    #[test]
+    fn declaration_filter_treats_operator_signatures_as_declarations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract interface class Contract {\n  bool operator ==(Object other);\n  String operator [](int index);\n  void operator []=(int index, String value);\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "operators".to_owned(),
+            instances: vec![CodeCloneInstance {
+                path,
+                start_line: 1,
+                end_line: 5,
+                column: 0,
+            }],
+            line_count: 5,
+            token_count: 12,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(filter.is_declaration_only_clone(&group));
+        Ok(())
+    }
+
+    #[test]
+    fn declaration_filter_rejects_defaults_and_assignments()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract class Contract {\n  void save({String label = 'x'});\n  String title = 'x';\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "defaults".to_owned(),
+            instances: vec![CodeCloneInstance {
+                path,
+                start_line: 1,
+                end_line: 4,
+                column: 0,
+            }],
+            line_count: 4,
+            token_count: 12,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(!filter.is_declaration_only_clone(&group));
+        Ok(())
+    }
 }
 
 fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
@@ -134,7 +186,7 @@ fn abstract_member_signature(line: &str) -> bool {
     let Some(signature) = line.strip_suffix(';').map(str::trim) else {
         return false;
     };
-    if signature.contains('=')
+    if signature_contains_non_operator_equals(signature)
         || signature.starts_with("import ")
         || signature.starts_with("export ")
         || signature.starts_with("part ")
@@ -142,6 +194,25 @@ fn abstract_member_signature(line: &str) -> bool {
         return false;
     }
     getter_signature(signature) || callable_member_signature(signature)
+}
+
+fn signature_contains_non_operator_equals(signature: &str) -> bool {
+    let Some(paren) = signature.find('(') else {
+        return signature.contains('=');
+    };
+    let before_parameters = signature[..paren].trim();
+    let tokens = before_parameters.split_whitespace().collect::<Vec<_>>();
+    if tokens.len() >= 2 && tokens.get(tokens.len() - 2) == Some(&"operator") {
+        let Some(operator_token) = tokens.last() else {
+            return signature.contains('=');
+        };
+        let Some(operator_start) = before_parameters.rfind(operator_token) else {
+            return signature.contains('=');
+        };
+        return before_parameters[..operator_start].contains('=')
+            || signature[paren..].contains('=');
+    }
+    signature.contains('=')
 }
 
 fn getter_signature(signature: &str) -> bool {
