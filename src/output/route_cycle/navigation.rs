@@ -154,7 +154,13 @@ fn class_member_resolution_at(site: Node<'_>, name: &str, source: &str) -> Optio
     let mut current = site.parent();
     while let Some(scope) = current {
         if scope.kind() == "class_body" {
-            return class_member_resolution(scope, name, source);
+            if let Some(resolution) = class_member_resolution(scope, name, source) {
+                return Some(resolution);
+            }
+            if name == "context" && class_extends_state(scope, source) {
+                return Some(NameResolution::Type(BUILD_CONTEXT.to_owned()));
+            }
+            return None;
         }
         current = scope.parent();
     }
