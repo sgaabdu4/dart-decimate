@@ -461,6 +461,53 @@ fn direct_constructor_call_text(text: &str, route_class: &str) -> bool {
     false
 }
 
+fn direct_static_member_call_text(text: &str, type_name: &str) -> bool {
+    let Some(receiver) = unwrap_parenthesized_text(text.trim()) else {
+        return false;
+    };
+    let Some(after_type) = receiver_after_route_type(receiver, type_name) else {
+        return false;
+    };
+    let Some(after_dot) = after_type.strip_prefix('.') else {
+        return false;
+    };
+    let Some(args_start) = after_dot.find('(') else {
+        return false;
+    };
+    let method = after_dot[..args_start].split('<').next().unwrap_or("");
+    let mut chars = method.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first == '$' || first.is_ascii_alphabetic())
+        && chars.all(is_identifier_character)
+        && balanced_enclosed_text(&after_dot[args_start..], '(', ')')
+}
+
+fn class_extends_state(class_body: Node<'_>, source: &str) -> bool {
+    let Some(class) = class_body
+        .parent()
+        .filter(|parent| parent.kind() == "class_declaration")
+    else {
+        return false;
+    };
+    let Some(superclass) = class.child_by_field_name("superclass") else {
+        return false;
+    };
+    let Some(text) = superclass.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    let compact = strip_whitespace(text);
+    let head = compact.strip_prefix("extends").unwrap_or(&compact);
+    let base = head
+        .split('<')
+        .next()
+        .unwrap_or(head)
+        .split("with")
+        .next()
+        .unwrap_or(head);
+    matches!(simple_type_name(base).as_str(), "State" | "ConsumerState")
+}
+
 fn receiver_after_route_type<'source>(
     receiver: &'source str,
     route_class: &str,
@@ -506,31 +553,6 @@ fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
         }
     }
     None
-}
-
-fn contains_identifier(text: &str, identifier: &str) -> bool {
-    let mut cursor = 0usize;
-    while let Some(relative) = text[cursor..].find(identifier) {
-        let start = cursor + relative;
-        let end = start + identifier.len();
-        if !identifier_continues_before(text, start)
-            && !text[end..]
-                .chars()
-                .next()
-                .is_some_and(is_identifier_character)
-        {
-            return true;
-        }
-        cursor = end;
-    }
-    false
-}
-
-fn identifier_continues_before(text: &str, index: usize) -> bool {
-    text[..index]
-        .chars()
-        .next_back()
-        .is_some_and(is_identifier_character)
 }
 
 fn is_identifier_character(character: char) -> bool {

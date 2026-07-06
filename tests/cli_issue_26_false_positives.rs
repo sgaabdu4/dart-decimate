@@ -599,6 +599,80 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
+fn cycles_downgrades_state_context_route_navigation() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+  String get location => '/';
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class State<T> {
+  BuildContext get context => BuildContext();
+}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+}
+
+class HomeScreenState extends State<HomeScreen> {
+  void openExtension() => const HomeRoute().go(context);
+  void openLocation() => context.go(const HomeRoute().location);
+}
+
+extension HomeRouteNavigation on HomeRoute {
+  void go(BuildContext context) {}
+}
+
+extension BuildContextNavigation on BuildContext {
+  void go(String location) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    Ok(())
+}
+
+#[test]
 fn cycles_downgrades_member_route_alias_location_navigation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -1188,6 +1262,8 @@ class HomeScreen extends Widget {
   void open() {
     final router = RouteLocationWrapper();
     router.go(const HomeRoute().location);
+    final routerWithInnerGoRouter = RouteLocationWrapper(GoRouter());
+    routerWithInnerGoRouter.go(const HomeRoute().location);
     RouteLocationWrapper(GoRouter()).go(const HomeRoute().location);
   }
 }

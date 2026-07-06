@@ -1,9 +1,9 @@
 use tree_sitter::Node;
 
 use super::{
-    contains_identifier, direct_constructor_call_text, direct_named_child, is_identifier_character,
-    simple_type_name, strip_constructor_keyword_prefix, strip_whitespace,
-    unwrap_parenthesized_text,
+    class_extends_state, direct_constructor_call_text, direct_named_child,
+    direct_static_member_call_text, is_identifier_character, simple_type_name,
+    strip_constructor_keyword_prefix, strip_whitespace, unwrap_parenthesized_text,
 };
 
 const BUILD_CONTEXT: &str = "BuildContext";
@@ -133,10 +133,13 @@ fn visible_name_resolution_at(
         if scoped_header_binding_exists(scope, path_child, site.start_byte(), name, source) {
             return Some(NameResolution::Shadowed);
         }
-        if scope.kind() == "class_body"
-            && let Some(resolution) = class_member_resolution(scope, name, source)
-        {
-            return Some(resolution);
+        if scope.kind() == "class_body" {
+            if let Some(resolution) = class_member_resolution(scope, name, source) {
+                return Some(resolution);
+            }
+            if name == "context" && class_extends_state(scope, source) {
+                return Some(NameResolution::Type(BUILD_CONTEXT.to_owned()));
+            }
         }
         if same_node(scope, root) {
             break;
@@ -314,11 +317,13 @@ fn initializer_type(node: Node<'_>, source: &str) -> Option<String> {
     let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
     let compact = strip_whitespace(without_keyword);
     for target_type in [BUILD_CONTEXT, GO_ROUTER] {
-        if direct_constructor_call_text(&compact, target_type) {
+        if direct_constructor_call_text(&compact, target_type)
+            || (target_type == GO_ROUTER && direct_static_member_call_text(&compact, target_type))
+        {
             return Some(target_type.to_owned());
         }
     }
-    contains_identifier(without_keyword, GO_ROUTER).then(|| GO_ROUTER.to_owned())
+    None
 }
 
 fn scoped_header_binding_exists(
