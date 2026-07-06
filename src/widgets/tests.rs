@@ -1020,6 +1020,45 @@ class NestedRecordOtherPanel extends StatelessWidget {
 }
 
 #[test]
+fn object_pattern_usage_counts_typed_list_literal_roots() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class NestedTypedListPanel extends StatelessWidget {
+  const NestedTypedListPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final [_, NestedTypedListPanel(:used)] = <Object>[Object(), this];
+    return Text(used);
+  }
+}
+
+class NestedConstTypedListPanel extends StatelessWidget {
+  const NestedConstTypedListPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final [_, NestedConstTypedListPanel(:used)] =
+        const <Object>[Object(), NestedConstTypedListPanel(used: 'other', unused: 'other')];
+    return Text(used);
+  }
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "NestedConstTypedListPanel.unused",
+            "NestedConstTypedListPanel.used",
+            "NestedTypedListPanel.unused",
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn object_pattern_usage_counts_paired_nested_case_roots() -> Result<(), Box<dyn std::error::Error>>
 {
     let source = r"

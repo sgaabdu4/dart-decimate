@@ -151,3 +151,25 @@ class Screen {
     assert!(!typed_route_navigation_found(source)?);
     Ok(())
 }
+
+#[test]
+fn local_route_name_shadow_does_not_match_unqualified_constructor()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'app_routes.dart' as routes;
+
+class Screen {
+  void open(BuildContext context) {
+    const HomeRoute().go(context);
+  }
+}
+
+class HomeRoute {
+  const HomeRoute();
+  void go(BuildContext context) {}
+}
+";
+
+    assert!(!typed_route_navigation_found(source)?);
+    Ok(())
+}

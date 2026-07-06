@@ -234,23 +234,22 @@ fn route_extension_navigation_call(
         return true;
     }
     if route_extension_receiver_node(site, navigation_name, source)
-        .is_some_and(|receiver| route_constructor_receiver(receiver, route_classes, source))
+        .is_some_and(|receiver| route_constructor_receiver(root, receiver, route_classes, source))
     {
         return true;
     }
-    if route_classes
-        .iter()
-        .any(|route_class| direct_constructor_call_text(receiver, route_class))
-    {
+    if route_classes.iter().any(|route_class| {
+        direct_constructor_call_matches_route(root, receiver, route_class, source)
+    }) {
         return true;
     }
     let Some(raw_receiver) = raw_receiver_before_navigation(prefix, navigation_name) else {
         return false;
     };
     let constructor_receiver = constructor_receiver_text(raw_receiver);
-    route_classes
-        .iter()
-        .any(|route_class| direct_constructor_call_text(&constructor_receiver, route_class))
+    route_classes.iter().any(|route_class| {
+        direct_constructor_call_matches_route(root, &constructor_receiver, route_class, source)
+    })
 }
 
 fn route_location_navigation_call(
@@ -399,7 +398,7 @@ fn route_location_member(
     let Some(object) = node.child_by_field_name("object") else {
         return false;
     };
-    route_constructor_receiver(object, route_classes, source)
+    route_constructor_receiver(root, object, route_classes, source)
         || route_alias_receiver_node(
             object,
             &route_aliases_at(root, site, route_classes, source),
@@ -407,7 +406,8 @@ fn route_location_member(
         )
 }
 
-fn route_constructor_receiver(
+pub(super) fn route_constructor_receiver(
+    root: Node<'_>,
     node: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
@@ -416,12 +416,12 @@ fn route_constructor_receiver(
         let mut cursor = node.walk();
         return node
             .named_children(&mut cursor)
-            .any(|child| route_constructor_receiver(child, route_classes, source));
+            .any(|child| route_constructor_receiver(root, child, route_classes, source));
     }
     if matches!(
         node.kind(),
         "constructor_invocation" | "const_object_expression" | "new_expression"
-    ) && constructor_receiver_matches_route(node, route_classes, source)
+    ) && constructor_receiver_matches_route(root, node, route_classes, source)
     {
         return true;
     }
@@ -429,6 +429,7 @@ fn route_constructor_receiver(
 }
 
 fn constructor_receiver_matches_route(
+    root: Node<'_>,
     node: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
@@ -446,26 +447,41 @@ fn constructor_receiver_matches_route(
     {
         let suffix = format!(".{constructor}");
         if let Some(owner) = type_text.strip_suffix(&suffix) {
-            return route_classes
-                .iter()
-                .any(|route_class| direct_route_type_text_matches(owner, route_class));
+            return route_classes.iter().any(|route_class| {
+                direct_route_type_text_matches(root, owner, route_class, source)
+            });
         }
     }
     route_classes
         .iter()
-        .any(|route_class| direct_route_type_text_matches(&type_text, route_class))
+        .any(|route_class| direct_route_type_text_matches(root, &type_text, route_class, source))
         || route_classes.iter().any(|route_class| {
-            direct_named_constructor_type_text_matches_route(&type_text, route_class)
+            direct_named_constructor_type_text_matches_route(root, &type_text, route_class, source)
         })
 }
 
-fn direct_route_type_text_matches(type_text: &str, route_class: &str) -> bool {
+fn direct_route_type_text_matches(
+    root: Node<'_>,
+    type_text: &str,
+    route_class: &str,
+    source: &str,
+) -> bool {
     let type_text = type_text.trim_end_matches('?');
     let base = type_text.split('<').next().unwrap_or(type_text);
-    !base.contains('.') && base == route_class
+    !base.contains('.')
+        && base == route_class
+        && !route_class_locally_shadowed(root, route_class, source)
 }
 
-fn direct_named_constructor_type_text_matches_route(type_text: &str, route_class: &str) -> bool {
+fn direct_named_constructor_type_text_matches_route(
+    root: Node<'_>,
+    type_text: &str,
+    route_class: &str,
+    source: &str,
+) -> bool {
+    if route_class_locally_shadowed(root, route_class, source) {
+        return false;
+    }
     let Some(rest) = type_text.strip_prefix(route_class) else {
         return false;
     };
@@ -481,6 +497,55 @@ fn direct_named_constructor_type_text_matches_route(type_text: &str, route_class
         return false;
     };
     is_identifier_text(constructor)
+}
+
+fn direct_constructor_call_matches_route(
+    root: Node<'_>,
+    text: &str,
+    route_class: &str,
+    source: &str,
+) -> bool {
+    direct_constructor_call_text(text, route_class)
+        && !route_class_locally_shadowed(root, route_class, source)
+}
+
+pub(super) fn route_class_locally_shadowed(
+    root: Node<'_>,
+    route_class: &str,
+    source: &str,
+) -> bool {
+    let mut cursor = root.walk();
+    root.named_children(&mut cursor).any(|child| {
+        local_type_declaration_name(child, source).as_deref() == Some(route_class)
+            || import_alias_name(child, source).as_deref() == Some(route_class)
+    })
+}
+
+fn local_type_declaration_name(node: Node<'_>, source: &str) -> Option<String> {
+    match node.kind() {
+        "class_declaration"
+        | "mixin_declaration"
+        | "enum_declaration"
+        | "extension_type_declaration" => field_text(node, "name", source),
+        "type_alias" => {
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor)
+                .find(|child| matches!(child.kind(), "identifier" | "type_identifier"))
+                .and_then(|child| child.utf8_text(source.as_bytes()).ok())
+                .map(str::to_owned)
+        }
+        _ => None,
+    }
+}
+
+fn import_alias_name(node: Node<'_>, source: &str) -> Option<String> {
+    let import = if node.kind() == "library_import" {
+        Some(node)
+    } else {
+        find_first_named_descendant(node, "library_import")
+    }?;
+    find_first_named_descendant(import, "import_specification")
+        .and_then(|specification| field_text(specification, "alias", source))
 }
 
 fn direct_constructor_call_text(text: &str, route_class: &str) -> bool {
@@ -632,6 +697,25 @@ fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
         .find(|child| child.kind() == kind)
+}
+
+fn find_first_named_descendant<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if let Some(found) = find_first_named_descendant(child, kind) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn field_text(node: Node<'_>, field: &str, source: &str) -> Option<String> {
+    node.child_by_field_name(field)
+        .and_then(|child| child.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
 }
 
 fn strip_whitespace(text: &str) -> String {

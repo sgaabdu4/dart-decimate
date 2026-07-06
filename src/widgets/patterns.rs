@@ -906,17 +906,50 @@ fn expression_part_matching_pattern(
 fn enclosed_inner_with_offset(text: &str, open: char, close: char) -> Option<(usize, &str)> {
     let leading = text.len() - text.trim_start().len();
     let trimmed = text.trim();
-    if !trimmed.starts_with(open) {
+    let prefix = collection_literal_prefix_len(trimmed, open)?;
+    let literal = trimmed.get(prefix..)?;
+    if !literal.starts_with(open) {
         return None;
     }
-    let end = matching_enclosed_end(trimmed, open, close)?;
-    if end + close.len_utf8() != trimmed.len() {
+    let end = matching_enclosed_end(literal, open, close)?;
+    if prefix + end + close.len_utf8() != trimmed.len() {
         return None;
     }
     Some((
-        leading + open.len_utf8(),
-        trimmed.get(open.len_utf8()..end)?,
+        leading + prefix + open.len_utf8(),
+        literal.get(open.len_utf8()..end)?,
     ))
+}
+
+fn collection_literal_prefix_len(text: &str, open: char) -> Option<usize> {
+    if open != '[' {
+        return Some(0);
+    }
+    let mut offset = 0usize;
+    let mut rest = text;
+    if let Some((keyword_offset, after_keyword)) = strip_keyword_prefix(rest, "const") {
+        offset += keyword_offset;
+        rest = after_keyword;
+    }
+    if rest.starts_with('<') {
+        let end = matching_enclosed_end(rest, '<', '>')?;
+        let after_type = rest.get(end + '>'.len_utf8()..)?;
+        let whitespace = after_type.len() - after_type.trim_start().len();
+        offset += end + '>'.len_utf8() + whitespace;
+    }
+    Some(offset)
+}
+
+fn strip_keyword_prefix<'source>(
+    text: &'source str,
+    keyword: &str,
+) -> Option<(usize, &'source str)> {
+    let rest = text.strip_prefix(keyword)?;
+    let whitespace = rest.len() - rest.trim_start().len();
+    if whitespace == 0 {
+        return None;
+    }
+    Some((keyword.len() + whitespace, rest.trim_start()))
 }
 
 fn split_top_level_ranges(text: &str) -> Vec<(usize, usize)> {

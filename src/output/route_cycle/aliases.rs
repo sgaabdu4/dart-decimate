@@ -4,7 +4,8 @@ use tree_sitter::Node;
 
 use super::{
     direct_constructor_call_text, direct_named_child, is_identifier_character,
-    route_constructor_receiver, strip_whitespace, unwrap_parenthesized_text,
+    route_class_locally_shadowed, route_constructor_receiver, strip_whitespace,
+    unwrap_parenthesized_text,
 };
 
 pub(super) fn route_alias_receiver_node(
@@ -46,7 +47,7 @@ pub(super) fn route_aliases_at(
 
     for (scope, child) in steps.into_iter().rev() {
         if scope.kind() == "class_body" {
-            collect_route_member_aliases(scope, &mut aliases, route_classes, source);
+            collect_route_member_aliases(root, scope, &mut aliases, route_classes, source);
         }
         remove_aliases_shadowed_by_callable_parameters(scope, &mut aliases, source);
         remove_aliases_shadowed_by_header_scope(
@@ -56,7 +57,7 @@ pub(super) fn route_aliases_at(
             &mut aliases,
             source,
         );
-        collect_prior_route_aliases(scope, child, &mut aliases, route_classes, source);
+        collect_prior_route_aliases(root, scope, child, &mut aliases, route_classes, source);
     }
     aliases.names()
 }
@@ -144,6 +145,7 @@ impl RouteAliasSet {
 }
 
 fn collect_route_member_aliases(
+    root: Node<'_>,
     class_body: Node<'_>,
     aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
@@ -151,11 +153,12 @@ fn collect_route_member_aliases(
 ) {
     let mut cursor = class_body.walk();
     for member in class_body.named_children(&mut cursor) {
-        collect_route_aliases_from_member(member, aliases, route_classes, source);
+        collect_route_aliases_from_member(root, member, aliases, route_classes, source);
     }
 }
 
 fn collect_route_aliases_from_member(
+    root: Node<'_>,
     node: Node<'_>,
     aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
@@ -164,10 +167,10 @@ fn collect_route_aliases_from_member(
     if is_callable_node(node.kind()) || node.kind() == "function_body" {
         return;
     }
-    collect_route_alias_from_initialized_node(node, aliases, route_classes, true, source);
+    collect_route_alias_from_initialized_node(root, node, aliases, route_classes, true, source);
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        collect_route_aliases_from_member(child, aliases, route_classes, source);
+        collect_route_aliases_from_member(root, child, aliases, route_classes, source);
     }
 }
 
@@ -202,6 +205,7 @@ fn remove_aliases_shadowed_by_header_scope(
 }
 
 fn collect_prior_route_aliases(
+    root: Node<'_>,
     scope: Node<'_>,
     path_child: Node<'_>,
     aliases: &mut RouteAliasSet,
@@ -213,11 +217,18 @@ fn collect_prior_route_aliases(
         if same_node(sibling, path_child) || sibling.start_byte() >= path_child.start_byte() {
             break;
         }
-        collect_route_aliases_from_lexical_declaration(sibling, aliases, route_classes, source);
+        collect_route_aliases_from_lexical_declaration(
+            root,
+            sibling,
+            aliases,
+            route_classes,
+            source,
+        );
     }
 }
 
 fn collect_route_aliases_from_lexical_declaration(
+    root: Node<'_>,
     node: Node<'_>,
     aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
@@ -227,7 +238,13 @@ fn collect_route_aliases_from_lexical_declaration(
     remove_aliases_changed_by_lexical_sibling(node, aliases, source);
     match node.kind() {
         "local_variable_declaration" | "pattern_variable_declaration" => {
-            collect_route_aliases_from_declaration_shape(node, aliases, route_classes, source);
+            collect_route_aliases_from_declaration_shape(
+                root,
+                node,
+                aliases,
+                route_classes,
+                source,
+            );
         }
         "expression_statement" | "statement" => {
             let mut cursor = node.walk();
@@ -237,6 +254,7 @@ fn collect_route_aliases_from_lexical_declaration(
                     "local_variable_declaration" | "pattern_variable_declaration"
                 ) {
                     collect_route_aliases_from_declaration_shape(
+                        root,
                         child,
                         aliases,
                         route_classes,
@@ -426,6 +444,7 @@ fn assigned_target_from_assignable(node: Node<'_>, source: &str) -> Option<Assig
 }
 
 fn collect_route_aliases_from_declaration_shape(
+    root: Node<'_>,
     node: Node<'_>,
     aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
@@ -439,7 +458,7 @@ fn collect_route_aliases_from_declaration_shape(
     for alias in shadowed {
         aliases.remove_unqualified(&alias);
     }
-    collect_route_alias_from_initialized_node(node, aliases, route_classes, false, source);
+    collect_route_alias_from_initialized_node(root, node, aliases, route_classes, false, source);
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if matches!(
@@ -449,19 +468,26 @@ fn collect_route_aliases_from_declaration_shape(
                 | "initialized_variable_definition"
                 | "variable_declaration_list"
         ) {
-            collect_route_aliases_from_declaration_shape(child, aliases, route_classes, source);
+            collect_route_aliases_from_declaration_shape(
+                root,
+                child,
+                aliases,
+                route_classes,
+                source,
+            );
         }
     }
 }
 
 fn collect_route_alias_from_initialized_node(
+    root: Node<'_>,
     node: Node<'_>,
     aliases: &mut RouteAliasSet,
     route_classes: &BTreeSet<String>,
     include_this: bool,
     source: &str,
 ) {
-    let Some(alias) = route_alias_from_initialized_node(node, route_classes, source) else {
+    let Some(alias) = route_alias_from_initialized_node(root, node, route_classes, source) else {
         return;
     };
     if include_this {
@@ -473,6 +499,7 @@ fn collect_route_alias_from_initialized_node(
 }
 
 fn route_alias_from_initialized_node(
+    root: Node<'_>,
     node: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
@@ -487,22 +514,28 @@ fn route_alias_from_initialized_node(
     let (left, right) = text.split_once('=')?;
     let is_route_constructor = node
         .child_by_field_name("value")
-        .is_some_and(|value| route_constructor_receiver(value, route_classes, source))
-        || route_constructor_expression_text(right, route_classes);
+        .is_some_and(|value| route_constructor_receiver(root, value, route_classes, source))
+        || route_constructor_expression_text(root, right, route_classes, source);
     if !is_route_constructor {
         return None;
     }
     field_text(node, "name", source).or_else(|| identifier_before_equals(left))
 }
 
-fn route_constructor_expression_text(text: &str, route_classes: &BTreeSet<String>) -> bool {
+fn route_constructor_expression_text(
+    root: Node<'_>,
+    text: &str,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
     let expression = text.trim().trim_end_matches([',', ';']).trim();
     let unwrapped = unwrap_parenthesized_text(expression).unwrap_or(expression);
     let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
     let receiver = strip_whitespace(without_keyword);
-    route_classes
-        .iter()
-        .any(|route_class| direct_constructor_call_text(&receiver, route_class))
+    route_classes.iter().any(|route_class| {
+        direct_constructor_call_text(&receiver, route_class)
+            && !route_class_locally_shadowed(root, route_class, source)
+    })
 }
 
 fn strip_constructor_keyword_prefix(text: &str) -> Option<&str> {
