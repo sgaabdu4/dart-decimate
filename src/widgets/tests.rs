@@ -982,6 +982,16 @@ class NestedRecordStringPanel extends StatelessWidget {
   }
 }
 
+class NestedRecordComparisonPanel extends StatelessWidget {
+  const NestedRecordComparisonPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final (_, NestedRecordComparisonPanel(:used)) = (count < limit, this);
+    return Text(used);
+  }
+}
+
 class NestedRecordOtherPanel extends StatelessWidget {
   const NestedRecordOtherPanel({super.key, required this.used, required this.unused});
   final String used;
@@ -999,6 +1009,7 @@ class NestedRecordOtherPanel extends StatelessWidget {
     assert_eq!(
         targets,
         vec![
+            "NestedRecordComparisonPanel.unused",
             "NestedRecordOtherPanel.unused",
             "NestedRecordOtherPanel.used",
             "NestedRecordRootPanel.unused",

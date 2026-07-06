@@ -136,3 +136,18 @@ class ScreenState extends fake.State<Screen> {
     assert!(!typed_route_navigation_found(source)?);
     Ok(())
 }
+
+#[test]
+fn route_location_named_argument_is_not_navigation_target() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class Screen {
+  void open(BuildContext context) {
+    context.go(location: const HomeRoute().location);
+  }
+}
+";
+
+    assert!(!typed_route_navigation_found(source)?);
+    Ok(())
+}

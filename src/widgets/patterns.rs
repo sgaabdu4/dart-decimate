@@ -760,8 +760,8 @@ fn find_top_level_assignment(text: &str) -> Option<usize> {
             continue;
         }
         match character {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '<' if angle_depth > 0 || opens_type_argument_list(text, index) => angle_depth += 1,
+            '>' if angle_depth > 0 => angle_depth = angle_depth.saturating_sub(1),
             '(' | '[' | '{' => grouping_depth += 1,
             ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
             '=' if angle_depth == 0
@@ -930,8 +930,8 @@ fn split_top_level_ranges(text: &str) -> Vec<(usize, usize)> {
             continue;
         }
         match character {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '<' if angle_depth > 0 || opens_type_argument_list(text, index) => angle_depth += 1,
+            '>' if angle_depth > 0 => angle_depth = angle_depth.saturating_sub(1),
             '(' | '[' | '{' => grouping_depth += 1,
             ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
             ',' if angle_depth == 0 && grouping_depth == 0 => {
@@ -956,8 +956,8 @@ fn top_level_label_value(text: &str) -> Option<(&str, &str)> {
             continue;
         }
         match character {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '<' if angle_depth > 0 || opens_type_argument_list(text, index) => angle_depth += 1,
+            '>' if angle_depth > 0 => angle_depth = angle_depth.saturating_sub(1),
             '(' | '[' | '{' => grouping_depth += 1,
             ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
             ':' if angle_depth == 0 && grouping_depth == 0 => {
@@ -993,6 +993,113 @@ fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
         }
     }
     None
+}
+
+fn opens_type_argument_list(text: &str, index: usize) -> bool {
+    let Some(relative_end) = matching_enclosed_end(text.get(index..).unwrap_or(""), '<', '>')
+    else {
+        return false;
+    };
+    let close = index + relative_end;
+    let Some(inner) = text.get(index + 1..close) else {
+        return false;
+    };
+    let Some(previous) = previous_identifier_segment(text, index) else {
+        return false;
+    };
+    if !type_argument_parts_are_plausible(inner) {
+        return false;
+    }
+    let after = text
+        .get(close + '>'.len_utf8()..)
+        .unwrap_or("")
+        .trim_start()
+        .chars()
+        .next();
+    after == Some('(') || type_identifier_is_plausible(previous)
+}
+
+fn previous_identifier_segment(text: &str, index: usize) -> Option<&str> {
+    let before = text.get(..index)?.trim_end();
+    let end = before.len();
+    let start = before
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !is_identifier_character(*character) && *character != '.')
+        .map_or(0, |(index, character)| index + character.len_utf8());
+    let identifier = before.get(start..end)?.trim();
+    if identifier.is_empty() {
+        None
+    } else {
+        Some(identifier.rsplit('.').next().unwrap_or(identifier))
+    }
+}
+
+fn type_argument_parts_are_plausible(text: &str) -> bool {
+    let parts = split_type_argument_parts(text);
+    !parts.is_empty() && parts.into_iter().all(type_argument_part_is_plausible)
+}
+
+fn split_type_argument_parts(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut angle_depth = 0usize;
+    let mut grouping_depth = 0usize;
+    let mut string = DartStringState::default();
+    for (index, character) in text.char_indices() {
+        if string.consumes(text, index, character) {
+            continue;
+        }
+        match character {
+            '<' => angle_depth += 1,
+            '>' if angle_depth > 0 => angle_depth = angle_depth.saturating_sub(1),
+            '(' | '[' | '{' => grouping_depth += 1,
+            ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
+            ',' if angle_depth == 0 && grouping_depth == 0 => {
+                parts.push(text[start..index].trim());
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let last = text[start..].trim();
+    if !last.is_empty() {
+        parts.push(last);
+    }
+    parts
+}
+
+fn type_argument_part_is_plausible(text: &str) -> bool {
+    let trimmed = text.trim();
+    let candidate = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or(trimmed)
+        .trim_end_matches('?');
+    let base = candidate.split('<').next().unwrap_or(candidate);
+    let segment = base.rsplit('.').next().unwrap_or(base);
+    type_identifier_is_plausible(segment)
+}
+
+fn type_identifier_is_plausible(text: &str) -> bool {
+    let Some(first) = text.chars().next() else {
+        return false;
+    };
+    first.is_ascii_uppercase()
+        || matches!(
+            text,
+            "bool"
+                | "double"
+                | "dynamic"
+                | "int"
+                | "num"
+                | "void"
+                | "Object"
+                | "Never"
+                | "Null"
+                | "Function"
+                | "FutureOr"
+        )
 }
 
 #[derive(Default)]

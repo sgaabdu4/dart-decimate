@@ -329,39 +329,19 @@ fn arguments_contain_route_location(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    route_location_argument(arguments, source).is_some_and(|argument| {
+    route_location_argument(arguments).is_some_and(|argument| {
         route_location_expression(argument, root, site, route_classes, source)
     })
 }
 
-fn route_location_argument<'tree>(arguments: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+fn route_location_argument(arguments: Node<'_>) -> Option<Node<'_>> {
     let mut cursor = arguments.walk();
     for argument in arguments.named_children(&mut cursor) {
-        if argument.kind() == "named_argument" {
-            if named_argument_label(argument, source).as_deref() == Some("location") {
-                return named_argument_value(argument);
-            }
-            continue;
+        if argument.kind() != "named_argument" {
+            return Some(argument);
         }
-        return Some(argument);
     }
     None
-}
-
-fn named_argument_label(node: Node<'_>, source: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .find(|child| child.kind() == "label")
-        .and_then(|label| label.utf8_text(source.as_bytes()).ok())
-        .map(str::trim)
-        .and_then(|label| label.strip_suffix(':'))
-        .map(str::to_owned)
-}
-
-fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .find(|child| child.kind() != "label")
 }
 
 fn route_location_expression(
