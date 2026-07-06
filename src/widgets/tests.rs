@@ -658,6 +658,35 @@ class ForwardedTitleData<T> {
 }
 
 #[test]
+fn forwarders_ignore_nested_callback_formals_for_positional_indexes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ForwarderArityPanel extends StatelessWidget {
+  const ForwarderArityPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    String format(ForwarderArityPanel panel) => panel.title;
+    final data = ForwardedTitleData.fromOwner(format, this);
+    return Text(data.title);
+  }
+}
+
+class ForwardedTitleData {
+  ForwardedTitleData.fromOwner(
+    String Function(ForwarderArityPanel panel) format,
+    ForwarderArityPanel source,
+  ) : title = source.title;
+  final String title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["ForwarderArityPanel.unused"]);
+    Ok(())
+}
+
+#[test]
 fn object_pattern_usage_counts_paired_nested_record_roots() -> Result<(), Box<dyn std::error::Error>>
 {
     let source = r"
@@ -777,6 +806,34 @@ String readGenericHelper<T>(GenericHelperPanel<T> widget) {
     let targets = unused_param_targets(parse_findings(source)?.unused_params);
 
     assert_eq!(targets, vec!["GenericHelperPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn object_pattern_helpers_ignore_nested_callback_formals_for_positional_indexes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class HelperArityPanel extends StatelessWidget {
+  const HelperArityPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    String format(HelperArityPanel panel) => panel.title;
+    return Text(readHelperArity(format, this));
+  }
+}
+
+String readHelperArity(
+  String Function(HelperArityPanel panel) format,
+  HelperArityPanel widget,
+) {
+  final HelperArityPanel(:title) = widget;
+  return title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["HelperArityPanel.unused"]);
     Ok(())
 }
 

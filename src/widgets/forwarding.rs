@@ -195,8 +195,7 @@ fn constructor_widget_params(signature: Node<'_>, source: &str) -> Vec<Construct
     let Some(parameters) = signature.child_by_field_name("parameters") else {
         return Vec::new();
     };
-    let mut formal_parameters = Vec::new();
-    collect_nodes(parameters, "formal_parameter", &mut formal_parameters);
+    let formal_parameters = direct_formal_parameters(parameters);
     let mut positional_index = 0usize;
     let mut widget_params = Vec::new();
     for param in formal_parameters {
@@ -218,6 +217,20 @@ fn constructor_widget_params(signature: Node<'_>, source: &str) -> Vec<Construct
         });
     }
     widget_params
+}
+
+fn direct_formal_parameters(parameters: Node<'_>) -> Vec<Node<'_>> {
+    let mut formal_parameters = Vec::new();
+    let mut cursor = parameters.walk();
+    for candidate in parameters.named_children(&mut cursor) {
+        if candidate.kind() == "optional_formal_parameters" {
+            let mut optional_cursor = candidate.walk();
+            formal_parameters.extend(candidate.named_children(&mut optional_cursor));
+        } else {
+            formal_parameters.push(candidate);
+        }
+    }
+    formal_parameters
 }
 
 fn is_named_parameter(param: Node<'_>, source: &str) -> bool {
@@ -383,16 +396,6 @@ fn member_property_for_object(
         .map(str::to_owned)
 }
 
-fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tree>>) {
-    if node.kind() == kind {
-        nodes.push(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        collect_nodes(child, kind, nodes);
-    }
-}
-
 fn collect_nodes_in<'tree>(node: Node<'tree>, kinds: &[&str], nodes: &mut Vec<Node<'tree>>) {
     if kinds.contains(&node.kind()) {
         nodes.push(node);
@@ -490,10 +493,8 @@ fn invocation_arguments_pass_roots(
         return false;
     };
     let mut positional_index = 0usize;
-    let mut saw_named_child = false;
     let mut cursor = arguments.walk();
     for argument in arguments.named_children(&mut cursor) {
-        saw_named_child = true;
         if argument.kind() == "named_argument" {
             if named_argument_label(argument, source).as_deref() == Some(parameter.name.as_str())
                 && named_argument_matches_roots(argument, roots, source)
@@ -509,10 +510,7 @@ fn invocation_arguments_pass_roots(
         }
         positional_index += 1;
     }
-    if !saw_named_child {
-        return argument_texts_pass_roots(arguments, parameter, roots, source);
-    }
-    false
+    argument_texts_pass_roots(arguments, parameter, roots, source)
 }
 
 fn named_argument_label(node: Node<'_>, source: &str) -> Option<String> {

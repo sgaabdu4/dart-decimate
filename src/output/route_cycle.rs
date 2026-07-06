@@ -6,6 +6,10 @@ use tree_sitter::Node;
 
 use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan::ScannedProject};
 
+mod aliases;
+
+use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliases_at};
+
 pub(super) fn is_typed_go_router_registry_cycle(
     project: &ScannedProject,
     cycle: &DependencyCycle,
@@ -139,7 +143,7 @@ fn helper_has_typed_route_navigation_call(
         if found {
             return;
         }
-        if typed_route_navigation_call(node, source, route_classes) {
+        if typed_route_navigation_call(root, node, source, route_classes) {
             found = true;
         }
     });
@@ -147,6 +151,7 @@ fn helper_has_typed_route_navigation_call(
 }
 
 fn typed_route_navigation_call(
+    root: Node<'_>,
     node: Node<'_>,
     source: &str,
     route_classes: &BTreeSet<String>,
@@ -166,8 +171,10 @@ fn typed_route_navigation_call(
     let Some(navigation_name) = navigation_call_name(prefix) else {
         return false;
     };
-    route_extension_navigation_call(prefix, &navigation_name, route_classes)
+    route_extension_navigation_call(root, node, prefix, &navigation_name, route_classes, source)
         || route_location_navigation_call(
+            root,
+            node,
             prefix,
             &navigation_name,
             arguments,
@@ -190,9 +197,12 @@ fn navigation_call_name(prefix: &str) -> Option<String> {
 }
 
 fn route_extension_navigation_call(
+    root: Node<'_>,
+    site: Node<'_>,
     prefix: &str,
     navigation_name: &str,
     route_classes: &BTreeSet<String>,
+    source: &str,
 ) -> bool {
     let compact = strip_whitespace(prefix);
     let Some(receiver) = strip_navigation_suffix(&compact, ".", navigation_name) else {
@@ -205,9 +215,15 @@ fn route_extension_navigation_call(
     route_classes
         .iter()
         .any(|route_class| direct_constructor_call_text(receiver, route_class))
+        || route_alias_receiver_text(
+            receiver,
+            &route_aliases_at(root, site, route_classes, source),
+        )
 }
 
 fn route_location_navigation_call(
+    root: Node<'_>,
+    site: Node<'_>,
     prefix: &str,
     navigation_name: &str,
     arguments: Node<'_>,
@@ -217,7 +233,7 @@ fn route_location_navigation_call(
     navigation_receiver(prefix, navigation_name)
         .as_deref()
         .is_some_and(navigation_receiver_accepts_route_location)
-        && arguments_contain_route_location(arguments, route_classes, source)
+        && arguments_contain_route_location(arguments, root, site, route_classes, source)
 }
 
 fn navigation_receiver(prefix: &str, navigation_name: &str) -> Option<String> {
@@ -263,11 +279,14 @@ fn navigation_receiver_accepts_route_location(receiver: &str) -> bool {
 
 fn arguments_contain_route_location(
     arguments: Node<'_>,
+    root: Node<'_>,
+    site: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    route_location_argument(arguments, source)
-        .is_some_and(|argument| route_location_expression(argument, route_classes, source))
+    route_location_argument(arguments, source).is_some_and(|argument| {
+        route_location_expression(argument, root, site, route_classes, source)
+    })
 }
 
 fn route_location_argument<'tree>(arguments: Node<'tree>, source: &str) -> Option<Node<'tree>> {
@@ -302,10 +321,18 @@ fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
 
 fn route_location_expression(
     node: Node<'_>,
+    root: Node<'_>,
+    site: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    route_location_member(unwrap_expression_node(node), route_classes, source)
+    route_location_member(
+        unwrap_expression_node(node),
+        root,
+        site,
+        route_classes,
+        source,
+    )
 }
 
 fn unwrap_expression_node(mut node: Node<'_>) -> Node<'_> {
@@ -325,7 +352,13 @@ fn unwrap_expression_node(mut node: Node<'_>) -> Node<'_> {
     }
 }
 
-fn route_location_member(node: Node<'_>, route_classes: &BTreeSet<String>, source: &str) -> bool {
+fn route_location_member(
+    node: Node<'_>,
+    root: Node<'_>,
+    site: Node<'_>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
@@ -338,8 +371,15 @@ fn route_location_member(node: Node<'_>, route_classes: &BTreeSet<String>, sourc
     if property.utf8_text(source.as_bytes()).ok() != Some("location") {
         return false;
     }
-    node.child_by_field_name("object")
-        .is_some_and(|object| route_constructor_receiver(object, route_classes, source))
+    let Some(object) = node.child_by_field_name("object") else {
+        return false;
+    };
+    route_constructor_receiver(object, route_classes, source)
+        || route_alias_receiver_node(
+            object,
+            &route_aliases_at(root, site, route_classes, source),
+            source,
+        )
 }
 
 fn route_constructor_receiver(

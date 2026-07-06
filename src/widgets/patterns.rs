@@ -153,8 +153,7 @@ fn helper_widget_parameters(
     source: &str,
 ) -> Vec<HelperParameter> {
     let parameters = parameter_list(signature).unwrap_or(signature);
-    let mut formal_parameters = Vec::new();
-    collect_nodes(parameters, "formal_parameter", &mut formal_parameters);
+    let formal_parameters = direct_formal_parameters(parameters);
     let mut positional_index = 0usize;
     let mut widget_parameters = Vec::new();
     for param in formal_parameters {
@@ -175,6 +174,20 @@ fn helper_widget_parameters(
         });
     }
     widget_parameters
+}
+
+fn direct_formal_parameters(parameters: Node<'_>) -> Vec<Node<'_>> {
+    let mut formal_parameters = Vec::new();
+    let mut cursor = parameters.walk();
+    for candidate in parameters.named_children(&mut cursor) {
+        if candidate.kind() == "optional_formal_parameters" {
+            let mut optional_cursor = candidate.walk();
+            formal_parameters.extend(candidate.named_children(&mut optional_cursor));
+        } else {
+            formal_parameters.push(candidate);
+        }
+    }
+    formal_parameters
 }
 
 fn parameter_list(node: Node<'_>) -> Option<Node<'_>> {
@@ -1493,10 +1506,8 @@ fn invocation_arguments_pass_roots(
         return false;
     };
     let mut positional_index = 0usize;
-    let mut saw_named_child = false;
     let mut cursor = arguments.walk();
     for argument in arguments.named_children(&mut cursor) {
-        saw_named_child = true;
         if argument.kind() == "named_argument" {
             if named_argument_label(argument, source).as_deref() == Some(parameter.name.as_str())
                 && named_argument_value(argument)
@@ -1513,10 +1524,7 @@ fn invocation_arguments_pass_roots(
         }
         positional_index += 1;
     }
-    if !saw_named_child {
-        return argument_texts_pass_roots(arguments, parameter, roots, source);
-    }
-    false
+    argument_texts_pass_roots(arguments, parameter, roots, source)
 }
 
 fn argument_texts_pass_roots(
@@ -1814,16 +1822,6 @@ fn last_identifier_child<'tree>(node: Node<'tree>, source: &str) -> Option<Node<
             ) && child.utf8_text(source.as_bytes()).ok() != Some("key")
         })
         .last()
-}
-
-fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tree>>) {
-    if node.kind() == kind {
-        nodes.push(node);
-    }
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        collect_nodes(child, kind, nodes);
-    }
 }
 
 fn collect_nodes_in<'tree>(node: Node<'tree>, kinds: &[&str], nodes: &mut Vec<Node<'tree>>) {
