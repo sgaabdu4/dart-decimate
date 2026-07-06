@@ -16,6 +16,8 @@ fn typed_route_navigation_found(source: &str) -> Result<bool, Box<dyn std::error
 fn state_context_resolves_through_local_state_base_class() -> Result<(), Box<dyn std::error::Error>>
 {
     let source = r"
+import 'package:flutter/widgets.dart';
+
 class BaseState<T> extends State<T> {}
 
 class ScreenState extends BaseState<Screen> {
@@ -34,6 +36,8 @@ class ScreenState extends BaseState<Screen> {
 fn state_context_resolves_through_local_consumer_state_base_class()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 class BaseState<T> extends ConsumerState<T> {}
 
 class ScreenState extends BaseState<Screen> {
@@ -54,6 +58,55 @@ fn unrelated_local_base_class_does_not_provide_state_context()
 class BaseState<T> extends Object {}
 
 class ScreenState extends BaseState<Screen> {
+  void open() {
+    context.go(const HomeRoute().location);
+  }
+}
+";
+
+    assert!(!typed_route_navigation_found(source)?);
+    Ok(())
+}
+
+#[test]
+fn state_context_resolves_aliased_framework_state() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'package:flutter/widgets.dart' as f;
+
+class ScreenState extends f.State<Screen> {
+  void open() {
+    context.go(const HomeRoute().location);
+  }
+}
+";
+
+    assert!(typed_route_navigation_found(source)?);
+    Ok(())
+}
+
+#[test]
+fn local_state_shadow_does_not_provide_state_context() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class State<T> {}
+
+class ScreenState extends State<Screen> {
+  void open() {
+    context.go(const HomeRoute().location);
+  }
+}
+";
+
+    assert!(!typed_route_navigation_found(source)?);
+    Ok(())
+}
+
+#[test]
+fn unresolved_prefixed_state_does_not_provide_state_context()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'package:not_flutter/fake.dart' as fake;
+
+class ScreenState extends fake.State<Screen> {
   void open() {
     context.go(const HomeRoute().location);
   }

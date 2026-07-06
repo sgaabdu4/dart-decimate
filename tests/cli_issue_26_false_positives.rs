@@ -846,6 +846,7 @@ class TypedGoRoute<T> {
         &fixture,
         "lib/features/home/home_screen.dart",
         r"import 'package:app/core/router/app_routes.dart';
+import 'package:flutter/widgets.dart';
 
 class HomeScreen extends Widget {
   const HomeScreen();
@@ -920,6 +921,7 @@ class TypedGoRoute<T> {
         &fixture,
         "lib/features/home/home_screen.dart",
         r"import 'package:app/core/router/app_routes.dart';
+import 'package:flutter/widgets.dart';
 
 class HomeScreen extends Widget {
   const HomeScreen();
