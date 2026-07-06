@@ -7,8 +7,12 @@ use tree_sitter::Node;
 use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan::ScannedProject};
 
 mod aliases;
+mod navigation;
 
 use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliases_at};
+use navigation::{
+    navigation_receiver_accepts_route_location, route_extension_navigation_has_context_argument,
+};
 
 pub(super) fn is_typed_go_router_registry_cycle(
     project: &ScannedProject,
@@ -171,16 +175,23 @@ fn typed_route_navigation_call(
     let Some(navigation_name) = navigation_call_name(prefix) else {
         return false;
     };
-    route_extension_navigation_call(root, node, prefix, &navigation_name, route_classes, source)
-        || route_location_navigation_call(
-            root,
-            node,
-            prefix,
-            &navigation_name,
-            arguments,
-            route_classes,
-            source,
-        )
+    route_extension_navigation_call(
+        root,
+        node,
+        prefix,
+        &navigation_name,
+        arguments,
+        route_classes,
+        source,
+    ) || route_location_navigation_call(
+        root,
+        node,
+        prefix,
+        &navigation_name,
+        arguments,
+        route_classes,
+        source,
+    )
 }
 
 fn argument_list(node: Node<'_>) -> Option<Node<'_>> {
@@ -201,9 +212,13 @@ fn route_extension_navigation_call(
     site: Node<'_>,
     prefix: &str,
     navigation_name: &str,
+    arguments: Node<'_>,
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
+    if !route_extension_navigation_has_context_argument(root, site, arguments, source) {
+        return false;
+    }
     let compact = strip_whitespace(prefix);
     let Some(receiver) = strip_navigation_suffix(&compact, ".", navigation_name) else {
         return false;
@@ -236,10 +251,9 @@ fn route_location_navigation_call(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    navigation_receiver(prefix, navigation_name)
-        .as_deref()
-        .is_some_and(navigation_receiver_accepts_route_location)
-        && arguments_contain_route_location(arguments, root, site, route_classes, source)
+    navigation_receiver(prefix, navigation_name).is_some_and(|receiver| {
+        navigation_receiver_accepts_route_location(root, site, &receiver, source)
+    }) && arguments_contain_route_location(arguments, root, site, route_classes, source)
 }
 
 fn navigation_receiver(prefix: &str, navigation_name: &str) -> Option<String> {
@@ -295,22 +309,6 @@ fn strip_constructor_keyword_prefix(text: &str) -> Option<&str> {
         }
     }
     None
-}
-
-fn navigation_receiver_accepts_route_location(receiver: &str) -> bool {
-    let receiver = receiver.trim_end_matches(['?', '!']);
-    let simple_name = receiver
-        .rsplit(['.', '?', '!'])
-        .next()
-        .unwrap_or(receiver)
-        .to_ascii_lowercase();
-    if matches!(simple_name.as_str(), "context" | "buildcontext" | "ctx") {
-        return true;
-    }
-    if contains_identifier(receiver, "GoRouter") {
-        return true;
-    }
-    !receiver.contains(['.', '?', '!']) && matches!(simple_name.as_str(), "gorouter" | "router")
 }
 
 fn arguments_contain_route_location(
