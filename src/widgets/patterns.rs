@@ -316,10 +316,30 @@ pub(super) fn root_aliases_at(
         path_child = scope;
         parent = scope.parent();
     }
+    let owner = (body.kind() == "class_body")
+        .then(|| outermost_callable_before_body(body, site))
+        .flatten();
     for (scope, child) in steps.into_iter().rev() {
+        remove_roots_shadowed_by_callable_scope(scope, owner, &mut roots, source);
         collect_prior_root_aliases(scope, child, &mut roots, source);
     }
     roots
+}
+
+fn remove_roots_shadowed_by_callable_scope(
+    scope: Node<'_>,
+    owner: Option<Node<'_>>,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    for name in callable_direct_parameter_bound_names(scope, roots, source) {
+        if owner.is_some_and(|owner| same_node(owner, scope))
+            && owner_parameter_preserves_root(scope, &name, source)
+        {
+            continue;
+        }
+        roots.remove(&name);
+    }
 }
 
 fn collect_prior_root_aliases(
@@ -370,7 +390,7 @@ fn collect_root_aliases_from_declaration_shape(
         .iter()
         .filter(|root| {
             binding_name(node, source).as_deref() == Some(root.as_str())
-                || pattern_binds_name(node, root, source)
+                || declaration_binds_name(node, root, source)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -392,6 +412,41 @@ fn collect_root_aliases_from_declaration_shape(
             collect_root_aliases_from_declaration_shape(child, roots, source);
         }
     }
+}
+
+fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if binding_name(node, source).as_deref() == Some(name) {
+        return true;
+    }
+    if node.kind() == "pattern_variable_declaration" {
+        return pattern_variable_declaration_binds_name(node, name, source);
+    }
+    if !matches!(
+        node.kind(),
+        "local_variable_declaration"
+            | "initialized_identifier_list"
+            | "initialized_variable_definition"
+            | "initialized_identifier"
+            | "variable_declaration_list"
+    ) {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| declaration_binds_name(child, name, source))
+}
+
+fn pattern_variable_declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    let equals_byte = source
+        .get(node.start_byte()..node.end_byte())
+        .and_then(|text| text.find('='))
+        .map_or(node.end_byte(), |offset| node.start_byte() + offset);
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).any(|child| {
+        child.end_byte() <= equals_byte
+            && is_pattern_node(child)
+            && pattern_binds_name(child, name, source)
+    })
 }
 
 fn local_alias_for_root(node: Node<'_>, roots: &BTreeSet<String>, source: &str) -> Option<String> {

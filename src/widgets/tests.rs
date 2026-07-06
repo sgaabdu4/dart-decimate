@@ -336,6 +336,36 @@ class ForwardedViewData {
 }
 
 #[test]
+fn forwarded_usage_counts_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ForwardingPanel extends StatefulWidget {
+  const ForwardingPanel({super.key, required this.items, required this.unused});
+  final List<String> items;
+  final String unused;
+  State<ForwardingPanel> createState() => _ForwardingPanelState();
+}
+
+class _ForwardingPanelState extends State<ForwardingPanel> {
+  Widget build(BuildContext context) {
+    final owner = widget;
+    final data = ForwardedViewData.fromOwner(source: owner);
+    return Text(data.label);
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromOwner({required ForwardingPanel source})
+      : label = source.items.join(',');
+  final String label;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["ForwardingPanel.unused"]);
+    Ok(())
+}
+
+#[test]
 fn forwarded_usage_ignores_root_shadows_at_invocation() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class LocalShadowForwardingPanel extends StatefulWidget {
@@ -367,10 +397,30 @@ class _CallbackShadowForwardingPanelState extends State<CallbackShadowForwarding
   }
 }
 
+class CallbackAliasShadowForwardingPanel extends StatefulWidget {
+  const CallbackAliasShadowForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<CallbackAliasShadowForwardingPanel> createState() => _CallbackAliasShadowForwardingPanelState();
+}
+
+class _CallbackAliasShadowForwardingPanelState extends State<CallbackAliasShadowForwardingPanel> {
+  Widget build(BuildContext context) {
+    final data = [const CallbackAliasShadowForwardingPanel(items: ['local'])]
+        .map((widget) {
+          final alias = widget;
+          return ForwardedViewData.fromCallbackAlias(source: alias);
+        })
+        .first;
+    return Text(data.label);
+  }
+}
+
 class ForwardedViewData {
   ForwardedViewData.fromLocal({required LocalShadowForwardingPanel source})
       : label = source.items.join(',');
   ForwardedViewData.fromCallback({required CallbackShadowForwardingPanel source})
+      : label = source.items.join(',');
+  ForwardedViewData.fromCallbackAlias({required CallbackAliasShadowForwardingPanel source})
       : label = source.items.join(',');
   final String label;
 }
@@ -381,9 +431,65 @@ class ForwardedViewData {
         targets,
         vec![
             "LocalShadowForwardingPanel.items",
-            "CallbackShadowForwardingPanel.items"
+            "CallbackShadowForwardingPanel.items",
+            "CallbackAliasShadowForwardingPanel.items"
         ]
     );
+    Ok(())
+}
+
+#[test]
+fn object_pattern_usage_ignores_shadowed_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class AliasPatternPanel extends StatefulWidget {
+  const AliasPatternPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<AliasPatternPanel> createState() => _AliasPatternPanelState();
+}
+
+class _AliasPatternPanelState extends State<AliasPatternPanel> {
+  Widget build(BuildContext context) {
+    return Text([const AliasPatternPanel(used: 'local', unused: 'local')]
+        .map((widget) {
+          final alias = widget;
+          final AliasPatternPanel(:used) = alias;
+          return used;
+        })
+        .first);
+  }
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec!["AliasPatternPanel.unused", "AliasPatternPanel.used"]
+    );
+    Ok(())
+}
+
+#[test]
+fn object_pattern_usage_counts_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class AliasPatternPanel extends StatefulWidget {
+  const AliasPatternPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<AliasPatternPanel> createState() => _AliasPatternPanelState();
+}
+
+class _AliasPatternPanelState extends State<AliasPatternPanel> {
+  Widget build(BuildContext context) {
+    final owner = widget;
+    final AliasPatternPanel(:used) = owner;
+    return Text(used);
+  }
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["AliasPatternPanel.unused"]);
     Ok(())
 }
 
