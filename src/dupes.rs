@@ -14,6 +14,8 @@ use crate::output::TRACE_SCHEMA_VERSION;
 
 mod lex;
 use lex::normalized_lines;
+mod declarations;
+use declarations::DeclarationCloneFilter;
 mod packages;
 use packages::CopiedPackageFilter;
 
@@ -315,8 +317,8 @@ struct CloneWindow {
 /// Detect duplicated Dart code blocks.
 ///
 /// Clone windows satisfy both `min_lines` and `min_tokens`; sparse duplicated
-/// blocks can therefore span more than `min_lines`. Identical matches across
-/// copied local Pub packages with the same package name are ignored.
+/// blocks can therefore span more than `min_lines`. Declaration-only abstract
+/// contracts and copied local Pub package mirrors are filtered conservatively.
 ///
 /// # Errors
 ///
@@ -378,24 +380,15 @@ pub fn detect_duplicates(
         })
         .collect::<Vec<_>>();
 
-    clone_groups.sort_by(|left, right| {
-        (
-            std::cmp::Reverse(left.instances.len()),
-            std::cmp::Reverse(left.line_count),
-            &left.instances[0].path,
-            left.instances[0].start_line,
-            &left.fingerprint,
-        )
-            .cmp(&(
-                std::cmp::Reverse(right.instances.len()),
-                std::cmp::Reverse(right.line_count),
-                &right.instances[0].path,
-                right.instances[0].start_line,
-                &right.fingerprint,
-            ))
-    });
-    clone_groups = collapse_overlapping_groups(clone_groups);
     let mut copied_packages = CopiedPackageFilter::new(&project.root);
+    for group in &mut clone_groups {
+        copied_packages.canonicalize_copied_package_instances(group);
+    }
+    clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
+    let mut declaration_filter = DeclarationCloneFilter::new();
+    clone_groups.retain(|group| !declaration_filter.is_declaration_only_clone(group));
+    sort_clone_groups(&mut clone_groups);
+    clone_groups = collapse_overlapping_groups(clone_groups);
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));
     let stats = duplicate_stats(analyzed_lines, &clone_groups, options.threshold);
     if let Some(top) = options.top {
@@ -453,6 +446,25 @@ pub fn render_clone_trace(report: &CloneTraceReport) -> String {
     )
 }
 
+fn sort_clone_groups(clone_groups: &mut [CodeClone]) {
+    clone_groups.sort_by(|left, right| {
+        (
+            std::cmp::Reverse(left.instances.len()),
+            std::cmp::Reverse(left.line_count),
+            &left.instances[0].path,
+            left.instances[0].start_line,
+            &left.fingerprint,
+        )
+            .cmp(&(
+                std::cmp::Reverse(right.instances.len()),
+                std::cmp::Reverse(right.line_count),
+                &right.instances[0].path,
+                right.instances[0].start_line,
+                &right.fingerprint,
+            ))
+    });
+}
+
 fn collapse_overlapping_groups(groups: Vec<CodeClone>) -> Vec<CodeClone> {
     let mut collapsed = Vec::new();
     for group in groups {
@@ -464,6 +476,25 @@ fn collapse_overlapping_groups(groups: Vec<CodeClone>) -> Vec<CodeClone> {
         }
     }
     collapsed
+}
+
+fn group_satisfies_occurrence_options(group: &CodeClone, options: &DuplicateOptions) -> bool {
+    group.instances.len() >= options.min_occurrences
+        && (!options.skip_local || clone_parent_count(group) >= 2)
+}
+
+fn clone_parent_count(group: &CodeClone) -> usize {
+    group
+        .instances
+        .iter()
+        .map(|instance| {
+            instance
+                .path
+                .parent()
+                .map_or_else(PathBuf::new, Path::to_path_buf)
+        })
+        .collect::<BTreeSet<_>>()
+        .len()
 }
 
 fn groups_overlap(left: &CodeClone, right: &CodeClone) -> bool {
@@ -551,7 +582,7 @@ fn clone_group_from_occurrences(
     occurrences: Vec<(CloneOccurrence, usize)>,
     options: &DuplicateOptions,
 ) -> Option<CodeClone> {
-    let mut seen = BTreeSet::<(PathBuf, usize, usize)>::new();
+    let mut seen = BTreeSet::<(PathBuf, usize, usize, usize)>::new();
     let mut instances = Vec::new();
     let mut token_count = 0;
     let mut line_count = 0;
@@ -562,6 +593,7 @@ fn clone_group_from_occurrences(
             occurrence.path.clone(),
             occurrence.start_line,
             occurrence.end_line,
+            occurrence.column,
         )) {
             continue;
         }
@@ -580,10 +612,11 @@ fn clone_group_from_occurrences(
         return None;
     }
     instances.sort_by(|left, right| {
-        (&left.path, left.start_line, left.end_line).cmp(&(
+        (&left.path, left.start_line, left.end_line, left.column).cmp(&(
             &right.path,
             right.start_line,
             right.end_line,
+            right.column,
         ))
     });
 

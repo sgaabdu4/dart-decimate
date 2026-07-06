@@ -11,6 +11,7 @@ mod html;
 mod human;
 mod human_details;
 mod next_steps;
+mod route_cycle;
 mod route_findings;
 mod runtime_coverage;
 mod scope;
@@ -297,7 +298,7 @@ fn report_findings(
         add_symbol_findings(&project.root, symbols, &mut findings);
     }
 
-    add_cycle_findings(&project.root, &results.cycles, &mut findings);
+    add_cycle_findings(project, &results.cycles, &mut findings);
     add_re_export_cycle_findings(&project.root, &results.re_export_cycles, &mut findings);
     add_boundary_findings(&project.root, &results.boundary_violations, &mut findings);
     graph_findings::add_boundary_coverage_findings(
