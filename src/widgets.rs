@@ -483,11 +483,9 @@ fn strip_whitespace(text: &str) -> String {
 }
 
 pub(super) fn simple_type_name(text: &str) -> String {
-    text.trim_end_matches('?')
-        .rsplit('.')
-        .next()
-        .unwrap_or(text)
-        .to_owned()
+    let text = text.trim_end_matches('?');
+    let text = text.split('<').next().unwrap_or(text).trim();
+    text.rsplit('.').next().unwrap_or(text).to_owned()
 }
 
 fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {

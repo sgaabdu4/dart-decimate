@@ -470,13 +470,14 @@ fn constructor_invocation_name(node: Node<'_>, source: &str) -> Option<String> {
 }
 
 fn normalized_invocation_prefix(prefix: &str) -> String {
-    strip_whitespace(
+    let prefix = strip_whitespace(
         prefix
             .trim()
             .strip_prefix("const ")
             .or_else(|| prefix.trim().strip_prefix("new "))
             .unwrap_or(prefix.trim()),
-    )
+    );
+    strip_type_arguments(&prefix)
 }
 
 fn invocation_arguments_pass_roots(
@@ -647,11 +648,9 @@ fn strip_type_arguments(text: &str) -> String {
 }
 
 fn simple_type_name(text: &str) -> String {
-    text.trim_end_matches('?')
-        .rsplit('.')
-        .next()
-        .unwrap_or(text)
-        .to_owned()
+    let text = text.trim_end_matches('?');
+    let text = text.split('<').next().unwrap_or(text).trim();
+    text.rsplit('.').next().unwrap_or(text).to_owned()
 }
 
 fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {

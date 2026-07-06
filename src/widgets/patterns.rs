@@ -1140,7 +1140,7 @@ fn class_or_inherited_member_shadows_top_level_in(
         }
         let Some(inherited_class) = find_class_like_declaration(root, &inherited.name, source)
         else {
-            if inherited.kind == InheritedTypeKind::Mixin {
+            if unresolved_inherited_type_may_shadow(&inherited) {
                 return true;
             }
             continue;
@@ -1168,6 +1168,23 @@ struct InheritedType {
 enum InheritedTypeKind {
     Superclass,
     Mixin,
+    Interface,
+}
+
+fn unresolved_inherited_type_may_shadow(inherited: &InheritedType) -> bool {
+    inherited.kind != InheritedTypeKind::Superclass
+        || !matches!(
+            inherited.name.as_str(),
+            "StatelessWidget"
+                | "StatefulWidget"
+                | "ConsumerWidget"
+                | "ConsumerStatefulWidget"
+                | "HookWidget"
+                | "HookConsumerWidget"
+                | "State"
+                | "ConsumerState"
+                | "Object"
+        )
 }
 
 fn class_inherited_types(class: Node<'_>, source: &str) -> Vec<InheritedType> {
@@ -1194,6 +1211,17 @@ fn class_inherited_types(class: Node<'_>, source: &str) -> Vec<InheritedType> {
                 .map(|name| InheritedType {
                     name,
                     kind: InheritedTypeKind::Mixin,
+                }),
+        );
+    }
+    if let Some(interfaces) = clause_after_keyword(header, "implements", &[]) {
+        inherited.extend(
+            split_top_level_commas(interfaces)
+                .into_iter()
+                .filter_map(inherited_type_name)
+                .map(|name| InheritedType {
+                    name,
+                    kind: InheritedTypeKind::Interface,
                 }),
         );
     }
@@ -1435,7 +1463,8 @@ fn constructor_invocation_name(node: Node<'_>, source: &str) -> Option<String> {
         .child_by_field_name("type")?
         .utf8_text(source.as_bytes())
         .ok()
-        .map(strip_whitespace)?;
+        .map(strip_whitespace)
+        .map(|name| strip_type_arguments(&name))?;
     node.child_by_field_name("constructor")
         .and_then(|constructor| constructor.utf8_text(source.as_bytes()).ok())
         .map_or(Some(type_name.clone()), |constructor| {
@@ -1444,13 +1473,14 @@ fn constructor_invocation_name(node: Node<'_>, source: &str) -> Option<String> {
 }
 
 fn normalized_invocation_prefix(prefix: &str) -> String {
-    strip_whitespace(
+    let prefix = strip_whitespace(
         prefix
             .trim()
             .strip_prefix("const ")
             .or_else(|| prefix.trim().strip_prefix("new "))
             .unwrap_or(prefix.trim()),
-    )
+    );
+    strip_type_arguments(&prefix)
 }
 
 fn invocation_arguments_pass_roots(
@@ -1816,6 +1846,20 @@ fn strip_whitespace(text: &str) -> String {
     text.chars()
         .filter(|character| !character.is_whitespace())
         .collect()
+}
+
+fn strip_type_arguments(text: &str) -> String {
+    let mut stripped = String::new();
+    let mut depth = 0usize;
+    for character in text.chars() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => stripped.push(character),
+            _ => {}
+        }
+    }
+    stripped
 }
 
 fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {

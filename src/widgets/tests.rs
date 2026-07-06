@@ -607,6 +607,31 @@ class ForwardedTitleData {
 }
 
 #[test]
+fn forwarders_match_generic_widget_parameter_types() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class GenericForwarderParamPanel<T> extends StatelessWidget {
+  const GenericForwarderParamPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    final data = GenericForwardedTitleData<T>.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class GenericForwardedTitleData<T> {
+  GenericForwardedTitleData.fromOwner({required GenericForwarderParamPanel<T> source})
+      : title = source.title;
+  final String title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["GenericForwarderParamPanel.unused"]);
+    Ok(())
+}
+
+#[test]
 fn forwarded_usage_matches_generic_const_forwarder_invocations()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
@@ -701,6 +726,57 @@ String mixinShadowHelper(MixinShadowHelperWidget widget) {
             "MixinShadowHelperWidget.used"
         ]
     );
+    Ok(())
+}
+
+#[test]
+fn bare_object_pattern_helper_calls_ignore_unresolved_interface_shadows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ImportedInterfaceShadowWidget extends StatelessWidget implements ImportedHelperOwner {
+  const ImportedInterfaceShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(importedShadowHelper(this));
+}
+
+String importedShadowHelper(ImportedInterfaceShadowWidget widget) {
+  final ImportedInterfaceShadowWidget(:used) = widget;
+  return used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "ImportedInterfaceShadowWidget.unused",
+            "ImportedInterfaceShadowWidget.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn object_pattern_helpers_match_generic_invocations_and_parameter_types()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class GenericHelperPanel<T> extends StatelessWidget {
+  const GenericHelperPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) => Text(readGenericHelper<T>(this));
+}
+
+String readGenericHelper<T>(GenericHelperPanel<T> widget) {
+  final GenericHelperPanel<T>(:title) = widget;
+  return title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["GenericHelperPanel.unused"]);
     Ok(())
 }
 
