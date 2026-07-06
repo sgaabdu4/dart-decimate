@@ -71,14 +71,14 @@ const PATTERN_ANCESTORS: &[&str] = &[
 pub(super) fn state_body_uses_param(body: Node<'_>, name: &str, source: &str) -> bool {
     let mut found = false;
     visit_named(body, &mut |node| {
-        if !found && is_widget_member_access(node, name, source) {
+        if !found && is_widget_member_access(body, node, name, source) {
             found = true;
         }
     });
     found
 }
 
-fn is_widget_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
+fn is_widget_member_access(body: Node<'_>, node: Node<'_>, name: &str, source: &str) -> bool {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
@@ -94,10 +94,66 @@ fn is_widget_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
     let Some(object) = node.child_by_field_name("object") else {
         return false;
     };
-    matches!(
-        object.utf8_text(source.as_bytes()).ok(),
-        Some("widget" | "oldWidget")
-    )
+    let Some(object_name @ ("widget" | "oldWidget")) = object.utf8_text(source.as_bytes()).ok()
+    else {
+        return false;
+    };
+    state_root_receiver_available(body, object, object_name, source)
+}
+
+fn state_root_receiver_available(
+    boundary: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    let mut child = node;
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent {
+        if same_node(ancestor, boundary) {
+            return true;
+        }
+        if matches!(ancestor.kind(), "class_body" | "class_declaration") {
+            return true;
+        }
+        if enclosing_parameters_bind_name(ancestor, name, source)
+            && !state_owner_parameter_preserves_root(ancestor, name, source)
+        {
+            return false;
+        }
+        if earlier_local_binding_exists(ancestor, child, node.start_byte(), name, source) {
+            return false;
+        }
+        child = ancestor;
+        parent = ancestor.parent();
+    }
+    true
+}
+
+fn state_owner_parameter_preserves_root(node: Node<'_>, name: &str, source: &str) -> bool {
+    name == "oldWidget"
+        && node.kind() == "method_declaration"
+        && method_declaration_name(node, source).as_deref() == Some("didUpdateWidget")
+}
+
+fn method_declaration_name(node: Node<'_>, source: &str) -> Option<String> {
+    node.child_by_field_name("signature")
+        .and_then(|signature| {
+            field_text(signature, "name", source)
+                .or_else(|| identifier_before_parameters(signature, source))
+        })
+        .or_else(|| field_text(node, "name", source))
+}
+
+fn identifier_before_parameters(node: Node<'_>, source: &str) -> Option<String> {
+    let text = node.utf8_text(source.as_bytes()).ok()?;
+    let before_parameters = text.split_once('(')?.0;
+    before_parameters
+        .split(|character: char| {
+            !(character == '_' || character == '$' || character.is_ascii_alphanumeric())
+        })
+        .rfind(|part| !part.is_empty())
+        .map(str::to_owned)
 }
 
 fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -159,6 +215,9 @@ fn identifier_shadowed_until(
 }
 
 fn enclosing_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if call_expression_function_parameters_bind_name(node, name, source) {
+        return true;
+    }
     if !matches!(
         node.kind(),
         "declaration" | "function_expression" | "local_function_declaration" | "method_declaration"
@@ -177,9 +236,25 @@ fn enclosing_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> b
     false
 }
 
+fn call_expression_function_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if node.kind() != "call_expression" {
+        return false;
+    }
+    let Some(function) = node.child_by_field_name("function") else {
+        return false;
+    };
+    if function.kind() != "function_expression" {
+        return false;
+    }
+    enclosing_parameters_bind_name(function, name, source)
+}
+
 fn parameter_list_directly_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
     let mut cursor = parameters.walk();
     parameters.named_children(&mut cursor).any(|candidate| {
+        if matches!(candidate.kind(), "identifier" | "identifier_dollar_escaped") {
+            return candidate.utf8_text(source.as_bytes()).ok() == Some(name);
+        }
         if candidate.kind() == "formal_parameter" {
             return formal_parameter_name(candidate, source).as_deref() == Some(name);
         }
