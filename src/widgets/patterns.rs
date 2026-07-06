@@ -447,12 +447,118 @@ fn lexical_sibling_changes_name(node: Node<'_>, name: &str, source: &str) -> boo
     if is_callable_node(node.kind()) {
         return false;
     }
-    if assignment_or_update_changes_name(node, name, source) {
+    lexical_node_changes_name(node, name, false, source)
+}
+
+fn lexical_node_changes_name(node: Node<'_>, name: &str, shadowed: bool, source: &str) -> bool {
+    if is_callable_node(node.kind()) {
+        return false;
+    }
+    let mut shadowed = shadowed || lexical_node_binds_name(node, name, source);
+    if !shadowed && assignment_or_update_changes_name(node, name, source) {
         return true;
     }
     let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .any(|child| lexical_sibling_changes_name(child, name, source))
+    for child in node.named_children(&mut cursor) {
+        let child_shadowed = shadowed
+            || lexical_child_binds_name_for_following_siblings(node.kind(), child, name, source);
+        if lexical_node_changes_name(child, name, child_shadowed, source) {
+            return true;
+        }
+        if lexical_child_binds_name_for_following_siblings(node.kind(), child, name, source) {
+            shadowed = true;
+        }
+    }
+    false
+}
+
+fn lexical_node_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    catch_clause_binds_name(node, name, source)
+        || (matches!(
+            node.kind(),
+            "local_variable_declaration"
+                | "pattern_variable_declaration"
+                | "local_function_declaration"
+        ) && declaration_binds_name(node, name, source))
+}
+
+fn lexical_child_binds_name_for_following_siblings(
+    scope_kind: &str,
+    child: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    if child.kind() == "local_function_declaration"
+        && local_function_name(child, source).as_deref() == Some(name)
+    {
+        return true;
+    }
+    if matches!(
+        child.kind(),
+        "local_variable_declaration" | "pattern_variable_declaration"
+    ) && declaration_binds_name(child, name, source)
+    {
+        return true;
+    }
+    header_binding_child(scope_kind, child) && declaration_binds_name(child, name, source)
+}
+
+fn catch_clause_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    node.kind() == "catch_clause"
+        && (field_text(node, "exception", source).as_deref() == Some(name)
+            || field_text(node, "stack_trace", source).as_deref() == Some(name))
+}
+
+fn header_binding_child(scope_kind: &str, child: Node<'_>) -> bool {
+    if matches!(scope_kind, "for_element" | "for_statement") {
+        return !is_body_statement_child(child.kind())
+            || child.kind() == "local_variable_declaration";
+    }
+    !is_body_statement_child(child.kind()) && node_can_contain_pattern_binding(child)
+}
+
+fn node_can_contain_pattern_binding(node: Node<'_>) -> bool {
+    let mut found = false;
+    visit_named(node, &mut |candidate| {
+        if !found
+            && matches!(
+                candidate.kind(),
+                "list_pattern"
+                    | "local_variable_declaration"
+                    | "map_pattern"
+                    | "object_pattern"
+                    | "pattern_variable_declaration"
+                    | "record_pattern"
+                    | "variable_pattern"
+            )
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn is_body_statement_child(kind: &str) -> bool {
+    matches!(
+        kind,
+        "assert_statement"
+            | "block"
+            | "break_statement"
+            | "continue_statement"
+            | "declaration"
+            | "do_statement"
+            | "empty_statement"
+            | "expression_statement"
+            | "for_statement"
+            | "if_statement"
+            | "local_function_declaration"
+            | "local_variable_declaration"
+            | "return_statement"
+            | "switch_statement"
+            | "try_statement"
+            | "while_statement"
+            | "yield_statement"
+    )
 }
 
 fn assignment_or_update_changes_name(node: Node<'_>, name: &str, source: &str) -> bool {

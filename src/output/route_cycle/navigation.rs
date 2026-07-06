@@ -50,7 +50,7 @@ pub(super) fn navigation_receiver_accepts_route_location(
     source: &str,
 ) -> bool {
     let receiver = receiver.trim_end_matches(['?', '!']);
-    if go_router_receiver_expression(receiver) {
+    if go_router_receiver_expression(root, site, receiver, source) {
         return true;
     }
     navigation_target_name(receiver).is_some_and(|target| {
@@ -58,16 +58,201 @@ pub(super) fn navigation_receiver_accepts_route_location(
     })
 }
 
-fn go_router_receiver_expression(receiver: &str) -> bool {
+fn go_router_receiver_expression(
+    root: Node<'_>,
+    site: Node<'_>,
+    receiver: &str,
+    source: &str,
+) -> bool {
     let compact = strip_whitespace(receiver.trim());
     let unwrapped = unwrap_parenthesized_text(&compact).unwrap_or(&compact);
     let receiver = unwrapped.trim_end_matches(['?', '!']);
     if direct_constructor_call_text(receiver, GO_ROUTER) {
-        return true;
+        return !term_identifier_shadowed_at(root, site, GO_ROUTER, source);
     }
+    let Some(method) = go_router_factory_method(receiver) else {
+        return false;
+    };
+    !term_identifier_shadowed_at(root, site, GO_ROUTER, source)
+        && go_router_factory_available(root, method, source)
+}
+
+fn go_router_factory_method(receiver: &str) -> Option<&'static str> {
     GO_ROUTER_FACTORY_METHODS
         .iter()
-        .any(|method| direct_static_member_call_text(receiver, GO_ROUTER, method))
+        .copied()
+        .find(|method| direct_static_member_call_text(receiver, GO_ROUTER, method))
+}
+
+fn go_router_factory_available(root: Node<'_>, method: &str, source: &str) -> bool {
+    if let Some(class) = local_go_router_class(root, source) {
+        return local_go_router_class_has_factory(class, method, source);
+    }
+    unprefixed_go_router_import(root, source)
+}
+
+fn local_go_router_class<'tree>(root: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    if root.kind() == "class_declaration"
+        && field_text(root, "name", source).as_deref() == Some(GO_ROUTER)
+    {
+        return Some(root);
+    }
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        if let Some(found) = local_go_router_class(child, source) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn local_go_router_class_has_factory(class: Node<'_>, method: &str, source: &str) -> bool {
+    let Some(body) = class.child_by_field_name("body") else {
+        return false;
+    };
+    let mut cursor = body.walk();
+    body.named_children(&mut cursor).any(|member| {
+        (matches!(member.kind(), "class_member" | "method_declaration")
+            && static_method_returns_type(member, method, GO_ROUTER, source))
+            || (method == "routingConfig" && class_has_named_constructor(member, method, source))
+    })
+}
+
+fn static_method_returns_type(node: Node<'_>, method: &str, type_name: &str, source: &str) -> bool {
+    let Some(text) = node.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    text.split_whitespace().any(|part| part == "static")
+        && declared_type_before_name(text, method).as_deref() == Some(type_name)
+}
+
+fn class_has_named_constructor(node: Node<'_>, method: &str, source: &str) -> bool {
+    let Some(text) = node.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    let compact = strip_whitespace(text);
+    [
+        format!("{GO_ROUTER}.{method}("),
+        format!("const{GO_ROUTER}.{method}("),
+        format!("factory{GO_ROUTER}.{method}("),
+    ]
+    .iter()
+    .any(|prefix| compact.starts_with(prefix))
+}
+
+fn unprefixed_go_router_import(root: Node<'_>, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" || import_alias(node, source).is_some() {
+            return;
+        }
+        if import_uri(node, source).as_deref() == Some("package:go_router/go_router.dart") {
+            found = true;
+        }
+    });
+    found
+}
+
+fn import_alias(node: Node<'_>, source: &str) -> Option<String> {
+    find_first_named_descendant(node, "import_specification")
+        .and_then(|specification| field_text(specification, "alias", source))
+}
+
+fn import_uri(node: Node<'_>, source: &str) -> Option<String> {
+    find_first_named_descendant(node, "uri")
+        .and_then(|uri| uri.utf8_text(source.as_bytes()).ok())
+        .and_then(unquote_dart_string)
+}
+
+fn unquote_dart_string(text: &str) -> Option<String> {
+    let trimmed = text.trim().trim_start_matches('r');
+    let quote = trimmed.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    trimmed
+        .strip_prefix(quote)
+        .and_then(|rest| rest.strip_suffix(quote))
+        .map(str::to_owned)
+}
+
+fn term_identifier_shadowed_at(root: Node<'_>, site: Node<'_>, name: &str, source: &str) -> bool {
+    let mut path_child = site;
+    let mut parent = site.parent();
+    while let Some(scope) = parent {
+        if callable_parameter_declares_name(scope, name, source)
+            || prior_term_binding_shadows_name(scope, path_child, name, source)
+            || scoped_header_binding_exists(scope, path_child, site.start_byte(), name, source)
+        {
+            return true;
+        }
+        if scope.kind() == "class_body" && class_member_declares_name(scope, name, source) {
+            return true;
+        }
+        if same_node(scope, root) {
+            break;
+        }
+        path_child = scope;
+        parent = scope.parent();
+    }
+    false
+}
+
+fn callable_parameter_declares_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if !is_callable_node(node.kind()) {
+        return false;
+    }
+    direct_parameter_lists(node).into_iter().any(|parameters| {
+        direct_formal_parameters(parameters)
+            .into_iter()
+            .any(|parameter| formal_parameter_name(parameter, source).as_deref() == Some(name))
+    })
+}
+
+fn prior_term_binding_shadows_name(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    let mut cursor = scope.walk();
+    let mut siblings = Vec::new();
+    for sibling in scope.named_children(&mut cursor) {
+        if same_node(sibling, path_child) || sibling.start_byte() >= path_child.start_byte() {
+            break;
+        }
+        siblings.push(sibling);
+    }
+    siblings
+        .into_iter()
+        .rev()
+        .any(|sibling| lexical_term_binding_shadows_name(sibling, name, source))
+}
+
+fn lexical_term_binding_shadows_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if local_function_name(node, source).as_deref() == Some(name) {
+        return true;
+    }
+    if is_callable_node(node.kind()) {
+        return false;
+    }
+    if lexical_declaration_node(node.kind()) && declaration_binds_name(node, name, source) {
+        return true;
+    }
+    if !matches!(node.kind(), "statement" | "expression_statement") {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| lexical_term_binding_shadows_name(child, name, source))
+}
+
+fn class_member_declares_name(class_body: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = class_body.walk();
+    class_body.named_children(&mut cursor).any(|member| {
+        method_name(member, source).as_deref() == Some(name)
+            || (!is_callable_node(member.kind()) && declaration_binds_name(member, name, source))
+    })
 }
 
 fn first_positional_argument(arguments: Node<'_>) -> Option<Node<'_>> {
@@ -98,7 +283,7 @@ fn target_resolves_to_navigation_type(
     source: &str,
 ) -> bool {
     let resolution = if target.member_only {
-        class_member_resolution_at(site, &target.name, source)
+        class_member_resolution_at(root, site, &target.name, source)
     } else {
         visible_name_resolution_at(root, site, &target.name, source)
     };
@@ -117,14 +302,14 @@ fn visible_name_resolution_at(
         if let Some(resolution) = callable_parameter_resolution(scope, name, source) {
             return Some(resolution);
         }
-        if let Some(resolution) = prior_binding_resolution(scope, path_child, name, source) {
+        if let Some(resolution) = prior_binding_resolution(root, scope, path_child, name, source) {
             return Some(resolution);
         }
         if scoped_header_binding_exists(scope, path_child, site.start_byte(), name, source) {
             return Some(NameResolution::Shadowed);
         }
         if scope.kind() == "class_body" {
-            if let Some(resolution) = class_member_resolution(scope, name, source) {
+            if let Some(resolution) = class_member_resolution(root, scope, name, source) {
                 return Some(resolution);
             }
             if name == "context" && class_extends_state(scope, source) {
@@ -140,11 +325,16 @@ fn visible_name_resolution_at(
     None
 }
 
-fn class_member_resolution_at(site: Node<'_>, name: &str, source: &str) -> Option<NameResolution> {
+fn class_member_resolution_at(
+    root: Node<'_>,
+    site: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<NameResolution> {
     let mut current = site.parent();
     while let Some(scope) = current {
         if scope.kind() == "class_body" {
-            if let Some(resolution) = class_member_resolution(scope, name, source) {
+            if let Some(resolution) = class_member_resolution(root, scope, name, source) {
                 return Some(resolution);
             }
             if name == "context" && class_extends_state(scope, source) {
@@ -158,6 +348,7 @@ fn class_member_resolution_at(site: Node<'_>, name: &str, source: &str) -> Optio
 }
 
 fn prior_binding_resolution(
+    root: Node<'_>,
     scope: Node<'_>,
     path_child: Node<'_>,
     name: &str,
@@ -172,14 +363,19 @@ fn prior_binding_resolution(
         siblings.push(sibling);
     }
     for sibling in siblings.into_iter().rev() {
-        if let Some(resolution) = lexical_binding_resolution(sibling, name, source) {
+        if let Some(resolution) = lexical_binding_resolution(root, sibling, name, source) {
             return Some(resolution);
         }
     }
     None
 }
 
-fn lexical_binding_resolution(node: Node<'_>, name: &str, source: &str) -> Option<NameResolution> {
+fn lexical_binding_resolution(
+    root: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<NameResolution> {
     if node.kind() == "local_function_declaration"
         && local_function_name(node, source).as_deref() == Some(name)
     {
@@ -189,14 +385,14 @@ fn lexical_binding_resolution(node: Node<'_>, name: &str, source: &str) -> Optio
         return None;
     }
     if lexical_declaration_node(node.kind()) && declaration_binds_name(node, name, source) {
-        return Some(declaration_type_resolution(node, name, source));
+        return Some(declaration_type_resolution(root, node, name, source));
     }
     if !matches!(node.kind(), "statement" | "expression_statement") {
         return None;
     }
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        if let Some(resolution) = lexical_binding_resolution(child, name, source) {
+        if let Some(resolution) = lexical_binding_resolution(root, child, name, source) {
             return Some(resolution);
         }
     }
@@ -214,7 +410,7 @@ fn callable_parameter_resolution(
     for parameters in direct_parameter_lists(node) {
         for parameter in direct_formal_parameters(parameters) {
             if formal_parameter_name(parameter, source).as_deref() == Some(name) {
-                return Some(declaration_type_resolution(parameter, name, source));
+                return Some(declaration_type_resolution(node, parameter, name, source));
             }
         }
     }
@@ -222,6 +418,7 @@ fn callable_parameter_resolution(
 }
 
 fn class_member_resolution(
+    root: Node<'_>,
     class_body: Node<'_>,
     name: &str,
     source: &str,
@@ -232,7 +429,7 @@ fn class_member_resolution(
             && method_name(member, source).as_deref() == Some(name)
         {
             return Some(if method_is_getter(member, source) {
-                declaration_type_resolution(member, name, source)
+                declaration_type_resolution(root, member, name, source)
             } else {
                 NameResolution::Shadowed
             });
@@ -241,20 +438,25 @@ fn class_member_resolution(
             continue;
         }
         if declaration_binds_name(member, name, source) {
-            return Some(declaration_type_resolution(member, name, source));
+            return Some(declaration_type_resolution(root, member, name, source));
         }
     }
     None
 }
 
-fn declaration_type_resolution(node: Node<'_>, name: &str, source: &str) -> NameResolution {
+fn declaration_type_resolution(
+    root: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> NameResolution {
     if node.kind() == "formal_parameter"
         && let Some(type_name) = formal_parameter_type(node, name, source)
     {
         return NameResolution::Type(type_name);
     }
     declared_type_for_name(node, name, source)
-        .or_else(|| initializer_type_for_name(node, name, source))
+        .or_else(|| initializer_type_for_name(root, node, name, source))
         .map_or(NameResolution::Shadowed, NameResolution::Type)
 }
 
@@ -288,9 +490,14 @@ fn declared_type_before_name(text: &str, name: &str) -> Option<String> {
     Some(simple_type_name(type_name.trim_end_matches('?')))
 }
 
-fn initializer_type_for_name(node: Node<'_>, name: &str, source: &str) -> Option<String> {
+fn initializer_type_for_name(
+    root: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<String> {
     if field_text(node, "name", source).as_deref() == Some(name)
-        && let Some(type_name) = initializer_type(node, source)
+        && let Some(type_name) = initializer_type(root, node, source)
     {
         return Some(type_name);
     }
@@ -299,14 +506,14 @@ fn initializer_type_for_name(node: Node<'_>, name: &str, source: &str) -> Option
         if is_callable_node(child.kind()) {
             continue;
         }
-        if let Some(type_name) = initializer_type_for_name(child, name, source) {
+        if let Some(type_name) = initializer_type_for_name(root, child, name, source) {
             return Some(type_name);
         }
     }
     None
 }
 
-fn initializer_type(node: Node<'_>, source: &str) -> Option<String> {
+fn initializer_type(root: Node<'_>, node: Node<'_>, source: &str) -> Option<String> {
     let text = node.utf8_text(source.as_bytes()).ok()?;
     let (_, right) = text.split_once('=')?;
     let expression = right.trim().trim_end_matches([',', ';']).trim();
@@ -318,9 +525,7 @@ fn initializer_type(node: Node<'_>, source: &str) -> Option<String> {
     for target_type in [BUILD_CONTEXT, GO_ROUTER] {
         if direct_constructor_call_text(&compact, target_type)
             || (target_type == GO_ROUTER
-                && GO_ROUTER_FACTORY_METHODS
-                    .iter()
-                    .any(|method| direct_static_member_call_text(&compact, target_type, method)))
+                && go_router_receiver_expression(root, node, &compact, source))
         {
             return Some(target_type.to_owned());
         }
@@ -632,6 +837,19 @@ fn is_simple_identifier(text: &str) -> bool {
         .next()
         .is_some_and(|first| first == '_' || first == '$' || first.is_ascii_alphabetic())
         && chars.all(is_identifier_character)
+}
+
+fn find_first_named_descendant<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if let Some(found) = find_first_named_descendant(child, kind) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn declaration_type_keyword(text: &str) -> bool {

@@ -201,31 +201,105 @@ fn lexical_sibling_changes_alias(node: Node<'_>, alias: &str, source: &str) -> b
     if is_callable_node(node.kind()) || node.kind() == "function_body" {
         return false;
     }
-    if assignment_or_update_changes_alias(node, alias, source) {
+    lexical_node_changes_alias(node, alias, false, source)
+}
+
+fn lexical_node_changes_alias(
+    node: Node<'_>,
+    alias: &str,
+    unqualified_shadowed: bool,
+    source: &str,
+) -> bool {
+    if is_callable_node(node.kind()) || node.kind() == "function_body" {
+        return false;
+    }
+    let alias_name = unqualified_alias_name(alias);
+    let mut shadowed = unqualified_shadowed || lexical_node_binds_name(node, alias_name, source);
+    if assignment_or_update_changes_alias(node, alias, shadowed, source) {
         return true;
     }
     let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .any(|child| lexical_sibling_changes_alias(child, alias, source))
+    for child in node.named_children(&mut cursor) {
+        let child_shadowed = shadowed
+            || lexical_child_binds_name_for_following_siblings(
+                node.kind(),
+                child,
+                alias_name,
+                source,
+            );
+        if lexical_node_changes_alias(child, alias, child_shadowed, source) {
+            return true;
+        }
+        if lexical_child_binds_name_for_following_siblings(node.kind(), child, alias_name, source) {
+            shadowed = true;
+        }
+    }
+    false
 }
 
-fn assignment_or_update_changes_alias(node: Node<'_>, alias: &str, source: &str) -> bool {
+fn unqualified_alias_name(alias: &str) -> &str {
+    alias.strip_prefix("this.").unwrap_or(alias)
+}
+
+fn lexical_node_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if catch_clause_binds_name(node, name, source) {
+        return true;
+    }
+    matches!(
+        node.kind(),
+        "local_variable_declaration"
+            | "pattern_variable_declaration"
+            | "local_function_declaration"
+    ) && declaration_binds_name(node, name, source)
+}
+
+fn lexical_child_binds_name_for_following_siblings(
+    scope_kind: &str,
+    child: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    if child.kind() == "local_function_declaration"
+        && local_function_name(child, source).as_deref() == Some(name)
+    {
+        return true;
+    }
+    if matches!(
+        child.kind(),
+        "local_variable_declaration" | "pattern_variable_declaration"
+    ) && declaration_binds_name(child, name, source)
+    {
+        return true;
+    }
+    header_binding_child(scope_kind, child) && declaration_binds_name(child, name, source)
+}
+
+fn assignment_or_update_changes_alias(
+    node: Node<'_>,
+    alias: &str,
+    unqualified_shadowed: bool,
+    source: &str,
+) -> bool {
     let assigned = match node.kind() {
         "assignment_expression" => node
             .child_by_field_name("left")
-            .and_then(|left| assigned_name_from_assignable(left, source)),
+            .and_then(|left| assigned_target_from_assignable(left, source)),
         "postfix_expression" => node
             .child_by_field_name("argument")
-            .and_then(|argument| assigned_name_from_assignable(argument, source)),
+            .and_then(|argument| assigned_target_from_assignable(argument, source)),
         "unary_expression" if unary_update_expression(node, source) => {
             direct_named_child(node, "assignable_expression")
-                .and_then(|argument| assigned_name_from_assignable(argument, source))
+                .and_then(|argument| assigned_target_from_assignable(argument, source))
         }
         _ => None,
     };
-    assigned
-        .as_deref()
-        .is_some_and(|assigned| alias == assigned || alias.strip_prefix("this.") == Some(assigned))
+    assigned.is_some_and(|assigned| match assigned {
+        AssignedTarget::Name(name) => {
+            !unqualified_shadowed
+                && (alias == name || alias.strip_prefix("this.") == Some(name.as_str()))
+        }
+        AssignedTarget::ThisMember(name) => alias.strip_prefix("this.") == Some(name.as_str()),
+    })
 }
 
 fn unary_update_expression(node: Node<'_>, source: &str) -> bool {
@@ -235,13 +309,18 @@ fn unary_update_expression(node: Node<'_>, source: &str) -> bool {
         .is_some_and(|text| text.starts_with("++") || text.starts_with("--"))
 }
 
-fn assigned_name_from_assignable(node: Node<'_>, source: &str) -> Option<String> {
+enum AssignedTarget {
+    Name(String),
+    ThisMember(String),
+}
+
+fn assigned_target_from_assignable(node: Node<'_>, source: &str) -> Option<AssignedTarget> {
     let text = node
         .utf8_text(source.as_bytes())
         .ok()
         .map(strip_whitespace)?;
     if is_identifier_text(&text) {
-        return Some(text);
+        return Some(AssignedTarget::Name(text));
     }
     let property = field_text(node, "property", source)?;
     let object = node
@@ -249,7 +328,7 @@ fn assigned_name_from_assignable(node: Node<'_>, source: &str) -> Option<String>
         .utf8_text(source.as_bytes())
         .ok()
         .map(strip_whitespace)?;
-    (object == "this").then_some(property)
+    (object == "this").then_some(AssignedTarget::ThisMember(property))
 }
 
 fn collect_route_aliases_from_declaration_shape(

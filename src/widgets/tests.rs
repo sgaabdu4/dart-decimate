@@ -1429,6 +1429,66 @@ class ForwardedAliasData {
 }
 
 #[test]
+fn root_aliases_survive_block_local_shadow_reassignment() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class BlockShadowForwardingAliasPanel extends StatelessWidget {
+  const BlockShadowForwardingAliasPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final owner = this;
+    if (condition) {
+      var owner = const OtherPanel(used: 'other', unused: 'other');
+      owner = const OtherPanel(used: 'other', unused: 'other');
+    }
+    final data = ForwardedBlockAliasData.fromOwner(source: owner);
+    return Text(data.used);
+  }
+}
+
+class BlockShadowPatternAliasPanel extends StatelessWidget {
+  const BlockShadowPatternAliasPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final owner = this;
+    if (condition) {
+      var owner = const OtherPanel(used: 'other', unused: 'other');
+      owner = const OtherPanel(used: 'other', unused: 'other');
+    }
+    final BlockShadowPatternAliasPanel(:used) = owner;
+    return Text(used);
+  }
+}
+
+class OtherPanel extends StatelessWidget {
+  const OtherPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text('$used$unused');
+}
+
+class ForwardedBlockAliasData {
+  ForwardedBlockAliasData.fromOwner({required BlockShadowForwardingAliasPanel source})
+      : used = source.used;
+  final String used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "BlockShadowForwardingAliasPanel.unused",
+            "BlockShadowPatternAliasPanel.unused",
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn bare_object_pattern_helper_calls_ignore_header_shadows() -> Result<(), Box<dyn std::error::Error>>
 {
     let source = r"
