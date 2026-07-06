@@ -235,6 +235,32 @@ mod tests {
         assert!(!filter.is_declaration_only_clone(&group));
         Ok(())
     }
+
+    #[test]
+    fn declaration_filter_rejects_concrete_method_bodies() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract class Contract {\n  void save() {\n    analytics.track();\n  }\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "concrete-method".to_owned(),
+            instances: vec![CodeCloneInstance {
+                path,
+                start_line: 1,
+                end_line: 5,
+                column: 0,
+            }],
+            line_count: 5,
+            token_count: 12,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(!filter.is_declaration_only_clone(&group));
+        Ok(())
+    }
 }
 
 fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
@@ -334,6 +360,7 @@ fn abstract_member_signature(line: &str) -> bool {
         return false;
     };
     if signature_contains_non_operator_equals(signature)
+        || signature_contains_top_level_body_brace(signature)
         || signature.starts_with("import ")
         || signature.starts_with("export ")
         || signature.starts_with("part ")
@@ -360,6 +387,38 @@ fn signature_contains_non_operator_equals(signature: &str) -> bool {
             || signature[paren..].contains('=');
     }
     signature.contains('=')
+}
+
+fn signature_contains_top_level_body_brace(signature: &str) -> bool {
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut quote = None::<char>;
+    let mut escaped = false;
+
+    for character in signature.chars() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+
+        match character {
+            '"' | '\'' => quote = Some(character),
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '{' | '}' if paren_depth == 0 && bracket_depth == 0 => return true,
+            _ => {}
+        }
+    }
+
+    false
 }
 
 fn getter_signature(signature: &str) -> bool {
