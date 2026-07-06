@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use tree_sitter::Node;
 
 use super::patterns::{remove_roots_shadowed_by_enclosing_callable, root_aliases_at};
+use super::reads::direct_identifier_shadowed_before;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WidgetParamForwarder {
@@ -229,7 +230,7 @@ fn collect_member_fields_read_from(
     if !same_node(root, node) && callable_direct_parameters_bind_name(node, object_name, source) {
         return;
     }
-    if let Some(field) = member_property_for_object(node, object_name, source) {
+    if let Some(field) = member_property_for_object(root, node, object_name, source) {
         fields.insert(field);
     }
     let mut cursor = node.walk();
@@ -311,7 +312,12 @@ fn optional_parameters_directly_bind_name(parameters: Node<'_>, name: &str, sour
         .any(|candidate| formal_parameter_name(candidate, source).as_deref() == Some(name))
 }
 
-fn member_property_for_object(node: Node<'_>, object_name: &str, source: &str) -> Option<String> {
+fn member_property_for_object(
+    root: Node<'_>,
+    node: Node<'_>,
+    object_name: &str,
+    source: &str,
+) -> Option<String> {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
@@ -320,6 +326,9 @@ fn member_property_for_object(node: Node<'_>, object_name: &str, source: &str) -
     }
     let object = node.child_by_field_name("object")?;
     if object.utf8_text(source.as_bytes()).ok() != Some(object_name) {
+        return None;
+    }
+    if direct_identifier_shadowed_before(root, object, object_name, source) {
         return None;
     }
     node.child_by_field_name("property")

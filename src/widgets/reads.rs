@@ -119,10 +119,31 @@ fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
     object.utf8_text(source.as_bytes()).ok() == Some("this")
 }
 
+pub(super) fn direct_identifier_shadowed_before(
+    boundary: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    identifier_shadowed_until(Some(boundary), node, name, source)
+}
+
 fn direct_identifier_shadowed(node: Node<'_>, name: &str, source: &str) -> bool {
+    identifier_shadowed_until(None, node, name, source)
+}
+
+fn identifier_shadowed_until(
+    boundary: Option<Node<'_>>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
     let mut child = node;
     let mut parent = node.parent();
     while let Some(ancestor) = parent {
+        if boundary.is_some_and(|boundary| same_node(ancestor, boundary)) {
+            return false;
+        }
         if matches!(ancestor.kind(), "class_body" | "class_declaration") {
             return false;
         }

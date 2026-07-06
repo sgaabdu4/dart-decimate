@@ -336,6 +336,63 @@ class ForwardedViewData {
 }
 
 #[test]
+fn forwarded_usage_ignores_forwarder_local_shadows() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class BlockLocalForwardingPanel extends StatefulWidget {
+  const BlockLocalForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<BlockLocalForwardingPanel> createState() => _BlockLocalForwardingPanelState();
+}
+
+class _BlockLocalForwardingPanelState extends State<BlockLocalForwardingPanel> {
+  Widget build(BuildContext context) {
+    final data = ForwardedViewData.fromBlockLocal(source: widget);
+    return Text(data.label);
+  }
+}
+
+class PatternLocalForwardingPanel extends StatefulWidget {
+  const PatternLocalForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<PatternLocalForwardingPanel> createState() => _PatternLocalForwardingPanelState();
+}
+
+class _PatternLocalForwardingPanelState extends State<PatternLocalForwardingPanel> {
+  Widget build(BuildContext context) {
+    final data = ForwardedViewData.fromPatternLocal(source: widget);
+    return Text(data.label);
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromBlockLocal({required BlockLocalForwardingPanel source}) {
+    final local = const BlockLocalForwardingPanel(items: ['local']);
+    {
+      final source = local;
+      label = source.items.join(',');
+    }
+  }
+  ForwardedViewData.fromPatternLocal({required PatternLocalForwardingPanel source}) {
+    final record = (source: const PatternLocalForwardingPanel(items: ['local']));
+    final (:source) = record;
+    label = source.items.join(',');
+  }
+  late final String label;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "BlockLocalForwardingPanel.items",
+            "PatternLocalForwardingPanel.items"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn forwarded_usage_counts_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class ForwardingPanel extends StatefulWidget {

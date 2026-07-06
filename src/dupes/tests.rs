@@ -178,6 +178,47 @@ fn top_uses_canonicalized_clone_ranking() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
+fn copied_package_canonicalization_keeps_unmatched_occurrences()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "functions/delete_user/shared/pubspec.yaml",
+        "name: shared\n",
+    )?;
+    let clone = "String copiedFormatter(String value) {\n  final normalized = value.trim().toLowerCase();\n  final compact = normalized.split(' ').where((word) => word.isNotEmpty).join('-');\n  final suffix = compact.isEmpty ? 'empty' : compact;\n  return 'owner:$suffix';\n}\n";
+    write(
+        &fixture,
+        "functions/shared/lib/pagination.dart",
+        &format!(
+            "// header 1\n// header 2\n// header 3\n// header 4\n// header 5\n// header 6\n// header 7\n{clone}"
+        ),
+    )?;
+    write(
+        &fixture,
+        "functions/delete_user/shared/lib/pagination.dart",
+        &format!("{clone}\n{clone}"),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = detect_duplicates(&project, &options(DuplicateMode::Strict, 6, 20))?;
+
+    assert_eq!(report.clone_groups.len(), 1);
+    let clone_group = &report.clone_groups[0];
+    assert_eq!(clone_group.instances.len(), 3);
+    assert!(clone_group.instances.iter().any(|instance| {
+        instance
+            .path
+            .ends_with("functions/delete_user/shared/lib/pagination.dart")
+            && instance.start_line == 1
+    }));
+
+    Ok(())
+}
+
+#[test]
 fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

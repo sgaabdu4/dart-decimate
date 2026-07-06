@@ -7,6 +7,7 @@ use super::{CodeClone, CodeCloneInstance};
 
 type PackageIdentity = (String, PathBuf);
 type InstanceKey = (PathBuf, usize, usize, usize);
+type OccurrenceLayout = Vec<(usize, usize, usize)>;
 
 pub(super) struct CopiedPackageFilter {
     root: PathBuf,
@@ -138,29 +139,54 @@ fn canonical_instances_by_occurrence(
 ) -> BTreeMap<InstanceKey, CodeCloneInstance> {
     let mut canonical_instances = BTreeMap::new();
     for roots in instances_by_identity.into_values() {
-        if roots.len() < 2 {
-            continue;
+        let mut roots_by_layout =
+            BTreeMap::<OccurrenceLayout, BTreeMap<PathBuf, Vec<CodeCloneInstance>>>::new();
+        for (root, root_instances) in roots {
+            roots_by_layout
+                .entry(occurrence_layout(&root_instances))
+                .or_default()
+                .insert(root, root_instances);
         }
-        let Some((canonical_root, canonical_root_instances)) = roots
-            .iter()
-            .min_by(|left, right| package_root_order(left.0, right.0))
-        else {
-            continue;
-        };
-        let canonical_root_instances = sorted_instances(canonical_root_instances);
-        for (root, root_instances) in &roots {
-            if root == canonical_root {
+        for roots in roots_by_layout.into_values() {
+            if roots.len() < 2 {
                 continue;
             }
-            for (index, instance) in sorted_instances(root_instances).into_iter().enumerate() {
-                let Some(canonical) = canonical_root_instances.get(index) else {
+            let Some((canonical_root, canonical_root_instances)) = roots
+                .iter()
+                .min_by(|left, right| package_root_order(left.0, right.0))
+            else {
+                continue;
+            };
+            let canonical_root_instances = sorted_instances(canonical_root_instances);
+            for (root, root_instances) in &roots {
+                if root == canonical_root {
                     continue;
-                };
-                canonical_instances.insert(instance_key(&instance), canonical.clone());
+                }
+                for (index, instance) in sorted_instances(root_instances).into_iter().enumerate() {
+                    let Some(canonical) = canonical_root_instances.get(index) else {
+                        continue;
+                    };
+                    canonical_instances.insert(instance_key(&instance), canonical.clone());
+                }
             }
         }
     }
     canonical_instances
+}
+
+fn occurrence_layout(instances: &[CodeCloneInstance]) -> OccurrenceLayout {
+    let instances = sorted_instances(instances);
+    let first_start = instances.first().map_or(0, |instance| instance.start_line);
+    instances
+        .iter()
+        .map(|instance| {
+            (
+                instance.start_line.saturating_sub(first_start),
+                instance.end_line.saturating_sub(instance.start_line),
+                instance.column,
+            )
+        })
+        .collect()
 }
 
 fn sorted_instances(instances: &[CodeCloneInstance]) -> Vec<CodeCloneInstance> {
