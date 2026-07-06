@@ -1115,6 +1115,39 @@ String importedShadowHelper(ImportedInterfaceShadowWidget widget) {
 }
 
 #[test]
+fn bare_object_pattern_helper_calls_ignore_prefixed_inherited_shadows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'base_screen.dart' as pkg;
+
+class BaseScreen extends StatelessWidget {}
+
+class PrefixedInheritedShadowWidget extends StatelessWidget with pkg.BaseScreen {
+  const PrefixedInheritedShadowWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(prefixedShadowHelper(this));
+}
+
+String prefixedShadowHelper(PrefixedInheritedShadowWidget widget) {
+  final PrefixedInheritedShadowWidget(:used) = widget;
+  return used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "PrefixedInheritedShadowWidget.unused",
+            "PrefixedInheritedShadowWidget.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn object_pattern_helpers_match_generic_invocations_and_parameter_types()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"

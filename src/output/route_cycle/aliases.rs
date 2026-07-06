@@ -435,6 +435,9 @@ fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
     if binding_name(node, source).as_deref() == Some(name) {
         return true;
     }
+    if is_callable_node(node.kind()) || node.kind() == "function_body" {
+        return false;
+    }
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
         .any(|child| declaration_binds_name(child, name, source))

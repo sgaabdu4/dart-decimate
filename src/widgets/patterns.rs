@@ -1401,8 +1401,11 @@ fn inherited_type_name(text: &str) -> Option<String> {
             break;
         }
     }
-    let name = name.rsplit('.').next().unwrap_or(&name);
-    is_identifier_text(name).then(|| name.to_owned())
+    is_qualified_identifier_text(&name).then_some(name)
+}
+
+fn is_qualified_identifier_text(text: &str) -> bool {
+    !text.is_empty() && text.split('.').all(is_identifier_text)
 }
 
 fn find_class_like_declaration<'tree>(
