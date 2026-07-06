@@ -9,12 +9,16 @@ use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan:
 mod aliases;
 mod navigation;
 mod receivers;
+mod state_context;
+#[cfg(test)]
+mod tests;
 
 use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliases_at};
 use navigation::{
     navigation_receiver_accepts_route_location, route_extension_navigation_has_context_argument,
 };
 use receivers::route_extension_receiver_node;
+use state_context::class_extends_state;
 
 pub(super) fn is_typed_go_router_registry_cycle(
     project: &ScannedProject,
@@ -540,31 +544,6 @@ fn direct_static_member_call_text(text: &str, type_name: &str, member_name: &str
         && chars.all(is_identifier_character)
         && method == member_name
         && balanced_enclosed_text(&after_dot[args_start..], '(', ')')
-}
-
-fn class_extends_state(class_body: Node<'_>, source: &str) -> bool {
-    let Some(class) = class_body
-        .parent()
-        .filter(|parent| parent.kind() == "class_declaration")
-    else {
-        return false;
-    };
-    let Some(superclass) = class.child_by_field_name("superclass") else {
-        return false;
-    };
-    let Some(text) = superclass.utf8_text(source.as_bytes()).ok() else {
-        return false;
-    };
-    let compact = strip_whitespace(text);
-    let head = compact.strip_prefix("extends").unwrap_or(&compact);
-    let base = head
-        .split('<')
-        .next()
-        .unwrap_or(head)
-        .split("with")
-        .next()
-        .unwrap_or(head);
-    matches!(simple_type_name(base).as_str(), "State" | "ConsumerState")
 }
 
 fn receiver_after_route_type<'source>(

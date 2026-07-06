@@ -1489,6 +1489,41 @@ class ForwardedBlockAliasData {
 }
 
 #[test]
+fn root_aliases_survive_this_member_assignment() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ThisMemberAssignmentAliasPanel extends StatelessWidget {
+  const ThisMemberAssignmentAliasPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  OtherPanel? owner;
+  Widget build(BuildContext context) {
+    final owner = this;
+    this.owner = const OtherPanel(used: 'other', unused: 'other');
+    final data = ForwardedThisMemberAliasData.fromOwner(source: owner);
+    return Text(data.used);
+  }
+}
+
+class OtherPanel extends StatelessWidget {
+  const OtherPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text('$used$unused');
+}
+
+class ForwardedThisMemberAliasData {
+  ForwardedThisMemberAliasData.fromOwner({required ThisMemberAssignmentAliasPanel source})
+      : used = source.used;
+  final String used;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["ThisMemberAssignmentAliasPanel.unused"]);
+    Ok(())
+}
+
+#[test]
 fn bare_object_pattern_helper_calls_ignore_header_shadows() -> Result<(), Box<dyn std::error::Error>>
 {
     let source = r"
@@ -1517,6 +1552,68 @@ String readHeaderHelper(HeaderShadowHelperPanel widget) {
         vec![
             "HeaderShadowHelperPanel.unused",
             "HeaderShadowHelperPanel.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn qualified_object_pattern_helpers_resolve_unshadowed_owner()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class QualifiedHelperPanel extends StatelessWidget {
+  const QualifiedHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(HelperDetails.fromDisplay(this));
+}
+
+class HelperDetails {
+  static String fromDisplay(QualifiedHelperPanel widget) {
+    final QualifiedHelperPanel(:used) = widget;
+    return used;
+  }
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["QualifiedHelperPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn qualified_object_pattern_helpers_ignore_shadowed_owner() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class QualifiedShadowHelperPanel extends StatelessWidget {
+  const QualifiedShadowHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final HelperDetails = LocalHelperDetails();
+    return Text(HelperDetails.fromDisplay(this));
+  }
+}
+
+class HelperDetails {
+  static String fromDisplay(QualifiedShadowHelperPanel widget) {
+    final QualifiedShadowHelperPanel(:used) = widget;
+    return used;
+  }
+}
+
+class LocalHelperDetails {
+  String fromDisplay(QualifiedShadowHelperPanel widget) => 'local';
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "QualifiedShadowHelperPanel.unused",
+            "QualifiedShadowHelperPanel.used"
         ]
     );
     Ok(())

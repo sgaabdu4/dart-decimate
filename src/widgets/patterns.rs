@@ -565,17 +565,19 @@ fn assignment_or_update_changes_name(node: Node<'_>, name: &str, source: &str) -
     let assigned = match node.kind() {
         "assignment_expression" => node
             .child_by_field_name("left")
-            .and_then(|left| assigned_name_from_assignable(left, source)),
+            .and_then(|left| assigned_target_from_assignable(left, source)),
         "postfix_expression" => node
             .child_by_field_name("argument")
-            .and_then(|argument| assigned_name_from_assignable(argument, source)),
+            .and_then(|argument| assigned_target_from_assignable(argument, source)),
         "unary_expression" if unary_update_expression(node, source) => {
             direct_named_child(node, "assignable_expression")
-                .and_then(|argument| assigned_name_from_assignable(argument, source))
+                .and_then(|argument| assigned_target_from_assignable(argument, source))
         }
         _ => None,
     };
-    assigned.as_deref().is_some_and(|assigned| assigned == name)
+    assigned.is_some_and(
+        |assigned| matches!(assigned, AssignedTarget::Name(assigned) if assigned == name),
+    )
 }
 
 fn unary_update_expression(node: Node<'_>, source: &str) -> bool {
@@ -585,21 +587,25 @@ fn unary_update_expression(node: Node<'_>, source: &str) -> bool {
         .is_some_and(|text| text.starts_with("++") || text.starts_with("--"))
 }
 
-fn assigned_name_from_assignable(node: Node<'_>, source: &str) -> Option<String> {
+enum AssignedTarget {
+    Name(String),
+    ThisMember,
+}
+
+fn assigned_target_from_assignable(node: Node<'_>, source: &str) -> Option<AssignedTarget> {
     let text = node
         .utf8_text(source.as_bytes())
         .ok()
         .map(strip_whitespace)?;
     if is_identifier_text(&text) {
-        return Some(text);
+        return Some(AssignedTarget::Name(text));
     }
-    let property = field_text(node, "property", source)?;
     let object = node
         .child_by_field_name("object")?
         .utf8_text(source.as_bytes())
         .ok()
         .map(strip_whitespace)?;
-    (object == "this").then_some(property)
+    (object == "this").then_some(AssignedTarget::ThisMember)
 }
 
 fn collect_root_aliases_from_declaration_shape(
@@ -1202,7 +1208,13 @@ fn helper_name_matches(
             });
     }
     if invocation_name.contains('.') {
-        return helper_name.qualified_names.contains(invocation_name);
+        return qualified_helper_name_matches(
+            helper_name,
+            invocation_name,
+            invocation,
+            body,
+            source,
+        );
     }
     if invocation_name != helper_name.name {
         return false;
@@ -1225,6 +1237,54 @@ fn helper_name_matches(
             == Some(owner.as_str());
     }
     !current_class_member_shadows_top_level(invocation, &helper_name.name, source)
+}
+
+fn qualified_helper_name_matches(
+    helper_name: &HelperName,
+    invocation_name: &str,
+    invocation: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+) -> bool {
+    let Some((qualifier, member)) = invocation_name.rsplit_once('.') else {
+        return false;
+    };
+    if member != helper_name.name || !helper_name.qualified_names.contains(invocation_name) {
+        return false;
+    }
+    if helper_name.method_owner.as_deref() != Some(qualifier) {
+        return false;
+    }
+    if qualified_helper_qualifier_shadowed(body, invocation, qualifier, source) {
+        return false;
+    }
+    find_class_like_declaration(root_node(invocation), qualifier, source).is_some()
+}
+
+fn qualified_helper_qualifier_shadowed(
+    body: Node<'_>,
+    invocation: Node<'_>,
+    qualifier: &str,
+    source: &str,
+) -> bool {
+    lexical_local_binding_before(body, invocation, qualifier, source)
+        || lexical_header_binding_before(body, invocation, qualifier, source)
+        || enclosing_callable_parameter_binds_name(invocation, body, qualifier, source)
+        || current_class_member_shadows_top_level(invocation, qualifier, source)
+        || import_alias_exists(root_node(invocation), qualifier, source)
+}
+
+fn import_alias_exists(root: Node<'_>, alias: &str, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" {
+            return;
+        }
+        if import_alias(node, source).as_deref() == Some(alias) {
+            found = true;
+        }
+    });
+    found
 }
 
 fn lexical_local_binding_before(body: Node<'_>, site: Node<'_>, name: &str, source: &str) -> bool {

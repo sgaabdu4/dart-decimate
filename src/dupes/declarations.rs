@@ -164,6 +164,32 @@ mod tests {
         assert!(!filter.is_declaration_only_clone(&group));
         Ok(())
     }
+
+    #[test]
+    fn declaration_filter_accepts_modified_type_headers() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract final class UtilityContract {\n  String get title;\n  void save();\n}\nabstract base class BaseContract {\n  String get label;\n  void load();\n}\nbase mixin class BehaviorContract {\n  String get name;\n  void apply();\n}\nsealed class SealedContract {\n  String get value;\n  void seal();\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "modified-contracts".to_owned(),
+            instances: vec![CodeCloneInstance {
+                path,
+                start_line: 1,
+                end_line: 16,
+                column: 0,
+            }],
+            line_count: 16,
+            token_count: 32,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(filter.is_declaration_only_clone(&group));
+        Ok(())
+    }
 }
 
 fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
@@ -174,12 +200,49 @@ fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
 }
 
 fn abstract_type_header(line: &str) -> bool {
-    line.ends_with('{')
-        && (line.starts_with("abstract interface class ")
-            || line.starts_with("abstract class ")
-            || line.starts_with("interface class ")
-            || line.starts_with("mixin ")
-            || line.starts_with("abstract mixin class "))
+    let Some(header) = line.strip_suffix('{').map(str::trim) else {
+        return false;
+    };
+    declaration_type_header(header)
+}
+
+fn declaration_type_header(header: &str) -> bool {
+    let tokens = header.split_whitespace().collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return false;
+    }
+    for (index, token) in tokens.iter().enumerate() {
+        match *token {
+            "class" => {
+                if index > 0
+                    && tokens.get(index.saturating_sub(1)) == Some(&"mixin")
+                    && type_modifiers(&tokens[..index.saturating_sub(1)])
+                {
+                    return true;
+                }
+                return index > 0 && type_modifiers(&tokens[..index]);
+            }
+            "mixin" => {
+                if tokens.get(index + 1) == Some(&"class") {
+                    continue;
+                }
+                return type_modifiers(&tokens[..index]);
+            }
+            "enum" => return type_modifiers(&tokens[..index]),
+            "extension" => return type_modifiers(&tokens[..index]),
+            _ => {}
+        }
+    }
+    false
+}
+
+fn type_modifiers(tokens: &[&str]) -> bool {
+    tokens.iter().all(|token| {
+        matches!(
+            *token,
+            "abstract" | "base" | "final" | "interface" | "sealed"
+        )
+    })
 }
 
 fn abstract_member_signature(line: &str) -> bool {
