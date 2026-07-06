@@ -238,7 +238,9 @@ Parity areas:
 Current implemented parity:
 
 - file-level dead code reachability
-- circular dependency detection
+- circular dependency detection, with generated typed GoRouter route registry
+  cycles downgraded only when every cycle edge is a real typed-route navigation
+  helper shape
 - generated Dart filtering for companion files, Flutter l10n outputs, and
   FlutterFire options, including dead-file protection and generated-only cycle
   suppression
@@ -287,10 +289,12 @@ Current implemented parity:
   `GoRoute` route trees that resolve to the same path pattern or route name,
   with parameter-name normalization and nested route path joining
 - `dart-decimate/unrendered-widget` findings for Flutter widget classes with no
-  reachable production object construction, ignoring generated/test/dead files
-  and explicit package export chains
+  reachable production object construction, counting constructor calls inside
+  builder callbacks while ignoring type-only references, generated/test/dead
+  files, and explicit package export chains
 - Flutter widget hygiene findings for private widget classes, top-level widget
-  helper boundaries, and unused widget constructor parameters
+  helper boundaries, and unused widget constructor parameters, including normal
+  reads, forwarding helpers, and widget-class object-pattern destructuring
 - separate `dart-decimate/re-export-cycle` findings for barrel export loops
 - read-only file, symbol, dependency, clone, and Fallow-compatible `trace`
   symbol-trace JSON envelopes for deletion review, using `kind` discriminators
@@ -348,8 +352,9 @@ Current implemented parity:
   dependency hygiene exceptions
 - unused dependency reports include a read-only `trace-dependency` next step
 - code duplication findings with stable `dup:<id>` fingerprints, actual matched
-  line/token counts, copied-local-package filtering, and read-only `trace-clone`
-  next steps
+  line/token counts, declaration-only abstract contract filtering, copied local
+  package mirror canonicalization/filtering, and read-only `trace-clone` next
+  steps
 - code health findings for high cyclomatic and cognitive complexity, including
   `--complexity-breakdown`, `--max-cyclomatic`, `--max-cognitive`, `--top`, and
   read-only `complexity-breakdown` next steps

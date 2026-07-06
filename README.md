@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.10"
+    "dart-decimate": "^0.0.11"
   }
 }
 ```
@@ -258,8 +258,8 @@ Dart Decimate finds exact and semantic clone groups. Each clone group gets a sta
 fingerprint like `dup:abc12345`, so agents can trace it before touching code.
 Clone windows must meet both line and token thresholds; sparse duplicated blocks
 can span more than `--min-lines`, and `line_count` reports the actual match.
-Copied local Pub packages with the same package name and identical relative
-matches are ignored.
+Declaration-only abstract contracts are filtered, and copied local Pub package
+mirrors are canonicalized before same-mirror matches are ignored.
 
 Useful commands:
 
@@ -281,6 +281,10 @@ Dart Decimate finds:
 - re-export cycles
 - import/export/part/augment targets that do not resolve
 - invalid `part` / `part of` relationships
+
+Generated typed GoRouter route registries that only cycle through real
+typed-route navigation helpers are warning-level; unrelated imports in the cycle
+stay error-level.
 
 Useful commands:
 
@@ -355,6 +359,11 @@ Dart Decimate finds:
 - unused widget constructor parameters
 - widget classes that are never constructed
 - missing `context.mounted` guards after awaited widget work
+
+`unused-widget-param` counts normal field reads, forwarding helpers, and Dart
+object patterns that destructure the widget class itself. `unrendered-widget`
+counts widgets constructed through builder callbacks, while type-only references
+do not count as rendering.
 
 ### 8. Security Candidates
 
@@ -655,7 +664,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.10`.
+Current version: `0.0.11`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

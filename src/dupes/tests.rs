@@ -136,6 +136,133 @@ fn copied_package_filter_ignores_unrelated_malformed_pubspec()
 }
 
 #[test]
+fn top_uses_canonicalized_clone_ranking() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let mirrored = pagination_clone_source();
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(&fixture, "functions/shared/lib/pagination.dart", mirrored)?;
+    for function in ["delete_user", "squad_operations"] {
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/pubspec.yaml"),
+            "name: shared\n",
+        )?;
+        write(
+            &fixture,
+            &format!("functions/{function}/shared/lib/pagination.dart"),
+            mirrored,
+        )?;
+    }
+    let real = "String visibleClone(String owner) {\n  final normalized = owner.trim().toLowerCase();\n  final words = normalized.split(' ');\n  final compact = words.where((word) => word.isNotEmpty).join('-');\n  return 'owner:$compact';\n}\n";
+    for path in ["lib/alpha.dart", "lib/beta.dart", "lib/gamma.dart"] {
+        write(&fixture, path, real)?;
+    }
+    let project = scan_project(fixture.path())?;
+    let mut opts = options(DuplicateMode::Strict, 5, 10);
+    opts.top = Some(1);
+
+    let report = detect_duplicates(&project, &opts)?;
+
+    assert_eq!(report.clone_groups.len(), 1);
+    let clone = &report.clone_groups[0];
+    assert_eq!(clone.instances.len(), 3);
+    assert!(
+        clone
+            .instances
+            .iter()
+            .all(|instance| { instance.path.starts_with(fixture.path().join("lib")) })
+    );
+
+    Ok(())
+}
+
+#[test]
+fn copied_package_canonicalization_keeps_unmatched_occurrences()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "functions/delete_user/shared/pubspec.yaml",
+        "name: shared\n",
+    )?;
+    let clone = "String copiedFormatter(String value) {\n  final normalized = value.trim().toLowerCase();\n  final compact = normalized.split(' ').where((word) => word.isNotEmpty).join('-');\n  final suffix = compact.isEmpty ? 'empty' : compact;\n  return 'owner:$suffix';\n}\n";
+    write(
+        &fixture,
+        "functions/shared/lib/pagination.dart",
+        &format!(
+            "// header 1\n// header 2\n// header 3\n// header 4\n// header 5\n// header 6\n// header 7\n{clone}"
+        ),
+    )?;
+    write(
+        &fixture,
+        "functions/delete_user/shared/lib/pagination.dart",
+        &format!("{clone}\n{clone}"),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = detect_duplicates(&project, &options(DuplicateMode::Strict, 6, 20))?;
+
+    assert_eq!(report.clone_groups.len(), 1);
+    let clone_group = &report.clone_groups[0];
+    assert_eq!(clone_group.instances.len(), 3);
+    assert!(clone_group.instances.iter().any(|instance| {
+        instance
+            .path
+            .ends_with("functions/delete_user/shared/lib/pagination.dart")
+            && instance.start_line == 1
+    }));
+
+    Ok(())
+}
+
+#[test]
+fn copied_package_canonicalization_orders_same_line_instances_by_column()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "functions/delete_user/shared/pubspec.yaml",
+        "name: shared\n",
+    )?;
+    let canonical = fixture.path().join("functions/shared/lib/pagination.dart");
+    let mirror = fixture
+        .path()
+        .join("functions/delete_user/shared/lib/pagination.dart");
+    let mut group = CodeClone {
+        fingerprint: "dup:test".to_owned(),
+        instances: vec![
+            instance(&mirror, 10, 12, 8),
+            instance(&mirror, 10, 12, 4),
+            instance(&canonical, 10, 12, 8),
+            instance(&canonical, 10, 12, 4),
+        ],
+        line_count: 3,
+        token_count: 20,
+    };
+    let mut filter = CopiedPackageFilter::new(fixture.path());
+
+    filter.canonicalize_copied_package_instances(&mut group);
+
+    assert_eq!(group.instances.len(), 2);
+    assert!(group.instances.iter().all(|clone| clone.path == canonical));
+    assert_eq!(
+        group
+            .instances
+            .iter()
+            .map(|clone| clone.column)
+            .collect::<Vec<_>>(),
+        vec![4, 8]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -157,6 +284,35 @@ fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::
     Ok(())
 }
 
+fn pagination_clone_source() -> &'static str {
+    r"Future<List<String>> fetchAllRowIds(Pages pages) async {
+  final values = <String>[];
+  var cursor = '';
+  do {
+    final page = await pages.list(cursor: cursor);
+    for (final row in page.rows) {
+      values.add(row.id);
+    }
+    cursor = page.nextCursor;
+  } while (cursor.isNotEmpty);
+  return values;
+}
+
+Future<List<String>> fetchAllFieldValues(Pages pages) async {
+  final values = <String>[];
+  var cursor = '';
+  do {
+    final page = await pages.list(cursor: cursor);
+    for (final row in page.rows) {
+      values.add(row.id);
+    }
+    cursor = page.nextCursor;
+  } while (cursor.isNotEmpty);
+  return values;
+}
+"
+}
+
 fn options(mode: DuplicateMode, min_lines: usize, min_tokens: usize) -> DuplicateOptions {
     DuplicateOptions {
         mode,
@@ -167,6 +323,20 @@ fn options(mode: DuplicateMode, min_lines: usize, min_tokens: usize) -> Duplicat
         ignore_imports: true,
         top: None,
         threshold: None,
+    }
+}
+
+fn instance(
+    path: &std::path::Path,
+    start_line: usize,
+    end_line: usize,
+    column: usize,
+) -> CodeCloneInstance {
+    CodeCloneInstance {
+        path: path.to_path_buf(),
+        start_line,
+        end_line,
+        column,
     }
 }
 
