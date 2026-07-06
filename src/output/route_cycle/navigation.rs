@@ -344,7 +344,7 @@ fn visible_name_resolution_at(
     let mut path_child = site;
     let mut parent = site.parent();
     while let Some(scope) = parent {
-        if let Some(resolution) = callable_parameter_resolution(scope, name, source) {
+        if let Some(resolution) = callable_parameter_resolution(root, scope, name, source) {
             return Some(resolution);
         }
         if let Some(resolution) = prior_binding_resolution(root, scope, path_child, name, source) {
@@ -445,6 +445,7 @@ fn lexical_binding_resolution(
 }
 
 fn callable_parameter_resolution(
+    root: Node<'_>,
     node: Node<'_>,
     name: &str,
     source: &str,
@@ -455,7 +456,7 @@ fn callable_parameter_resolution(
     for parameters in direct_parameter_lists(node) {
         for parameter in direct_formal_parameters(parameters) {
             if formal_parameter_name(parameter, source).as_deref() == Some(name) {
-                return Some(declaration_type_resolution(node, parameter, name, source));
+                return Some(declaration_type_resolution(root, parameter, name, source));
             }
         }
     }
@@ -495,36 +496,49 @@ fn declaration_type_resolution(
     name: &str,
     source: &str,
 ) -> NameResolution {
-    if node.kind() == "formal_parameter"
-        && let Some(type_name) = formal_parameter_type(node, name, source)
-    {
-        return NameResolution::Type(type_name);
+    if node.kind() == "formal_parameter" {
+        return formal_parameter_type(root, node, name, source)
+            .map_or(NameResolution::Shadowed, NameResolution::Type);
     }
-    declared_type_for_name(node, name, source)
-        .or_else(|| initializer_type_for_name(root, node, name, source))
+    if let Some(resolution) = declared_type_for_name(root, node, name, source) {
+        return resolution;
+    }
+    initializer_type_for_name(root, node, name, source)
         .map_or(NameResolution::Shadowed, NameResolution::Type)
 }
 
-fn declared_type_for_name(node: Node<'_>, name: &str, source: &str) -> Option<String> {
+fn declared_type_for_name(
+    root: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<NameResolution> {
     let text = node.utf8_text(source.as_bytes()).ok()?;
     if declaration_binds_name(node, name, source)
-        && let Some(type_name) = declared_type_before_name(text, name)
+        && let Some(type_name) = raw_declared_type_before_name(text, name)
     {
-        return Some(type_name);
+        return Some(
+            declared_navigation_type(root, &type_name, source)
+                .map_or(NameResolution::Shadowed, NameResolution::Type),
+        );
     }
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         if is_callable_node(child.kind()) {
             continue;
         }
-        if let Some(type_name) = declared_type_for_name(child, name, source) {
-            return Some(type_name);
+        if let Some(resolution) = declared_type_for_name(root, child, name, source) {
+            return Some(resolution);
         }
     }
     None
 }
 
 fn declared_type_before_name(text: &str, name: &str) -> Option<String> {
+    raw_declared_type_before_name(text, name).map(|type_name| simple_type_name(&type_name))
+}
+
+fn raw_declared_type_before_name(text: &str, name: &str) -> Option<String> {
     let declaration = text.split('=').next().unwrap_or(text);
     let name_start = find_identifier(declaration, name)?;
     let before_name = declaration[..name_start].trim();
@@ -532,7 +546,40 @@ fn declared_type_before_name(text: &str, name: &str) -> Option<String> {
         .split_whitespace()
         .map(|part| part.trim_matches(type_token_trim))
         .rfind(|part| !part.is_empty() && !declaration_type_keyword(part))?;
-    Some(simple_type_name(type_name.trim_end_matches('?')))
+    Some(type_name.trim_end_matches('?').to_owned())
+}
+
+fn declared_navigation_type(root: Node<'_>, type_name: &str, source: &str) -> Option<String> {
+    let type_name = type_name.trim().trim_end_matches('?');
+    let base = type_name.split('<').next().unwrap_or(type_name).trim();
+    if let Some((prefix, simple)) = base.rsplit_once('.') {
+        if !is_simple_identifier(prefix) || !is_simple_identifier(simple) {
+            return None;
+        }
+        return match simple {
+            BUILD_CONTEXT => framework_build_context_import(root, Some(prefix), source),
+            GO_ROUTER => go_router_import(root, Some(prefix), source),
+            _ => false,
+        }
+        .then(|| simple.to_owned());
+    }
+    Some(simple_type_name(base))
+}
+
+fn framework_build_context_import(root: Node<'_>, prefix: Option<&str>, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" {
+            return;
+        }
+        if import_alias(node, source).as_deref() != prefix {
+            return;
+        }
+        if import_uri(node, source).is_some_and(|uri| uri.starts_with("package:flutter/")) {
+            found = true;
+        }
+    });
+    found
 }
 
 fn initializer_type_for_name(
@@ -793,7 +840,12 @@ fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {
     field_text(param, "name", source).or_else(|| last_identifier_child(param, source))
 }
 
-fn formal_parameter_type(param: Node<'_>, name: &str, source: &str) -> Option<String> {
+fn formal_parameter_type(
+    root: Node<'_>,
+    param: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<String> {
     let text = param.utf8_text(source.as_bytes()).ok()?;
     let name_index = find_identifier(text, name)?;
     let before_name = text[..name_index].trim();
@@ -801,7 +853,7 @@ fn formal_parameter_type(param: Node<'_>, name: &str, source: &str) -> Option<St
         .split_whitespace()
         .map(|part| part.trim_matches(type_token_trim))
         .rfind(|part| !part.is_empty() && !declaration_type_keyword(part))?;
-    Some(simple_type_name(type_name.trim_end_matches('?')))
+    declared_navigation_type(root, type_name, source)
 }
 
 fn last_identifier_child(node: Node<'_>, source: &str) -> Option<String> {

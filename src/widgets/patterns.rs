@@ -2247,11 +2247,23 @@ fn object_pattern_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
 }
 
 fn object_pattern_type_name(node: Node<'_>, source: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor)
-        .find(|child| is_type_child(*child))
-        .and_then(|child| child.utf8_text(source.as_bytes()).ok())
-        .map(|text| simple_type_name(text.split('<').next().unwrap_or(text)))
+    let text = node.utf8_text(source.as_bytes()).ok()?.trim();
+    let type_text = text.get(..object_pattern_fields_start(text)?)?.trim();
+    let base = type_text.split('<').next().unwrap_or(type_text).trim();
+    (!base.contains('.')).then(|| simple_type_name(base))
+}
+
+fn object_pattern_fields_start(text: &str) -> Option<usize> {
+    let mut angle_depth = 0usize;
+    for (index, character) in text.char_indices() {
+        match character {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '(' if angle_depth == 0 => return Some(index),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn object_pattern_field_names(node: Node<'_>, source: &str) -> BTreeSet<String> {

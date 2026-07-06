@@ -432,10 +432,22 @@ void main() {
   ParameterShadowHelperWidget(used: 'real', unused: 'x');
   CallbackShadowHelperWidget(used: 'real', unused: 'x');
   MemberShadowHelperWidget(used: 'real', unused: 'x');
+  PrefixedPatternPanel(used: 'real', unused: 'x');
+  Other(used: 'real', unused: 'x');
 }
 ",
     )?;
     write(&fixture, "lib/widgets.dart", OBJECT_PATTERN_WIDGETS_SOURCE)?;
+    write(
+        &fixture,
+        "lib/other_patterns.dart",
+        r"
+class PrefixedPatternPanel {
+  const PrefixedPatternPanel({required this.used});
+  final String used;
+}
+",
+    )?;
     let mut output = Vec::new();
 
     let code = run_from(
@@ -502,6 +514,10 @@ const OBJECT_PATTERN_UNUSED_TARGETS: &[&str] = &[
     "CallbackShadowHelperWidget.unused",
     "MemberShadowHelperWidget.used",
     "MemberShadowHelperWidget.unused",
+    "PrefixedPatternPanel.used",
+    "PrefixedPatternPanel.unused",
+    "Other.used",
+    "Other.unused",
 ];
 
 const OBJECT_PATTERN_USED_TARGETS: &[&str] = &[
@@ -521,6 +537,8 @@ const OBJECT_PATTERN_USED_TARGETS: &[&str] = &[
 ];
 
 const OBJECT_PATTERN_WIDGETS_SOURCE: &str = r"
+import 'other_patterns.dart' as other;
+
 class DirectPatternWidget extends StatelessWidget {
   const DirectPatternWidget({super.key, required this.used, required this.unused});
   final String used;
@@ -873,6 +891,30 @@ class MemberShadowHelperWidget extends StatelessWidget {
 String memberShadowHelper(MemberShadowHelperWidget widget) {
   final MemberShadowHelperWidget(:used) = widget;
   return used;
+}
+
+class PrefixedPatternPanel extends StatelessWidget {
+  const PrefixedPatternPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    if (this case other.PrefixedPatternPanel(:used)) {
+      return Text(used);
+    }
+    return const SizedBox.shrink();
+  }
+}
+
+class Other extends StatelessWidget {
+  const Other({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    if (this case Other.Panel(:used)) {
+      return Text(used);
+    }
+    return const SizedBox.shrink();
+  }
 }
 
 class OtherThing {
