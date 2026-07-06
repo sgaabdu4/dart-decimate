@@ -252,16 +252,63 @@ fn arguments_contain_route_location(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    let mut found = false;
-    visit_named(arguments, &mut |node| {
-        if found {
-            return;
+    route_location_argument(arguments, source)
+        .is_some_and(|argument| route_location_expression(argument, route_classes, source))
+}
+
+fn route_location_argument<'tree>(arguments: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    let mut cursor = arguments.walk();
+    for argument in arguments.named_children(&mut cursor) {
+        if argument.kind() == "named_argument" {
+            if named_argument_label(argument, source).as_deref() == Some("location") {
+                return named_argument_value(argument);
+            }
+            continue;
         }
-        if route_location_member(node, route_classes, source) {
-            found = true;
+        return Some(argument);
+    }
+    None
+}
+
+fn named_argument_label(node: Node<'_>, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "label")
+        .and_then(|label| label.utf8_text(source.as_bytes()).ok())
+        .map(str::trim)
+        .and_then(|label| label.strip_suffix(':'))
+        .map(str::to_owned)
+}
+
+fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() != "label")
+}
+
+fn route_location_expression(
+    node: Node<'_>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    route_location_member(unwrap_expression_node(node), route_classes, source)
+}
+
+fn unwrap_expression_node(mut node: Node<'_>) -> Node<'_> {
+    loop {
+        if !matches!(node.kind(), "parenthesized_expression" | "expression") {
+            return node;
         }
-    });
-    found
+        let mut cursor = node.walk();
+        let mut children = node.named_children(&mut cursor);
+        let Some(child) = children.next() else {
+            return node;
+        };
+        if children.next().is_some() {
+            return node;
+        }
+        node = child;
+    }
 }
 
 fn route_location_member(node: Node<'_>, route_classes: &BTreeSet<String>, source: &str) -> bool {

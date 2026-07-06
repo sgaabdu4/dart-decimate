@@ -239,7 +239,7 @@ fn object_pattern_field_reads_in_body(
     fields
 }
 
-fn remove_roots_shadowed_by_enclosing_callable(
+pub(super) fn remove_roots_shadowed_by_enclosing_callable(
     body: Node<'_>,
     site: Node<'_>,
     roots: &mut BTreeSet<String>,
@@ -295,7 +295,7 @@ fn outermost_callable_before_body<'tree>(
     owner
 }
 
-fn root_aliases_at(
+pub(super) fn root_aliases_at(
     body: Node<'_>,
     site: Node<'_>,
     root_names: &[&str],
@@ -528,14 +528,12 @@ fn body_calls_helper_with_roots(
         let Some(invocation_name) = invocation_name(node, source) else {
             return;
         };
-        if helper_name_matches(helper_name, &invocation_name, node, body, source)
-            && invocation_arguments_pass_roots(
-                node,
-                parameter,
-                &root_aliases_at(body, node, root_names, source),
-                source,
-            )
-        {
+        if !helper_name_matches(helper_name, &invocation_name, node, body, source) {
+            return;
+        }
+        let mut roots = root_aliases_at(body, node, root_names, source);
+        remove_roots_shadowed_by_enclosing_callable(body, node, &mut roots, source);
+        if !roots.is_empty() && invocation_arguments_pass_roots(node, parameter, &roots, source) {
             found = true;
         }
     });

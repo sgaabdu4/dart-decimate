@@ -430,6 +430,7 @@ void main() {
   StateOwnerParamShadowWidget(used: 'real', unused: 'x');
   StatePatternRootShadowWidget(used: 'real', unused: 'x');
   ParameterShadowHelperWidget(used: 'real', unused: 'x');
+  CallbackShadowHelperWidget(used: 'real', unused: 'x');
   MemberShadowHelperWidget(used: 'real', unused: 'x');
 }
 ",
@@ -497,6 +498,8 @@ const OBJECT_PATTERN_UNUSED_TARGETS: &[&str] = &[
     "StatePatternRootShadowWidget.unused",
     "ParameterShadowHelperWidget.used",
     "ParameterShadowHelperWidget.unused",
+    "CallbackShadowHelperWidget.used",
+    "CallbackShadowHelperWidget.unused",
     "MemberShadowHelperWidget.used",
     "MemberShadowHelperWidget.unused",
 ];
@@ -836,6 +839,26 @@ class ParameterShadowHelperWidget extends StatelessWidget {
 
 String parameterShadowHelper(ParameterShadowHelperWidget widget) {
   final ParameterShadowHelperWidget(:used) = widget;
+  return used;
+}
+
+class CallbackShadowHelperWidget extends StatefulWidget {
+  const CallbackShadowHelperWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<CallbackShadowHelperWidget> createState() => _CallbackShadowHelperWidgetState();
+}
+
+class _CallbackShadowHelperWidgetState extends State<CallbackShadowHelperWidget> {
+  Widget build(BuildContext context) {
+    return Text([const CallbackShadowHelperWidget(used: 'other', unused: 'other')]
+        .map((widget) => callbackShadowHelper(widget))
+        .join());
+  }
+}
+
+String callbackShadowHelper(CallbackShadowHelperWidget widget) {
+  final CallbackShadowHelperWidget(:used) = widget;
   return used;
 }
 

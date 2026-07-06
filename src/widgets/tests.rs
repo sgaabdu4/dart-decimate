@@ -336,6 +336,86 @@ class ForwardedViewData {
 }
 
 #[test]
+fn forwarded_usage_ignores_root_shadows_at_invocation() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class LocalShadowForwardingPanel extends StatefulWidget {
+  const LocalShadowForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<LocalShadowForwardingPanel> createState() => _LocalShadowForwardingPanelState();
+}
+
+class _LocalShadowForwardingPanelState extends State<LocalShadowForwardingPanel> {
+  Widget build(BuildContext context) {
+    final widget = const LocalShadowForwardingPanel(items: ['local']);
+    final data = ForwardedViewData.fromLocal(source: widget);
+    return Text(data.label);
+  }
+}
+
+class CallbackShadowForwardingPanel extends StatefulWidget {
+  const CallbackShadowForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<CallbackShadowForwardingPanel> createState() => _CallbackShadowForwardingPanelState();
+}
+
+class _CallbackShadowForwardingPanelState extends State<CallbackShadowForwardingPanel> {
+  Widget build(BuildContext context) {
+    final data = [const CallbackShadowForwardingPanel(items: ['local'])]
+        .map((widget) => ForwardedViewData.fromCallback(source: widget))
+        .first;
+    return Text(data.label);
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromLocal({required LocalShadowForwardingPanel source})
+      : label = source.items.join(',');
+  ForwardedViewData.fromCallback({required CallbackShadowForwardingPanel source})
+      : label = source.items.join(',');
+  final String label;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "LocalShadowForwardingPanel.items",
+            "CallbackShadowForwardingPanel.items"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn factory_forwarders_count_fields_read_from_widget_parameter()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class FactoryForwardingPanel extends StatelessWidget {
+  const FactoryForwardingPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    final data = ForwardedTitleData.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class ForwardedTitleData {
+  factory ForwardedTitleData.fromOwner({required FactoryForwardingPanel source}) {
+    return ForwardedTitleData._(source.title);
+  }
+  ForwardedTitleData._(this.title);
+  final String title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["FactoryForwardingPanel.unused"]);
+    Ok(())
+}
+
+#[test]
 fn recognizes_consumer_and_hook_widget_bases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class A extends ConsumerWidget {

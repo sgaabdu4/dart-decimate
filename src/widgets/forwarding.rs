@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tree_sitter::Node;
 
+use super::patterns::{remove_roots_shadowed_by_enclosing_callable, root_aliases_at};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WidgetParamForwarder {
     name: String,
@@ -54,7 +56,11 @@ pub(super) fn widget_forwarded_param_uses(
     let mut uses = BTreeMap::<String, Vec<WidgetParamForwarder>>::new();
     for class in classes {
         let mut declarations = Vec::new();
-        collect_nodes(*class, "declaration", &mut declarations);
+        collect_nodes_in(
+            *class,
+            &["declaration", "method_declaration"],
+            &mut declarations,
+        );
         for declaration in declarations {
             let Some(signature) = declaration_constructor_signature(declaration) else {
                 continue;
@@ -83,14 +89,21 @@ pub(super) fn widget_forwarded_param_uses(
     uses
 }
 
-const CONSTRUCTOR_SIGNATURES: &[&str] =
-    &["constructor_signature", "constant_constructor_signature"];
+const CONSTRUCTOR_SIGNATURES: &[&str] = &[
+    "constructor_signature",
+    "constant_constructor_signature",
+    "factory_constructor_signature",
+    "redirecting_factory_constructor_signature",
+];
 
 fn declaration_constructor_signature(declaration: Node<'_>) -> Option<Node<'_>> {
+    if CONSTRUCTOR_SIGNATURES.contains(&declaration.kind()) {
+        return Some(declaration);
+    }
     let mut cursor = declaration.walk();
     declaration
         .named_children(&mut cursor)
-        .find(|child| CONSTRUCTOR_SIGNATURES.contains(&child.kind()))
+        .find_map(declaration_constructor_signature)
 }
 
 fn constructor_qualified_name(
@@ -324,6 +337,16 @@ fn collect_nodes<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tre
     }
 }
 
+fn collect_nodes_in<'tree>(node: Node<'tree>, kinds: &[&str], nodes: &mut Vec<Node<'tree>>) {
+    if kinds.contains(&node.kind()) {
+        nodes.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_nodes_in(child, kinds, nodes);
+    }
+}
+
 fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
@@ -334,7 +357,7 @@ fn body_calls_forwarder_with_roots(
     body: Node<'_>,
     forwarder_name: &str,
     parameter: &ForwardedParameter,
-    roots: &[&str],
+    root_names: &[&str],
     source: &str,
 ) -> bool {
     let mut found = false;
@@ -342,9 +365,12 @@ fn body_calls_forwarder_with_roots(
         if found {
             return;
         }
-        if invocation_name(node, source).as_deref() == Some(forwarder_name)
-            && invocation_arguments_pass_roots(node, parameter, roots, source)
-        {
+        if invocation_name(node, source).as_deref() != Some(forwarder_name) {
+            return;
+        }
+        let mut roots = root_aliases_at(body, node, root_names, source);
+        remove_roots_shadowed_by_enclosing_callable(body, node, &mut roots, source);
+        if !roots.is_empty() && invocation_arguments_pass_roots(node, parameter, &roots, source) {
             found = true;
         }
     });
@@ -399,7 +425,7 @@ fn normalized_invocation_prefix(prefix: &str) -> String {
 fn invocation_arguments_pass_roots(
     node: Node<'_>,
     parameter: &ForwardedParameter,
-    roots: &[&str],
+    roots: &BTreeSet<String>,
     source: &str,
 ) -> bool {
     let Some(arguments) = node.child_by_field_name("arguments") else {
@@ -447,7 +473,11 @@ fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
         .find(|child| child.kind() != "label")
 }
 
-fn named_argument_matches_roots(argument: Node<'_>, roots: &[&str], source: &str) -> bool {
+fn named_argument_matches_roots(
+    argument: Node<'_>,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
     named_argument_value(argument).is_some_and(|value| argument_matches_roots(value, roots, source))
         || argument
             .utf8_text(source.as_bytes())
@@ -456,18 +486,18 @@ fn named_argument_matches_roots(argument: Node<'_>, roots: &[&str], source: &str
             .is_some_and(|value| expression_matches_roots(value, roots))
 }
 
-fn argument_matches_roots(argument: Node<'_>, roots: &[&str], source: &str) -> bool {
+fn argument_matches_roots(argument: Node<'_>, roots: &BTreeSet<String>, source: &str) -> bool {
     argument
         .utf8_text(source.as_bytes())
         .ok()
         .map(strip_whitespace)
-        .is_some_and(|text| roots.iter().any(|root| text == *root))
+        .is_some_and(|text| roots.contains(&text))
 }
 
 fn argument_texts_pass_roots(
     arguments: Node<'_>,
     parameter: &ForwardedParameter,
-    roots: &[&str],
+    roots: &BTreeSet<String>,
     source: &str,
 ) -> bool {
     let Some(text) = arguments.utf8_text(source.as_bytes()).ok() else {
@@ -519,9 +549,9 @@ fn split_argument_texts(text: &str) -> Vec<&str> {
     parts
 }
 
-fn expression_matches_roots(expression: &str, roots: &[&str]) -> bool {
+fn expression_matches_roots(expression: &str, roots: &BTreeSet<String>) -> bool {
     let expression = normalized_expression(expression);
-    roots.iter().any(|root| expression == *root)
+    roots.contains(&expression)
 }
 
 fn normalized_expression(expression: &str) -> String {
