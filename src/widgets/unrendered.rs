@@ -197,16 +197,52 @@ fn split_closure_body_constructor_name(
     source: &str,
 ) -> Option<String> {
     call.child_by_field_name("arguments")?;
-    if !matches!(
-        expression.kind(),
-        "identifier" | "type_identifier" | "member_expression"
-    ) {
+    if !expression_is_constructor_call_name(expression, source) {
         return None;
     }
     expression
         .utf8_text(source.as_bytes())
         .ok()
         .map(str::to_owned)
+}
+
+fn expression_is_constructor_call_name(expression: Node<'_>, source: &str) -> bool {
+    if !matches!(expression.kind(), "identifier" | "type_identifier") {
+        return false;
+    }
+    let Some(suffix) = source.get(expression.end_byte()..) else {
+        return false;
+    };
+    let suffix = suffix.trim_start();
+    if suffix.starts_with('(') {
+        return true;
+    }
+    if suffix.starts_with('<')
+        && let Some(after_type_arguments) =
+            matching_enclosed_end(suffix, '<', '>').and_then(|end| suffix.get(end + 1..))
+    {
+        return after_type_arguments.trim_start().starts_with('(');
+    }
+    false
+}
+
+fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
+    let mut chars = text.char_indices();
+    if chars.next().is_none_or(|(_, character)| character != open) {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (index, character) in text.char_indices() {
+        if character == open {
+            depth += 1;
+        } else if character == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 fn is_arrow_body_constructor_identifier(node: Node<'_>, source: &str) -> bool {
@@ -408,6 +444,35 @@ void main() {
             "{names:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn split_closure_body_constructor_name_rejects_member_references()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source = r"
+void main(BuildContext context) {
+  print(DeadCard.route);
+}
+";
+        let parsed = parse_tree(Path::new("lib/widgets.dart"), source)?;
+        let root = parsed.tree().root_node();
+        let call = first_named_node(root, "call_expression").unwrap();
+        let member = first_named_node(root, "member_expression").unwrap();
+
+        assert_eq!(
+            split_closure_body_constructor_name(call, member, parsed.source()),
+            None
+        );
+        Ok(())
+    }
+
+    fn first_named_node<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+        if node.kind() == kind {
+            return Some(node);
+        }
+        let mut cursor = node.walk();
+        node.named_children(&mut cursor)
+            .find_map(|child| first_named_node(child, kind))
     }
 
     #[test]

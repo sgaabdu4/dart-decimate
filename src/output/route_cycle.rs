@@ -208,17 +208,17 @@ fn route_extension_navigation_call(
     let Some(receiver) = strip_navigation_suffix(&compact, ".", navigation_name) else {
         return false;
     };
-    let receiver = receiver
+    let aliases = route_aliases_at(root, site, route_classes, source);
+    if route_alias_receiver_text(receiver, &aliases) {
+        return true;
+    }
+    let constructor_receiver = receiver
         .strip_prefix("const")
         .or_else(|| receiver.strip_prefix("new"))
         .unwrap_or(receiver);
     route_classes
         .iter()
-        .any(|route_class| direct_constructor_call_text(receiver, route_class))
-        || route_alias_receiver_text(
-            receiver,
-            &route_aliases_at(root, site, route_classes, source),
-        )
+        .any(|route_class| direct_constructor_call_text(constructor_receiver, route_class))
 }
 
 fn route_location_navigation_call(

@@ -488,7 +488,7 @@ fn object_pattern_matches_roots(pattern: Node<'_>, roots: &BTreeSet<String>, sou
                 return if_case_expression_matches(pattern, ancestor, roots, source);
             }
             "switch_expression" | "switch_statement" => {
-                return switch_expression_matches(ancestor, roots, source);
+                return switch_expression_matches(pattern, ancestor, roots, source);
             }
             "class_body" | "class_declaration" => return false,
             _ => {}
@@ -774,24 +774,56 @@ fn if_case_expression_matches(
     let Some(before_pattern) = source.get(owner.start_byte()..pattern.start_byte()) else {
         return false;
     };
-    let Some(case_index) = before_pattern.rfind("case") else {
+    let Some(case_index) = find_keyword(before_pattern, "case") else {
         return false;
     };
     let before_case = &before_pattern[..case_index];
-    let expression = before_case
-        .rfind('(')
-        .map_or(before_case, |start| &before_case[start + 1..]);
-    expression_matches_roots(expression, roots)
+    let Some(expression) = expression_after_if_keyword(before_case) else {
+        return false;
+    };
+    case_pattern_expression_matches(pattern, owner, expression, roots, source)
 }
 
-fn switch_expression_matches(node: Node<'_>, roots: &BTreeSet<String>, source: &str) -> bool {
+fn expression_after_if_keyword<'source>(text: &'source str) -> Option<&'source str> {
+    let keyword = find_keyword(text, "if")?;
+    let after_keyword = text.get(keyword + "if".len()..)?.trim_start();
+    Some(
+        after_keyword
+            .strip_prefix('(')
+            .unwrap_or(after_keyword)
+            .trim(),
+    )
+}
+
+fn switch_expression_matches(
+    pattern: Node<'_>,
+    node: Node<'_>,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
     let Some(text) = node.utf8_text(source.as_bytes()).ok() else {
         return false;
     };
     let Some(expression) = parenthesized_after_keyword(text, "switch") else {
         return false;
     };
-    expression_matches_roots(expression, roots)
+    case_pattern_expression_matches(pattern, node, expression, roots, source)
+}
+
+fn case_pattern_expression_matches(
+    pattern: Node<'_>,
+    owner: Node<'_>,
+    expression: &str,
+    roots: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    nested_expression_for_pattern(
+        pattern,
+        top_pattern_in_owner(pattern, owner),
+        expression,
+        source,
+    )
+    .is_some_and(|expression| expression_matches_roots(&expression, roots))
 }
 
 fn expression_matches_roots(expression: &str, roots: &BTreeSet<String>) -> bool {

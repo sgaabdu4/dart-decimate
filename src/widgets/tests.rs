@@ -726,6 +726,61 @@ class NestedRecordOtherPanel extends StatelessWidget {
 }
 
 #[test]
+fn object_pattern_usage_counts_paired_nested_case_roots() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class NestedIfCaseRootPanel extends StatelessWidget {
+  const NestedIfCaseRootPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    if ((this, Object()) case (NestedIfCaseRootPanel(:used), _)) {
+      return Text(used);
+    }
+    return const SizedBox();
+  }
+}
+
+class NestedSwitchCaseRootPanel extends StatelessWidget {
+  const NestedSwitchCaseRootPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    return switch ((Object(), this)) {
+      (_, NestedSwitchCaseRootPanel(:used)) => Text(used),
+    };
+  }
+}
+
+class NestedCaseOtherPanel extends StatelessWidget {
+  const NestedCaseOtherPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    if ((Object(), const NestedCaseOtherPanel(used: 'other', unused: 'other'))
+        case (_, NestedCaseOtherPanel(:used))) {
+      return Text(used);
+    }
+    return const SizedBox();
+  }
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "NestedCaseOtherPanel.unused",
+            "NestedCaseOtherPanel.used",
+            "NestedIfCaseRootPanel.unused",
+            "NestedSwitchCaseRootPanel.unused"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn bare_object_pattern_helper_calls_ignore_mixin_member_shadows()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"

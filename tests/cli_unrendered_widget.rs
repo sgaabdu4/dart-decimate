@@ -220,6 +220,46 @@ void main(BuildContext context) {
     Ok(())
 }
 
+#[test]
+fn check_reports_member_reference_from_invoked_closure() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'widgets.dart';
+
+void main(BuildContext context) {
+  ((context) => DeadCard.route)(context);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"class DeadCard extends StatelessWidget {
+  const DeadCard({super.key});
+  static String get route => '/dead';
+  Widget build(BuildContext context) => const SizedBox();
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_check(&fixture, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
+    assert_unrendered_widget_for(&json, "DeadCard");
+
+    Ok(())
+}
+
 fn unrendered_widget_fixture() -> Result<TempDir, std::io::Error> {
     let fixture = tempfile::tempdir()?;
     write(
