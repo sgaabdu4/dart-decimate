@@ -122,9 +122,11 @@ fn helper_body(node: Node<'_>) -> Option<Node<'_>> {
 fn helper_name(declaration: Node<'_>, signature: Node<'_>, source: &str) -> Option<HelperName> {
     let name = field_text(signature, "name", source)
         .or_else(|| identifier_before_parameters(signature, source))?;
-    let method_owner = (declaration.kind() == "method_declaration")
-        .then(|| owner_class_name(declaration, source))
-        .flatten();
+    let method_owner = if declaration.kind() == "method_declaration" {
+        Some(owner_class_name(declaration, source)?)
+    } else {
+        None
+    };
     let mut qualified_names = BTreeSet::new();
     if let Some(owner) = &method_owner {
         qualified_names.insert(format!("{owner}.{name}"));

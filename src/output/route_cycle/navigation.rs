@@ -8,6 +8,7 @@ use super::{
 
 const BUILD_CONTEXT: &str = "BuildContext";
 const GO_ROUTER: &str = "GoRouter";
+const GO_ROUTER_FACTORY_METHODS: &[&str] = &["of", "maybeOf", "routingConfig"];
 
 enum NameResolution {
     Type(String),
@@ -64,20 +65,9 @@ fn go_router_receiver_expression(receiver: &str) -> bool {
     if direct_constructor_call_text(receiver, GO_ROUTER) {
         return true;
     }
-    type_reference_suffix_after(receiver, GO_ROUTER)
-        .is_some_and(|after_type| after_type.starts_with('.'))
-}
-
-fn type_reference_suffix_after<'source>(
-    receiver: &'source str,
-    type_name: &str,
-) -> Option<&'source str> {
-    if let Some(after_type) = receiver.strip_prefix(type_name) {
-        return Some(after_type);
-    }
-    let qualified_suffix = format!(".{type_name}");
-    let type_start = receiver.find(&qualified_suffix)? + 1;
-    receiver.get(type_start + type_name.len()..)
+    GO_ROUTER_FACTORY_METHODS
+        .iter()
+        .any(|method| direct_static_member_call_text(receiver, GO_ROUTER, method))
 }
 
 fn first_positional_argument(arguments: Node<'_>) -> Option<Node<'_>> {
@@ -324,7 +314,10 @@ fn initializer_type(node: Node<'_>, source: &str) -> Option<String> {
     let compact = strip_whitespace(without_keyword);
     for target_type in [BUILD_CONTEXT, GO_ROUTER] {
         if direct_constructor_call_text(&compact, target_type)
-            || (target_type == GO_ROUTER && direct_static_member_call_text(&compact, target_type))
+            || (target_type == GO_ROUTER
+                && GO_ROUTER_FACTORY_METHODS
+                    .iter()
+                    .any(|method| direct_static_member_call_text(&compact, target_type, method)))
         {
             return Some(target_type.to_owned());
         }

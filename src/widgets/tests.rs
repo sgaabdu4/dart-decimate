@@ -1199,6 +1199,57 @@ String readHeaderHelper(HeaderShadowHelperPanel widget) {
 }
 
 #[test]
+fn non_class_object_pattern_methods_do_not_match_bare_helper_calls()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ExtensionMethodHelperPanel extends StatelessWidget {
+  const ExtensionMethodHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(readExtensionHelper(this));
+}
+
+extension ExtensionHelper on Object {
+  String readExtensionHelper(ExtensionMethodHelperPanel widget) {
+    final ExtensionMethodHelperPanel(:used) = widget;
+    return used;
+  }
+}
+
+String readExtensionHelper(ExtensionMethodHelperPanel widget) => 'not a pattern helper';
+
+class MixinMethodHelperPanel extends StatelessWidget {
+  const MixinMethodHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(readMixinHelper(this));
+}
+
+mixin DetachedHelperMixin {
+  String readMixinHelper(MixinMethodHelperPanel widget) {
+    final MixinMethodHelperPanel(:used) = widget;
+    return used;
+  }
+}
+
+String readMixinHelper(MixinMethodHelperPanel widget) => 'not a pattern helper';
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "ExtensionMethodHelperPanel.unused",
+            "ExtensionMethodHelperPanel.used",
+            "MixinMethodHelperPanel.unused",
+            "MixinMethodHelperPanel.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn recognizes_consumer_and_hook_widget_bases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class A extends ConsumerWidget {

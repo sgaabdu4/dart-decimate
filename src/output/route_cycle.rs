@@ -461,7 +461,7 @@ fn direct_constructor_call_text(text: &str, route_class: &str) -> bool {
     false
 }
 
-fn direct_static_member_call_text(text: &str, type_name: &str) -> bool {
+fn direct_static_member_call_text(text: &str, type_name: &str, member_name: &str) -> bool {
     let Some(receiver) = unwrap_parenthesized_text(text.trim()) else {
         return false;
     };
@@ -480,6 +480,7 @@ fn direct_static_member_call_text(text: &str, type_name: &str) -> bool {
         .next()
         .is_some_and(|first| first == '_' || first == '$' || first.is_ascii_alphabetic())
         && chars.all(is_identifier_character)
+        && method == member_name
         && balanced_enclosed_text(&after_dot[args_start..], '(', ')')
 }
 
