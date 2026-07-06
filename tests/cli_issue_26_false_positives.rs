@@ -149,6 +149,133 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
+fn cycles_downgrades_generic_typed_route_extension_navigation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => const HomeRoute().push<void>(context);
+}
+
+extension HomeRouteNavigation on HomeRoute {
+  void push<T>(BuildContext context) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    Ok(())
+}
+
+#[test]
+fn cycles_downgrades_generic_context_route_location_navigation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+  String get location => '/';
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => context.push<void>(const HomeRoute().location);
+}
+
+extension BuildContextNavigation on BuildContext {
+  void push<T>(String location) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    Ok(())
+}
+
+#[test]
 fn cycles_keeps_disconnected_go_router_helper_references_as_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

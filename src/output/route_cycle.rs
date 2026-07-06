@@ -185,6 +185,7 @@ fn argument_list(node: Node<'_>) -> Option<Node<'_>> {
 fn navigation_call_name(prefix: &str) -> Option<String> {
     let compact = strip_whitespace(prefix);
     let name = compact.rsplit('.').next().unwrap_or(compact.as_str());
+    let name = strip_method_type_arguments(name);
     is_typed_route_navigation_reference(name).then(|| name.to_owned())
 }
 
@@ -194,8 +195,7 @@ fn route_extension_navigation_call(
     route_classes: &BTreeSet<String>,
 ) -> bool {
     let compact = strip_whitespace(prefix);
-    let suffix = format!(".{navigation_name}");
-    let Some(receiver) = compact.strip_suffix(&suffix) else {
+    let Some(receiver) = strip_navigation_suffix(&compact, ".", navigation_name) else {
         return false;
     };
     let receiver = receiver
@@ -223,12 +223,26 @@ fn route_location_navigation_call(
 fn navigation_receiver(prefix: &str, navigation_name: &str) -> Option<String> {
     let compact = strip_whitespace(prefix);
     for separator in [".", "?."] {
-        let suffix = format!("{separator}{navigation_name}");
-        if let Some(receiver) = compact.strip_suffix(&suffix) {
+        if let Some(receiver) = strip_navigation_suffix(&compact, separator, navigation_name) {
             return (!receiver.is_empty()).then(|| receiver.to_owned());
         }
     }
     None
+}
+
+fn strip_navigation_suffix<'source>(
+    compact: &'source str,
+    separator: &str,
+    navigation_name: &str,
+) -> Option<&'source str> {
+    let suffix = format!("{separator}{navigation_name}");
+    if let Some(receiver) = compact.strip_suffix(&suffix) {
+        return Some(receiver);
+    }
+    let typed_suffix = format!("{suffix}<");
+    let start = compact.rfind(&typed_suffix)?;
+    let type_arguments = compact.get(start + suffix.len()..)?;
+    balanced_enclosed_text(type_arguments, '<', '>').then(|| &compact[..start])
 }
 
 fn navigation_receiver_accepts_route_location(receiver: &str) -> bool {
@@ -471,6 +485,20 @@ fn is_typed_route_navigation_reference(name: &str) -> bool {
             | "replace"
             | "replaceNamed"
     )
+}
+
+fn strip_method_type_arguments(name: &str) -> &str {
+    let Some(start) = name.find('<') else {
+        return name;
+    };
+    let Some(type_arguments) = name.get(start..) else {
+        return name;
+    };
+    if balanced_enclosed_text(type_arguments, '<', '>') {
+        &name[..start]
+    } else {
+        name
+    }
 }
 
 fn is_typed_go_router_registry(file: &DartFile) -> bool {

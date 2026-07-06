@@ -579,6 +579,67 @@ class ForwardedTitleData {
 }
 
 #[test]
+fn forwarders_count_object_pattern_fields_read_from_widget_parameter()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class PatternForwardingPanel extends StatelessWidget {
+  const PatternForwardingPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    final data = ForwardedTitleData.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class ForwardedTitleData {
+  ForwardedTitleData.fromOwner({required PatternForwardingPanel source}) {
+    final PatternForwardingPanel(:title) = source;
+    this.title = title;
+  }
+  late final String title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["PatternForwardingPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn bare_object_pattern_helper_calls_ignore_mixin_member_shadows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class MixinShadowHelperWidget extends StatelessWidget with HelperMixin {
+  const MixinShadowHelperWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(mixinShadowHelper(this));
+}
+
+mixin HelperMixin {
+  String mixinShadowHelper(MixinShadowHelperWidget widget) => 'member';
+}
+
+String mixinShadowHelper(MixinShadowHelperWidget widget) {
+  final MixinShadowHelperWidget(:used) = widget;
+  return used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "MixinShadowHelperWidget.unused",
+            "MixinShadowHelperWidget.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn recognizes_consumer_and_hook_widget_bases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class A extends ConsumerWidget {

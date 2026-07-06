@@ -212,7 +212,7 @@ fn formal_parameter_type(param: Node<'_>, name: &str, source: &str) -> Option<St
     Some(simple_type_name(type_name.trim_end_matches('?')))
 }
 
-fn object_pattern_field_reads_in_body(
+pub(super) fn object_pattern_field_reads_in_body(
     body: Node<'_>,
     widget_class: &str,
     root_names: &[&str],
@@ -863,7 +863,190 @@ fn current_lexical_class(node: Node<'_>) -> Option<Node<'_>> {
 
 fn current_class_member_shadows_top_level(invocation: Node<'_>, name: &str, source: &str) -> bool {
     current_lexical_class(invocation)
-        .is_some_and(|class| class_declares_member(class, name, source))
+        .is_some_and(|class| class_or_inherited_member_shadows_top_level(class, name, source))
+}
+
+fn class_or_inherited_member_shadows_top_level(class: Node<'_>, name: &str, source: &str) -> bool {
+    let root = root_node(class);
+    let mut visited = BTreeSet::new();
+    class_or_inherited_member_shadows_top_level_in(root, class, name, source, &mut visited)
+}
+
+fn class_or_inherited_member_shadows_top_level_in(
+    root: Node<'_>,
+    class: Node<'_>,
+    name: &str,
+    source: &str,
+    visited: &mut BTreeSet<String>,
+) -> bool {
+    if class_declares_member(class, name, source) {
+        return true;
+    }
+    for inherited in class_inherited_types(class, source) {
+        if !visited.insert(inherited.name.clone()) {
+            continue;
+        }
+        let Some(inherited_class) = find_class_like_declaration(root, &inherited.name, source)
+        else {
+            if inherited.kind == InheritedTypeKind::Mixin {
+                return true;
+            }
+            continue;
+        };
+        if class_or_inherited_member_shadows_top_level_in(
+            root,
+            inherited_class,
+            name,
+            source,
+            visited,
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InheritedType {
+    name: String,
+    kind: InheritedTypeKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InheritedTypeKind {
+    Superclass,
+    Mixin,
+}
+
+fn class_inherited_types(class: Node<'_>, source: &str) -> Vec<InheritedType> {
+    let Some(body) = class.child_by_field_name("body") else {
+        return Vec::new();
+    };
+    let Some(header) = source.get(class.start_byte()..body.start_byte()) else {
+        return Vec::new();
+    };
+    let mut inherited = Vec::new();
+    if let Some(superclass) = clause_after_keyword(header, "extends", &["with", "implements"])
+        && let Some(name) = inherited_type_name(superclass)
+    {
+        inherited.push(InheritedType {
+            name,
+            kind: InheritedTypeKind::Superclass,
+        });
+    }
+    if let Some(mixins) = clause_after_keyword(header, "with", &["implements"]) {
+        inherited.extend(
+            split_top_level_commas(mixins)
+                .into_iter()
+                .filter_map(inherited_type_name)
+                .map(|name| InheritedType {
+                    name,
+                    kind: InheritedTypeKind::Mixin,
+                }),
+        );
+    }
+    inherited
+}
+
+fn clause_after_keyword<'source>(
+    text: &'source str,
+    keyword: &str,
+    stop_keywords: &[&str],
+) -> Option<&'source str> {
+    let start = find_keyword(text, keyword)? + keyword.len();
+    let rest = text.get(start..)?;
+    let end = stop_keywords
+        .iter()
+        .filter_map(|stop| find_keyword(rest, stop))
+        .min()
+        .unwrap_or(rest.len());
+    Some(rest[..end].trim())
+}
+
+fn find_keyword(text: &str, keyword: &str) -> Option<usize> {
+    let mut cursor = 0usize;
+    while let Some(relative) = text[cursor..].find(keyword) {
+        let start = cursor + relative;
+        let end = start + keyword.len();
+        let continues_before = text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(is_identifier_character);
+        let continues_after = text[end..]
+            .chars()
+            .next()
+            .is_some_and(is_identifier_character);
+        if !continues_before && !continues_after {
+            return Some(start);
+        }
+        cursor = end;
+    }
+    None
+}
+
+fn split_top_level_commas(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut angle_depth = 0usize;
+    let mut grouping_depth = 0usize;
+    for (index, character) in text.char_indices() {
+        match character {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '(' | '[' | '{' => grouping_depth += 1,
+            ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
+            ',' if angle_depth == 0 && grouping_depth == 0 => {
+                parts.push(text[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = text[start..].trim();
+    if !last.is_empty() {
+        parts.push(last);
+    }
+    parts
+}
+
+fn inherited_type_name(text: &str) -> Option<String> {
+    let mut name = String::new();
+    for character in text.trim().chars() {
+        if character == '<' {
+            break;
+        }
+        if is_identifier_character(character) || character == '.' {
+            name.push(character);
+            continue;
+        }
+        if !name.is_empty() {
+            break;
+        }
+    }
+    let name = name.rsplit('.').next().unwrap_or(&name);
+    is_identifier_text(name).then(|| name.to_owned())
+}
+
+fn find_class_like_declaration<'tree>(
+    node: Node<'tree>,
+    name: &str,
+    source: &str,
+) -> Option<Node<'tree>> {
+    if matches!(node.kind(), "class_declaration" | "mixin_declaration")
+        && field_text(node, "name", source).as_deref() == Some(name)
+    {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| find_class_like_declaration(child, name, source))
+}
+
+fn root_node(mut node: Node<'_>) -> Node<'_> {
+    while let Some(parent) = node.parent() {
+        node = parent;
+    }
+    node
 }
 
 fn class_declares_member(class: Node<'_>, name: &str, source: &str) -> bool {
@@ -1312,6 +1495,10 @@ fn is_identifier_text(text: &str) -> bool {
         && chars.all(|character| {
             character == '_' || character == '$' || character.is_ascii_alphanumeric()
         })
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character == '_' || character == '$' || character.is_ascii_alphanumeric()
 }
 
 fn identifier_before_equals(text: &str) -> Option<String> {

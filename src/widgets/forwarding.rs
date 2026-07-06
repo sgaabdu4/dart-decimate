@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use tree_sitter::Node;
 
-use super::patterns::{remove_roots_shadowed_by_enclosing_callable, root_aliases_at};
+use super::patterns::{
+    object_pattern_field_reads_in_body, remove_roots_shadowed_by_enclosing_callable,
+    root_aliases_at,
+};
 use super::reads::direct_identifier_shadowed_before;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +73,25 @@ pub(super) fn widget_forwarded_param_uses(
                 continue;
             };
             for parameter in constructor_widget_params(signature, source) {
-                let fields = member_fields_read_from(declaration, &parameter.name, source);
+                let mut fields = member_fields_read_from(declaration, &parameter.name, source);
+                let scan_root = constructor_scan_root(signature, declaration);
+                if !same_node(scan_root, declaration) {
+                    fields.extend(member_fields_read_from(scan_root, &parameter.name, source));
+                }
+                fields.extend(object_pattern_field_reads_in_body(
+                    declaration,
+                    &parameter.widget_class,
+                    &[&parameter.name],
+                    source,
+                ));
+                if let Some(body) = constructor_body(scan_root) {
+                    fields.extend(object_pattern_field_reads_in_body(
+                        body,
+                        &parameter.widget_class,
+                        &[&parameter.name],
+                        source,
+                    ));
+                }
                 if fields.is_empty() {
                     continue;
                 }
@@ -105,6 +126,32 @@ fn declaration_constructor_signature(declaration: Node<'_>) -> Option<Node<'_>> 
     declaration
         .named_children(&mut cursor)
         .find_map(declaration_constructor_signature)
+}
+
+fn constructor_scan_root<'tree>(signature: Node<'tree>, fallback: Node<'tree>) -> Node<'tree> {
+    let mut root = fallback;
+    let mut current = signature;
+    while let Some(parent) = current.parent() {
+        if matches!(parent.kind(), "class_body" | "class_declaration") {
+            break;
+        }
+        if matches!(
+            parent.kind(),
+            "class_member" | "declaration" | "method_declaration"
+        ) {
+            root = parent;
+        }
+        current = parent;
+    }
+    root
+}
+
+fn constructor_body(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "function_body" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).find_map(constructor_body)
 }
 
 fn constructor_qualified_name(
