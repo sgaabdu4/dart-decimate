@@ -1424,9 +1424,10 @@ enum InheritedTypeKind {
 }
 
 fn unresolved_inherited_type_may_shadow(inherited: &InheritedType) -> bool {
+    let inherited_name = simple_type_name(&inherited.name);
     inherited.kind != InheritedTypeKind::Superclass
         || !matches!(
-            inherited.name.as_str(),
+            inherited_name.as_str(),
             "StatelessWidget"
                 | "StatefulWidget"
                 | "ConsumerWidget"

@@ -1159,6 +1159,30 @@ String prefixedShadowHelper(PrefixedInheritedShadowWidget widget) {
 }
 
 #[test]
+fn object_pattern_helpers_accept_prefixed_flutter_framework_superclasses()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'package:flutter/widgets.dart' as f;
+
+class PrefixedFrameworkHelperWidget extends f.StatelessWidget {
+  const PrefixedFrameworkHelperWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  f.Widget build(f.BuildContext context) => f.Text(prefixedFrameworkHelper(this));
+}
+
+String prefixedFrameworkHelper(PrefixedFrameworkHelperWidget widget) {
+  final PrefixedFrameworkHelperWidget(:used) = widget;
+  return used;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["PrefixedFrameworkHelperWidget.unused"]);
+    Ok(())
+}
+
+#[test]
 fn object_pattern_helpers_match_generic_invocations_and_parameter_types()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"

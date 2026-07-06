@@ -8,11 +8,13 @@ use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan:
 
 mod aliases;
 mod navigation;
+mod receivers;
 
 use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliases_at};
 use navigation::{
     navigation_receiver_accepts_route_location, route_extension_navigation_has_context_argument,
 };
+use receivers::route_extension_receiver_node;
 
 pub(super) fn is_typed_go_router_registry_cycle(
     project: &ScannedProject,
@@ -227,6 +229,11 @@ fn route_extension_navigation_call(
     if route_alias_receiver_text(receiver, &aliases) {
         return true;
     }
+    if route_extension_receiver_node(site, navigation_name, source)
+        .is_some_and(|receiver| route_constructor_receiver(receiver, route_classes, source))
+    {
+        return true;
+    }
     if route_classes
         .iter()
         .any(|route_class| direct_constructor_call_text(receiver, route_class))
@@ -430,15 +437,48 @@ fn route_constructor_receiver(
     if matches!(
         node.kind(),
         "constructor_invocation" | "const_object_expression" | "new_expression"
-    ) && node
-        .child_by_field_name("type")
-        .and_then(|type_node| type_node.utf8_text(source.as_bytes()).ok())
-        .map(simple_type_name)
-        .is_some_and(|type_name| route_classes.contains(&type_name))
+    ) && constructor_receiver_matches_route(node, route_classes, source)
     {
         return true;
     }
     false
+}
+
+fn constructor_receiver_matches_route(
+    node: Node<'_>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> bool {
+    let Some(type_text) = node
+        .child_by_field_name("type")
+        .and_then(|type_node| type_node.utf8_text(source.as_bytes()).ok())
+    else {
+        return false;
+    };
+    let type_text = strip_whitespace(type_text);
+    let mut candidates = vec![simple_type_name(&type_text)];
+    if let Some(constructor) = node
+        .child_by_field_name("constructor")
+        .and_then(|constructor| constructor.utf8_text(source.as_bytes()).ok())
+    {
+        let suffix = format!(".{constructor}");
+        if let Some(owner) = type_text.strip_suffix(&suffix) {
+            candidates.push(simple_type_name(owner));
+        }
+    }
+    candidates
+        .iter()
+        .any(|candidate| route_classes.contains(candidate))
+        || route_classes
+            .iter()
+            .any(|route_class| named_constructor_type_text_matches_route(&type_text, route_class))
+}
+
+fn named_constructor_type_text_matches_route(type_text: &str, route_class: &str) -> bool {
+    type_text
+        .strip_prefix(route_class)
+        .is_some_and(|rest| rest.starts_with('.'))
+        || type_text.contains(&format!(".{route_class}."))
 }
 
 fn direct_constructor_call_text(text: &str, route_class: &str) -> bool {

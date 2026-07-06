@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use tree_sitter::Node;
 
 use super::{
-    direct_constructor_call_text, direct_named_child, is_identifier_character, strip_whitespace,
-    unwrap_parenthesized_text,
+    direct_constructor_call_text, direct_named_child, is_identifier_character,
+    route_constructor_receiver, strip_whitespace, unwrap_parenthesized_text,
 };
 
 pub(super) fn route_alias_receiver_node(
@@ -310,7 +310,11 @@ fn route_alias_from_initialized_node(
     }
     let text = node.utf8_text(source.as_bytes()).ok()?;
     let (left, right) = text.split_once('=')?;
-    if !route_constructor_expression_text(right, route_classes) {
+    let is_route_constructor = node
+        .child_by_field_name("value")
+        .is_some_and(|value| route_constructor_receiver(value, route_classes, source))
+        || route_constructor_expression_text(right, route_classes);
+    if !is_route_constructor {
         return None;
     }
     field_text(node, "name", source).or_else(|| identifier_before_equals(left))
