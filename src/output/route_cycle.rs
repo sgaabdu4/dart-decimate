@@ -212,13 +212,19 @@ fn route_extension_navigation_call(
     if route_alias_receiver_text(receiver, &aliases) {
         return true;
     }
-    let constructor_receiver = receiver
-        .strip_prefix("const")
-        .or_else(|| receiver.strip_prefix("new"))
-        .unwrap_or(receiver);
+    if route_classes
+        .iter()
+        .any(|route_class| direct_constructor_call_text(receiver, route_class))
+    {
+        return true;
+    }
+    let Some(raw_receiver) = raw_receiver_before_navigation(prefix, navigation_name) else {
+        return false;
+    };
+    let constructor_receiver = constructor_receiver_text(raw_receiver);
     route_classes
         .iter()
-        .any(|route_class| direct_constructor_call_text(constructor_receiver, route_class))
+        .any(|route_class| direct_constructor_call_text(&constructor_receiver, route_class))
 }
 
 fn route_location_navigation_call(
@@ -259,6 +265,36 @@ fn strip_navigation_suffix<'source>(
     let start = compact.rfind(&typed_suffix)?;
     let type_arguments = compact.get(start + suffix.len()..)?;
     balanced_enclosed_text(type_arguments, '<', '>').then(|| &compact[..start])
+}
+
+fn raw_receiver_before_navigation<'source>(
+    prefix: &'source str,
+    navigation_name: &str,
+) -> Option<&'source str> {
+    let trimmed = prefix.trim_end();
+    let separator = trimmed.rfind('.')?;
+    let method = strip_whitespace(trimmed.get(separator + 1..)?.trim());
+    (strip_method_type_arguments(&method) == navigation_name)
+        .then(|| trimmed[..separator].trim_end())
+}
+
+fn constructor_receiver_text(receiver: &str) -> String {
+    let trimmed = receiver.trim();
+    let unwrapped = unwrap_parenthesized_text(trimmed).unwrap_or(trimmed);
+    let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
+    strip_whitespace(without_keyword)
+}
+
+fn strip_constructor_keyword_prefix(text: &str) -> Option<&str> {
+    for keyword in ["const", "new"] {
+        let Some(rest) = text.strip_prefix(keyword) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(char::is_whitespace) {
+            return Some(rest.trim_start());
+        }
+    }
+    None
 }
 
 fn navigation_receiver_accepts_route_location(receiver: &str) -> bool {

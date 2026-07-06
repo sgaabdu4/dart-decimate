@@ -1,38 +1,117 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use super::{CodeClone, CodeCloneInstance};
 
-pub(super) fn is_declaration_only_clone(group: &CodeClone) -> bool {
-    group
-        .instances
-        .iter()
-        .all(clone_instance_is_declaration_only)
+pub(super) struct DeclarationCloneFilter {
+    files: BTreeMap<PathBuf, Option<DeclarationFileContext>>,
 }
 
-fn clone_instance_is_declaration_only(instance: &CodeCloneInstance) -> bool {
-    let Ok(source) = fs::read_to_string(&instance.path) else {
-        return false;
-    };
-    let context = DeclarationContext::from_source(&source);
-    let lines = source
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let line_number = index + 1;
-            (line_number >= instance.start_line && line_number <= instance.end_line)
-                .then_some((line_number, strip_line_comment(line).trim()))
-        })
-        .filter(|(_, line)| !line.is_empty())
-        .collect::<Vec<_>>();
-    !lines.is_empty()
-        && lines.iter().all(|(line_number, line)| {
-            declaration_only_line(line, context.direct_type_body_lines.contains(line_number))
-        })
+impl DeclarationCloneFilter {
+    pub(super) fn new() -> Self {
+        Self {
+            files: BTreeMap::new(),
+        }
+    }
+
+    pub(super) fn is_declaration_only_clone(&mut self, group: &CodeClone) -> bool {
+        group
+            .instances
+            .iter()
+            .all(|instance| self.clone_instance_is_declaration_only(instance))
+    }
+
+    fn clone_instance_is_declaration_only(&mut self, instance: &CodeCloneInstance) -> bool {
+        let path = instance.path.clone();
+        let Some(file) = self
+            .files
+            .entry(path)
+            .or_insert_with(|| DeclarationFileContext::read(&instance.path))
+            .as_ref()
+        else {
+            return false;
+        };
+        let lines = file
+            .source
+            .lines()
+            .enumerate()
+            .filter_map(|(index, line)| {
+                let line_number = index + 1;
+                (line_number >= instance.start_line && line_number <= instance.end_line)
+                    .then_some((line_number, strip_line_comment(line).trim()))
+            })
+            .filter(|(_, line)| !line.is_empty())
+            .collect::<Vec<_>>();
+        !lines.is_empty()
+            && lines.iter().all(|(line_number, line)| {
+                declaration_only_line(
+                    line,
+                    file.context.direct_type_body_lines.contains(line_number),
+                )
+            })
+    }
+
+    #[cfg(test)]
+    fn cached_file_count(&self) -> usize {
+        self.files.len()
+    }
+}
+
+struct DeclarationFileContext {
+    source: String,
+    context: DeclarationContext,
+}
+
+impl DeclarationFileContext {
+    fn read(path: &Path) -> Option<Self> {
+        let source = fs::read_to_string(path).ok()?;
+        let context = DeclarationContext::from_source(&source);
+        Some(Self { source, context })
+    }
 }
 
 fn strip_line_comment(line: &str) -> &str {
     line.split_once("//").map_or(line, |(code, _)| code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn declaration_filter_reuses_file_contexts_by_path() -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = tempfile::tempdir()?;
+        let path = fixture.path().join("contract.dart");
+        fs::write(
+            &path,
+            "abstract class Contract {\n  String get title;\n  void save();\n}\n",
+        )?;
+        let group = CodeClone {
+            fingerprint: "contract".to_owned(),
+            instances: vec![
+                CodeCloneInstance {
+                    path: path.clone(),
+                    start_line: 1,
+                    end_line: 4,
+                    column: 0,
+                },
+                CodeCloneInstance {
+                    path,
+                    start_line: 1,
+                    end_line: 4,
+                    column: 0,
+                },
+            ],
+            line_count: 4,
+            token_count: 8,
+        };
+        let mut filter = DeclarationCloneFilter::new();
+
+        assert!(filter.is_declaration_only_clone(&group));
+        assert_eq!(filter.cached_file_count(), 1);
+        Ok(())
+    }
 }
 
 fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {

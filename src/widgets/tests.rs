@@ -496,6 +496,64 @@ class ForwardedViewData {
 }
 
 #[test]
+fn forwarded_usage_ignores_header_root_shadows() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ForHeaderForwardingPanel extends StatefulWidget {
+  const ForHeaderForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<ForHeaderForwardingPanel> createState() => _ForHeaderForwardingPanelState();
+}
+
+class _ForHeaderForwardingPanelState extends State<ForHeaderForwardingPanel> {
+  Widget build(BuildContext context) {
+    for (final widget in [const ForHeaderForwardingPanel(items: ['local'])]) {
+      final data = ForwardedViewData.fromForHeader(source: widget);
+      return Text(data.label);
+    }
+    return const SizedBox();
+  }
+}
+
+class CatchHeaderForwardingPanel extends StatefulWidget {
+  const CatchHeaderForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<CatchHeaderForwardingPanel> createState() => _CatchHeaderForwardingPanelState();
+}
+
+class _CatchHeaderForwardingPanelState extends State<CatchHeaderForwardingPanel> {
+  Widget build(BuildContext context) {
+    try {
+      throw Object();
+    } catch (widget) {
+      final alias = widget;
+      final data = ForwardedViewData.fromCatchHeader(source: alias);
+      return Text(data.label);
+    }
+    return const SizedBox();
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromForHeader({required ForHeaderForwardingPanel source})
+      : label = source.items.join(',');
+  ForwardedViewData.fromCatchHeader({required CatchHeaderForwardingPanel source})
+      : label = source.items.join(',');
+  final String label;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "ForHeaderForwardingPanel.items",
+            "CatchHeaderForwardingPanel.items"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn object_pattern_usage_ignores_shadowed_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class AliasPatternPanel extends StatefulWidget {
@@ -522,6 +580,35 @@ class _AliasPatternPanelState extends State<AliasPatternPanel> {
     assert_eq!(
         targets,
         vec!["AliasPatternPanel.unused", "AliasPatternPanel.used"]
+    );
+    Ok(())
+}
+
+#[test]
+fn object_pattern_usage_ignores_header_root_shadows() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class HeaderPatternPanel extends StatefulWidget {
+  const HeaderPatternPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<HeaderPatternPanel> createState() => _HeaderPatternPanelState();
+}
+
+class _HeaderPatternPanelState extends State<HeaderPatternPanel> {
+  Widget build(BuildContext context) {
+    for (final widget in [const HeaderPatternPanel(used: 'local', unused: 'local')]) {
+      final HeaderPatternPanel(:used) = widget;
+      return Text(used);
+    }
+    return const SizedBox();
+  }
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec!["HeaderPatternPanel.unused", "HeaderPatternPanel.used"]
     );
     Ok(())
 }

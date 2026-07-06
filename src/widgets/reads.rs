@@ -262,7 +262,7 @@ fn earlier_local_binding_exists(
     false
 }
 
-fn scoped_header_binding_exists(
+pub(super) fn scoped_header_binding_exists(
     scope: Node<'_>,
     path_child: Node<'_>,
     usage_start: usize,

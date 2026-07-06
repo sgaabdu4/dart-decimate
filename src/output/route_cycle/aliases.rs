@@ -49,6 +49,13 @@ pub(super) fn route_aliases_at(
             collect_route_member_aliases(scope, &mut aliases, route_classes, source);
         }
         remove_aliases_shadowed_by_callable_parameters(scope, &mut aliases, source);
+        remove_aliases_shadowed_by_header_scope(
+            scope,
+            child,
+            site.start_byte(),
+            &mut aliases,
+            source,
+        );
         collect_prior_route_aliases(scope, child, &mut aliases, route_classes, source);
     }
     aliases
@@ -92,6 +99,26 @@ fn remove_aliases_shadowed_by_callable_parameters(
     }
     for parameter in callable_direct_parameter_names(scope, source) {
         aliases.remove(&parameter);
+    }
+}
+
+fn remove_aliases_shadowed_by_header_scope(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    aliases: &mut BTreeSet<String>,
+    source: &str,
+) {
+    let shadowed = aliases
+        .iter()
+        .filter(|alias| {
+            !alias.contains('.')
+                && scoped_header_binding_exists(scope, path_child, usage_start, alias, source)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for alias in shadowed {
+        aliases.remove(&alias);
     }
 }
 
@@ -207,15 +234,180 @@ fn route_alias_from_initialized_node(
 
 fn route_constructor_expression_text(text: &str, route_classes: &BTreeSet<String>) -> bool {
     let expression = text.trim().trim_end_matches([',', ';']).trim();
-    let compact = strip_whitespace(expression);
-    let unwrapped = unwrap_parenthesized_text(&compact).unwrap_or(&compact);
-    let receiver = unwrapped
-        .strip_prefix("const")
-        .or_else(|| unwrapped.strip_prefix("new"))
-        .unwrap_or(unwrapped);
+    let unwrapped = unwrap_parenthesized_text(expression).unwrap_or(expression);
+    let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
+    let receiver = strip_whitespace(without_keyword);
     route_classes
         .iter()
-        .any(|route_class| direct_constructor_call_text(receiver, route_class))
+        .any(|route_class| direct_constructor_call_text(&receiver, route_class))
+}
+
+fn strip_constructor_keyword_prefix(text: &str) -> Option<&str> {
+    for keyword in ["const", "new"] {
+        let Some(rest) = text.strip_prefix(keyword) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(char::is_whitespace) {
+            return Some(rest.trim_start());
+        }
+    }
+    None
+}
+
+fn scoped_header_binding_exists(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if catch_header_binding_exists(scope, path_child, usage_start, name, source) {
+        return true;
+    }
+    if !matches!(
+        scope.kind(),
+        "for_element"
+            | "for_statement"
+            | "if_element"
+            | "if_statement"
+            | "switch_expression_case"
+            | "switch_statement_case"
+    ) {
+        return false;
+    }
+    if header_field_binding_exists(scope, path_child, usage_start, name, source) {
+        return true;
+    }
+    let mut cursor = scope.walk();
+    for child in scope.named_children(&mut cursor) {
+        if same_node(child, path_child) || child.start_byte() >= path_child.start_byte() {
+            break;
+        }
+        if header_binding_child(scope.kind(), child)
+            && child.end_byte() <= usage_start
+            && declaration_binds_name(child, name, source)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn catch_header_binding_exists(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if scope.kind() == "catch_clause" {
+        return scope.start_byte() < path_child.start_byte()
+            && catch_clause_binds_name(scope, name, source);
+    }
+    if scope.kind() == "try_statement" {
+        let mut previous: Option<Node<'_>> = None;
+        let mut cursor = scope.walk();
+        for child in scope.named_children(&mut cursor) {
+            if same_node(child, path_child) || child.start_byte() >= path_child.start_byte() {
+                return previous.is_some_and(|header| {
+                    header.kind() == "catch_clause"
+                        && catch_body_child(path_child)
+                        && header.end_byte() <= usage_start
+                        && !source_between_contains_finally(header, path_child, source)
+                        && catch_clause_binds_name(header, name, source)
+                });
+            }
+            previous = Some(child);
+        }
+    }
+    false
+}
+
+fn catch_body_child(node: Node<'_>) -> bool {
+    matches!(node.kind(), "block" | "function_body")
+}
+
+fn source_between_contains_finally(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
+    source
+        .get(left.end_byte()..right.start_byte())
+        .is_some_and(|text| text.contains("finally"))
+}
+
+fn catch_clause_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    field_text(node, "exception", source).as_deref() == Some(name)
+        || field_text(node, "stack_trace", source).as_deref() == Some(name)
+}
+
+fn header_field_binding_exists(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    name: &str,
+    source: &str,
+) -> bool {
+    if !matches!(scope.kind(), "for_element" | "for_statement") {
+        return false;
+    }
+    let mut cursor = scope.walk();
+    scope
+        .children_by_field_name("name", &mut cursor)
+        .any(|field| {
+            field.end_byte() <= usage_start
+                && field.start_byte() < path_child.start_byte()
+                && field.utf8_text(source.as_bytes()).ok() == Some(name)
+        })
+}
+
+fn header_binding_child(scope_kind: &str, child: Node<'_>) -> bool {
+    if matches!(scope_kind, "for_element" | "for_statement") {
+        return !is_body_statement_child(child.kind())
+            || child.kind() == "local_variable_declaration";
+    }
+    !is_body_statement_child(child.kind()) && node_can_contain_pattern_binding(child)
+}
+
+fn node_can_contain_pattern_binding(node: Node<'_>) -> bool {
+    let mut found = false;
+    visit_named(node, &mut |candidate| {
+        if !found
+            && matches!(
+                candidate.kind(),
+                "list_pattern"
+                    | "local_variable_declaration"
+                    | "map_pattern"
+                    | "object_pattern"
+                    | "pattern_variable_declaration"
+                    | "record_pattern"
+                    | "variable_pattern"
+            )
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn is_body_statement_child(kind: &str) -> bool {
+    matches!(
+        kind,
+        "assert_statement"
+            | "block"
+            | "break_statement"
+            | "continue_statement"
+            | "declaration"
+            | "do_statement"
+            | "empty_statement"
+            | "expression_statement"
+            | "for_statement"
+            | "if_statement"
+            | "local_function_declaration"
+            | "local_variable_declaration"
+            | "return_statement"
+            | "switch_statement"
+            | "try_statement"
+            | "while_statement"
+            | "yield_statement"
+    )
 }
 
 fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -334,6 +526,14 @@ fn field_text(node: Node<'_>, field: &str, source: &str) -> Option<String> {
     node.child_by_field_name(field)
         .and_then(|child| child.utf8_text(source.as_bytes()).ok())
         .map(str::to_owned)
+}
+
+fn visit_named(node: Node<'_>, visitor: &mut impl FnMut(Node<'_>)) {
+    visitor(node);
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_named(child, visitor);
+    }
 }
 
 fn identifier_before_equals(text: &str) -> Option<String> {

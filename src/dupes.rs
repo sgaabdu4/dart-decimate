@@ -15,7 +15,7 @@ use crate::output::TRACE_SCHEMA_VERSION;
 mod lex;
 use lex::normalized_lines;
 mod declarations;
-use declarations::is_declaration_only_clone;
+use declarations::DeclarationCloneFilter;
 mod packages;
 use packages::CopiedPackageFilter;
 
@@ -385,7 +385,8 @@ pub fn detect_duplicates(
         copied_packages.canonicalize_copied_package_instances(group);
     }
     clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
-    clone_groups.retain(|group| !is_declaration_only_clone(group));
+    let mut declaration_filter = DeclarationCloneFilter::new();
+    clone_groups.retain(|group| !declaration_filter.is_declaration_only_clone(group));
     sort_clone_groups(&mut clone_groups);
     clone_groups = collapse_overlapping_groups(clone_groups);
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use tree_sitter::Node;
 
-use super::simple_type_name;
+use super::{reads::scoped_header_binding_exists, simple_type_name};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectPatternHelper {
@@ -334,6 +334,7 @@ pub(super) fn root_aliases_at(
         .flatten();
     for (scope, child) in steps.into_iter().rev() {
         remove_roots_shadowed_by_callable_scope(scope, owner, &mut roots, source);
+        remove_roots_shadowed_by_header_scope(scope, child, site.start_byte(), &mut roots, source);
         collect_prior_root_aliases(scope, child, &mut roots, source);
     }
     roots
@@ -351,6 +352,23 @@ fn remove_roots_shadowed_by_callable_scope(
         {
             continue;
         }
+        roots.remove(&name);
+    }
+}
+
+fn remove_roots_shadowed_by_header_scope(
+    scope: Node<'_>,
+    path_child: Node<'_>,
+    usage_start: usize,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    let shadowed = roots
+        .iter()
+        .filter(|root| scoped_header_binding_exists(scope, path_child, usage_start, root, source))
+        .cloned()
+        .collect::<Vec<_>>();
+    for name in shadowed {
         roots.remove(&name);
     }
 }
