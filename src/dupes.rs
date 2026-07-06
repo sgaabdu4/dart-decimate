@@ -317,8 +317,8 @@ struct CloneWindow {
 /// Detect duplicated Dart code blocks.
 ///
 /// Clone windows satisfy both `min_lines` and `min_tokens`; sparse duplicated
-/// blocks can therefore span more than `min_lines`. Identical matches across
-/// copied local Pub packages with the same package name are ignored.
+/// blocks can therefore span more than `min_lines`. Declaration-only abstract
+/// contracts and copied local Pub package mirrors are filtered conservatively.
 ///
 /// # Errors
 ///
