@@ -188,13 +188,14 @@ fn lexical_binding_resolution(node: Node<'_>, name: &str, source: &str) -> Optio
     if is_callable_node(node.kind()) {
         return None;
     }
-    if declaration_binds_name(node, name, source) {
+    if lexical_declaration_node(node.kind()) && declaration_binds_name(node, name, source) {
         return Some(declaration_type_resolution(node, name, source));
     }
+    if !matches!(node.kind(), "statement" | "expression_statement") {
+        return None;
+    }
     let mut cursor = node.walk();
-    let mut children = node.named_children(&mut cursor).collect::<Vec<_>>();
-    children.reverse();
-    for child in children {
+    for child in node.named_children(&mut cursor) {
         if let Some(resolution) = lexical_binding_resolution(child, name, source) {
             return Some(resolution);
         }
@@ -662,6 +663,13 @@ fn is_callable_node(kind: &str) -> bool {
             | "function_expression"
             | "local_function_declaration"
             | "method_declaration"
+    )
+}
+
+fn lexical_declaration_node(kind: &str) -> bool {
+    matches!(
+        kind,
+        "local_variable_declaration" | "pattern_variable_declaration"
     )
 }
 

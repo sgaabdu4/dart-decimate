@@ -396,6 +396,7 @@ fn collect_root_aliases_from_lexical_declaration(
     source: &str,
 ) {
     remove_roots_shadowed_by_lexical_sibling(node, roots, source);
+    remove_roots_changed_by_lexical_sibling(node, roots, source);
     match node.kind() {
         "local_variable_declaration" | "pattern_variable_declaration" => {
             collect_root_aliases_from_declaration_shape(node, roots, source);
@@ -425,6 +426,74 @@ fn remove_roots_shadowed_by_lexical_sibling(
     {
         roots.remove(&name);
     }
+}
+
+fn remove_roots_changed_by_lexical_sibling(
+    node: Node<'_>,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    let changed = roots
+        .iter()
+        .filter(|root| lexical_sibling_changes_name(node, root, source))
+        .cloned()
+        .collect::<Vec<_>>();
+    for name in changed {
+        roots.remove(&name);
+    }
+}
+
+fn lexical_sibling_changes_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if is_callable_node(node.kind()) {
+        return false;
+    }
+    if assignment_or_update_changes_name(node, name, source) {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| lexical_sibling_changes_name(child, name, source))
+}
+
+fn assignment_or_update_changes_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    let assigned = match node.kind() {
+        "assignment_expression" => node
+            .child_by_field_name("left")
+            .and_then(|left| assigned_name_from_assignable(left, source)),
+        "postfix_expression" => node
+            .child_by_field_name("argument")
+            .and_then(|argument| assigned_name_from_assignable(argument, source)),
+        "unary_expression" if unary_update_expression(node, source) => {
+            direct_named_child(node, "assignable_expression")
+                .and_then(|argument| assigned_name_from_assignable(argument, source))
+        }
+        _ => None,
+    };
+    assigned.as_deref().is_some_and(|assigned| assigned == name)
+}
+
+fn unary_update_expression(node: Node<'_>, source: &str) -> bool {
+    node.utf8_text(source.as_bytes())
+        .ok()
+        .map(str::trim_start)
+        .is_some_and(|text| text.starts_with("++") || text.starts_with("--"))
+}
+
+fn assigned_name_from_assignable(node: Node<'_>, source: &str) -> Option<String> {
+    let text = node
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(strip_whitespace)?;
+    if is_identifier_text(&text) {
+        return Some(text);
+    }
+    let property = field_text(node, "property", source)?;
+    let object = node
+        .child_by_field_name("object")?
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(strip_whitespace)?;
+    (object == "this").then_some(property)
 }
 
 fn collect_root_aliases_from_declaration_shape(
@@ -573,7 +642,11 @@ fn top_pattern_in_owner<'tree>(pattern: Node<'tree>, owner: Node<'tree>) -> Node
 fn find_top_level_assignment(text: &str) -> Option<usize> {
     let mut angle_depth = 0usize;
     let mut grouping_depth = 0usize;
+    let mut string = DartStringState::default();
     for (index, character) in text.char_indices() {
+        if string.consumes(text, index, character) {
+            continue;
+        }
         match character {
             '<' => angle_depth += 1,
             '>' => angle_depth = angle_depth.saturating_sub(1),
@@ -739,7 +812,11 @@ fn split_top_level_ranges(text: &str) -> Vec<(usize, usize)> {
     let mut start = 0usize;
     let mut angle_depth = 0usize;
     let mut grouping_depth = 0usize;
+    let mut string = DartStringState::default();
     for (index, character) in text.char_indices() {
+        if string.consumes(text, index, character) {
+            continue;
+        }
         match character {
             '<' => angle_depth += 1,
             '>' => angle_depth = angle_depth.saturating_sub(1),
@@ -761,7 +838,11 @@ fn split_top_level_ranges(text: &str) -> Vec<(usize, usize)> {
 fn top_level_label_value(text: &str) -> Option<(&str, &str)> {
     let mut angle_depth = 0usize;
     let mut grouping_depth = 0usize;
+    let mut string = DartStringState::default();
     for (index, character) in text.char_indices() {
+        if string.consumes(text, index, character) {
+            continue;
+        }
         match character {
             '<' => angle_depth += 1,
             '>' => angle_depth = angle_depth.saturating_sub(1),
@@ -785,7 +866,11 @@ fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
         return None;
     }
     let mut depth = 0usize;
+    let mut string = DartStringState::default();
     for (index, character) in text.char_indices() {
+        if string.consumes(text, index, character) {
+            continue;
+        }
         if character == open {
             depth += 1;
         } else if character == close {
@@ -796,6 +881,75 @@ fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
         }
     }
     None
+}
+
+#[derive(Default)]
+struct DartStringState {
+    quote: Option<char>,
+    triple: bool,
+    raw: bool,
+    escaped: bool,
+    skip_until: usize,
+}
+
+impl DartStringState {
+    fn consumes(&mut self, text: &str, index: usize, character: char) -> bool {
+        if index < self.skip_until {
+            return true;
+        }
+        if let Some(quote) = self.quote {
+            if !self.raw && self.escaped {
+                self.escaped = false;
+                return true;
+            }
+            if !self.raw && character == '\\' {
+                self.escaped = true;
+                return true;
+            }
+            if character == quote {
+                if self.triple {
+                    if starts_with_triple_quote(text, index, quote) {
+                        self.clear();
+                        self.skip_until = index + quote.len_utf8() * 3;
+                    }
+                } else {
+                    self.clear();
+                }
+            }
+            return true;
+        }
+        if matches!(character, '\'' | '"') {
+            self.quote = Some(character);
+            self.triple = starts_with_triple_quote(text, index, character);
+            self.raw = dart_string_has_raw_prefix(text, index);
+            self.skip_until = if self.triple {
+                index + character.len_utf8() * 3
+            } else {
+                index + character.len_utf8()
+            };
+            return true;
+        }
+        false
+    }
+
+    fn clear(&mut self) {
+        self.quote = None;
+        self.triple = false;
+        self.raw = false;
+        self.escaped = false;
+    }
+}
+
+fn starts_with_triple_quote(text: &str, index: usize, quote: char) -> bool {
+    let mut chars = text[index..].chars();
+    chars.next() == Some(quote) && chars.next() == Some(quote) && chars.next() == Some(quote)
+}
+
+fn dart_string_has_raw_prefix(text: &str, quote_index: usize) -> bool {
+    let Some((raw_index, raw)) = text[..quote_index].char_indices().next_back() else {
+        return false;
+    };
+    matches!(raw, 'r' | 'R') && !identifier_continues_before(text, raw_index)
 }
 
 fn if_case_expression_matches(
@@ -1873,6 +2027,13 @@ fn is_identifier_text(text: &str) -> bool {
         && chars.all(|character| {
             character == '_' || character == '$' || character.is_ascii_alphanumeric()
         })
+}
+
+fn identifier_continues_before(text: &str, index: usize) -> bool {
+    text[..index]
+        .chars()
+        .next_back()
+        .is_some_and(is_identifier_character)
 }
 
 fn is_identifier_character(character: char) -> bool {

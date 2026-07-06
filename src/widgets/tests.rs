@@ -972,6 +972,16 @@ class NestedRecordRootPanel extends StatelessWidget {
   }
 }
 
+class NestedRecordStringPanel extends StatelessWidget {
+  const NestedRecordStringPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final (_, NestedRecordStringPanel(:used)) = ('a,b', this);
+    return Text(used);
+  }
+}
+
 class NestedRecordOtherPanel extends StatelessWidget {
   const NestedRecordOtherPanel({super.key, required this.used, required this.unused});
   final String used;
@@ -991,7 +1001,8 @@ class NestedRecordOtherPanel extends StatelessWidget {
         vec![
             "NestedRecordOtherPanel.unused",
             "NestedRecordOtherPanel.used",
-            "NestedRecordRootPanel.unused"
+            "NestedRecordRootPanel.unused",
+            "NestedRecordStringPanel.unused"
         ]
     );
     Ok(())
@@ -1194,6 +1205,61 @@ String readHelperArity(
     let targets = unused_param_targets(parse_findings(source)?.unused_params);
 
     assert_eq!(targets, vec!["HelperArityPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn root_aliases_do_not_survive_reassignment() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ReassignedForwardingAliasPanel extends StatelessWidget {
+  const ReassignedForwardingAliasPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    var owner = this;
+    owner = const OtherPanel(used: 'other', unused: 'other');
+    final data = ForwardedAliasData.fromOwner(source: owner);
+    return Text(data.used);
+  }
+}
+
+class ReassignedPatternAliasPanel extends StatelessWidget {
+  const ReassignedPatternAliasPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    var owner = this;
+    owner = const OtherPanel(used: 'other', unused: 'other');
+    final ReassignedPatternAliasPanel(:used) = owner;
+    return Text(used);
+  }
+}
+
+class OtherPanel extends StatelessWidget {
+  const OtherPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text('$used$unused');
+}
+
+class ForwardedAliasData {
+  ForwardedAliasData.fromOwner({required ReassignedForwardingAliasPanel source})
+      : used = source.used;
+  final String used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "ReassignedForwardingAliasPanel.unused",
+            "ReassignedForwardingAliasPanel.used",
+            "ReassignedPatternAliasPanel.unused",
+            "ReassignedPatternAliasPanel.used",
+        ]
+    );
     Ok(())
 }
 

@@ -145,6 +145,7 @@ fn collect_route_aliases_from_lexical_declaration(
     source: &str,
 ) {
     remove_aliases_shadowed_by_lexical_sibling(node, aliases, source);
+    remove_aliases_changed_by_lexical_sibling(node, aliases, source);
     match node.kind() {
         "local_variable_declaration" | "pattern_variable_declaration" => {
             collect_route_aliases_from_declaration_shape(node, aliases, route_classes, source);
@@ -179,6 +180,76 @@ fn remove_aliases_shadowed_by_lexical_sibling(
     {
         aliases.remove(&name);
     }
+}
+
+fn remove_aliases_changed_by_lexical_sibling(
+    node: Node<'_>,
+    aliases: &mut BTreeSet<String>,
+    source: &str,
+) {
+    let changed = aliases
+        .iter()
+        .filter(|alias| lexical_sibling_changes_alias(node, alias, source))
+        .cloned()
+        .collect::<Vec<_>>();
+    for alias in changed {
+        aliases.remove(&alias);
+    }
+}
+
+fn lexical_sibling_changes_alias(node: Node<'_>, alias: &str, source: &str) -> bool {
+    if is_callable_node(node.kind()) || node.kind() == "function_body" {
+        return false;
+    }
+    if assignment_or_update_changes_alias(node, alias, source) {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| lexical_sibling_changes_alias(child, alias, source))
+}
+
+fn assignment_or_update_changes_alias(node: Node<'_>, alias: &str, source: &str) -> bool {
+    let assigned = match node.kind() {
+        "assignment_expression" => node
+            .child_by_field_name("left")
+            .and_then(|left| assigned_name_from_assignable(left, source)),
+        "postfix_expression" => node
+            .child_by_field_name("argument")
+            .and_then(|argument| assigned_name_from_assignable(argument, source)),
+        "unary_expression" if unary_update_expression(node, source) => {
+            direct_named_child(node, "assignable_expression")
+                .and_then(|argument| assigned_name_from_assignable(argument, source))
+        }
+        _ => None,
+    };
+    assigned
+        .as_deref()
+        .is_some_and(|assigned| alias == assigned || alias.strip_prefix("this.") == Some(assigned))
+}
+
+fn unary_update_expression(node: Node<'_>, source: &str) -> bool {
+    node.utf8_text(source.as_bytes())
+        .ok()
+        .map(str::trim_start)
+        .is_some_and(|text| text.starts_with("++") || text.starts_with("--"))
+}
+
+fn assigned_name_from_assignable(node: Node<'_>, source: &str) -> Option<String> {
+    let text = node
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(strip_whitespace)?;
+    if is_identifier_text(&text) {
+        return Some(text);
+    }
+    let property = field_text(node, "property", source)?;
+    let object = node
+        .child_by_field_name("object")?
+        .utf8_text(source.as_bytes())
+        .ok()
+        .map(strip_whitespace)?;
+    (object == "this").then_some(property)
 }
 
 fn collect_route_aliases_from_declaration_shape(
@@ -565,6 +636,14 @@ fn identifier_before_equals(text: &str) -> Option<String> {
         .rev()
         .find(|part| !part.is_empty())
         .map(str::to_owned)
+}
+
+fn is_identifier_text(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first == '$' || first.is_ascii_alphabetic())
+        && chars.all(is_identifier_character)
 }
 
 fn is_callable_node(kind: &str) -> bool {
