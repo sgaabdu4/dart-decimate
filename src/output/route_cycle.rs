@@ -475,16 +475,7 @@ fn simple_type_name(text: &str) -> String {
 }
 
 fn is_typed_route_navigation_reference(name: &str) -> bool {
-    matches!(
-        name,
-        "go" | "goNamed"
-            | "push"
-            | "pushNamed"
-            | "pushReplacement"
-            | "pushReplacementNamed"
-            | "replace"
-            | "replaceNamed"
-    )
+    matches!(name, "go" | "push" | "pushReplacement" | "replace")
 }
 
 fn strip_method_type_arguments(name: &str) -> &str {

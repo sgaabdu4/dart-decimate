@@ -607,6 +607,71 @@ class ForwardedTitleData {
 }
 
 #[test]
+fn forwarded_usage_matches_generic_const_forwarder_invocations()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class GenericForwardingPanel extends StatelessWidget {
+  const GenericForwardingPanel({super.key, required this.title, required this.unused});
+  final String title;
+  final String unused;
+  Widget build(BuildContext context) {
+    final data = const ForwardedTitleData<String>.fromOwner(source: this);
+    return Text(data.title);
+  }
+}
+
+class ForwardedTitleData<T> {
+  const ForwardedTitleData.fromOwner({required GenericForwardingPanel source})
+      : title = source.title;
+  final String title;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["GenericForwardingPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn object_pattern_usage_counts_paired_nested_record_roots() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class NestedRecordRootPanel extends StatelessWidget {
+  const NestedRecordRootPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final (NestedRecordRootPanel(:used), _) = (this, Object());
+    return Text(used);
+  }
+}
+
+class NestedRecordOtherPanel extends StatelessWidget {
+  const NestedRecordOtherPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    final (NestedRecordOtherPanel(:used), _) =
+        (const NestedRecordOtherPanel(used: 'other', unused: 'other'), this);
+    return Text(used);
+  }
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "NestedRecordOtherPanel.unused",
+            "NestedRecordOtherPanel.used",
+            "NestedRecordRootPanel.unused"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn bare_object_pattern_helper_calls_ignore_mixin_member_shadows()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"

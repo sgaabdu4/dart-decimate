@@ -460,7 +460,8 @@ fn constructor_invocation_name(node: Node<'_>, source: &str) -> Option<String> {
         .child_by_field_name("type")?
         .utf8_text(source.as_bytes())
         .ok()
-        .map(strip_whitespace)?;
+        .map(strip_whitespace)
+        .map(|name| strip_type_arguments(&name))?;
     node.child_by_field_name("constructor")
         .and_then(|constructor| constructor.utf8_text(source.as_bytes()).ok())
         .map_or(Some(type_name.clone()), |constructor| {
@@ -629,6 +630,20 @@ fn strip_whitespace(text: &str) -> String {
     text.chars()
         .filter(|character| !character.is_whitespace())
         .collect()
+}
+
+fn strip_type_arguments(text: &str) -> String {
+    let mut stripped = String::new();
+    let mut depth = 0usize;
+    for character in text.chars() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => stripped.push(character),
+            _ => {}
+        }
+    }
+    stripped
 }
 
 fn simple_type_name(text: &str) -> String {

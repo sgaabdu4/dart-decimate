@@ -491,13 +491,265 @@ fn pattern_variable_expression_matches(
     roots: &BTreeSet<String>,
     source: &str,
 ) -> bool {
-    let Some(after_pattern) = source.get(pattern.end_byte()..owner.end_byte()) else {
-        return false;
-    };
-    let Some((_, right)) = after_pattern.split_once('=') else {
-        return false;
-    };
-    expression_matches_roots(right, roots)
+    pattern_variable_expression_for_pattern(pattern, owner, source)
+        .is_some_and(|expression| expression_matches_roots(&expression, roots))
+}
+
+fn pattern_variable_expression_for_pattern(
+    pattern: Node<'_>,
+    owner: Node<'_>,
+    source: &str,
+) -> Option<String> {
+    let owner_text = source.get(owner.start_byte()..owner.end_byte())?;
+    let assignment_byte = owner.start_byte() + find_top_level_assignment(owner_text)?;
+    if pattern.end_byte() > assignment_byte {
+        return None;
+    }
+    let right = source.get(assignment_byte + 1..owner.end_byte())?.trim();
+    nested_expression_for_pattern(pattern, top_pattern_in_owner(pattern, owner), right, source)
+}
+
+fn top_pattern_in_owner<'tree>(pattern: Node<'tree>, owner: Node<'tree>) -> Node<'tree> {
+    let mut top = pattern;
+    let mut parent = pattern.parent();
+    while let Some(ancestor) = parent {
+        if same_node(ancestor, owner) {
+            break;
+        }
+        if is_pattern_node(ancestor) {
+            top = ancestor;
+        }
+        parent = ancestor.parent();
+    }
+    top
+}
+
+fn find_top_level_assignment(text: &str) -> Option<usize> {
+    let mut angle_depth = 0usize;
+    let mut grouping_depth = 0usize;
+    for (index, character) in text.char_indices() {
+        match character {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '(' | '[' | '{' => grouping_depth += 1,
+            ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
+            '=' if angle_depth == 0
+                && grouping_depth == 0
+                && !text[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|previous| matches!(previous, '!' | '<' | '>' | '='))
+                && !text[index + character.len_utf8()..]
+                    .chars()
+                    .next()
+                    .is_some_and(|next| matches!(next, '=' | '>')) =>
+            {
+                return Some(index);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn nested_expression_for_pattern(
+    pattern: Node<'_>,
+    top_pattern: Node<'_>,
+    expression: &str,
+    source: &str,
+) -> Option<String> {
+    if same_node(pattern, top_pattern) {
+        return Some(expression.to_owned());
+    }
+    let mut path = Vec::new();
+    let mut child = pattern;
+    let mut parent = pattern.parent();
+    while let Some(container) = parent {
+        if is_pattern_node(container) {
+            path.push((container, child));
+            child = container;
+            if same_node(container, top_pattern) {
+                break;
+            }
+        } else {
+            child = container;
+        }
+        parent = container.parent();
+    }
+    if path
+        .last()
+        .is_none_or(|(container, _)| !same_node(*container, top_pattern))
+    {
+        return None;
+    }
+
+    let mut current = expression.to_owned();
+    for (container, child) in path.into_iter().rev() {
+        if same_node(container, child) || shorthand_pattern_wrapper(container.kind()) {
+            continue;
+        }
+        current = child_expression_for_nested_pattern(container, child, &current, source)?;
+    }
+    Some(current)
+}
+
+fn child_expression_for_nested_pattern(
+    container: Node<'_>,
+    child: Node<'_>,
+    expression: &str,
+    source: &str,
+) -> Option<String> {
+    match container.kind() {
+        "record_pattern" => {
+            delimited_child_expression(container, child, expression, source, '(', ')')
+        }
+        "list_pattern" => {
+            delimited_child_expression(container, child, expression, source, '[', ']')
+        }
+        _ => None,
+    }
+}
+
+fn delimited_child_expression(
+    container: Node<'_>,
+    child: Node<'_>,
+    expression: &str,
+    source: &str,
+    open: char,
+    close: char,
+) -> Option<String> {
+    let container_text = source.get(container.start_byte()..container.end_byte())?;
+    let (pattern_inner_offset, pattern_inner) =
+        enclosed_inner_with_offset(container_text, open, close)?;
+    let pattern_parts = split_top_level_ranges(pattern_inner);
+    let child_start = child
+        .start_byte()
+        .checked_sub(container.start_byte() + pattern_inner_offset)?;
+    let child_end = child
+        .end_byte()
+        .checked_sub(container.start_byte() + pattern_inner_offset)?;
+    let pattern_index = pattern_parts
+        .iter()
+        .position(|(start, end)| child_start >= *start && child_end <= *end)?;
+    let pattern_part = pattern_inner
+        .get(pattern_parts[pattern_index].0..pattern_parts[pattern_index].1)?
+        .trim();
+
+    let (_, expression_inner) = enclosed_inner_with_offset(expression, open, close)?;
+    let expression_parts = split_top_level_ranges(expression_inner);
+    let expression_part = expression_part_matching_pattern(
+        pattern_part,
+        expression_inner,
+        &expression_parts,
+        pattern_index,
+    )?;
+    Some(
+        expression_part
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .to_owned(),
+    )
+}
+
+fn expression_part_matching_pattern(
+    pattern_part: &str,
+    expression_inner: &str,
+    expression_parts: &[(usize, usize)],
+    pattern_index: usize,
+) -> Option<String> {
+    if let Some((pattern_label, _)) = top_level_label_value(pattern_part) {
+        return expression_parts.iter().find_map(|(start, end)| {
+            let part = expression_inner.get(*start..*end)?.trim();
+            let (label, value) = top_level_label_value(part)?;
+            (label == pattern_label).then(|| value.to_owned())
+        });
+    }
+    let (start, end) = *expression_parts.get(pattern_index)?;
+    let part = expression_inner.get(start..end)?.trim();
+    top_level_label_value(part)
+        .is_none()
+        .then(|| part.to_owned())
+}
+
+fn enclosed_inner_with_offset(text: &str, open: char, close: char) -> Option<(usize, &str)> {
+    let leading = text.len() - text.trim_start().len();
+    let trimmed = text.trim();
+    if !trimmed.starts_with(open) {
+        return None;
+    }
+    let end = matching_enclosed_end(trimmed, open, close)?;
+    if end + close.len_utf8() != trimmed.len() {
+        return None;
+    }
+    Some((
+        leading + open.len_utf8(),
+        trimmed.get(open.len_utf8()..end)?,
+    ))
+}
+
+fn split_top_level_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+    let mut angle_depth = 0usize;
+    let mut grouping_depth = 0usize;
+    for (index, character) in text.char_indices() {
+        match character {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '(' | '[' | '{' => grouping_depth += 1,
+            ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
+            ',' if angle_depth == 0 && grouping_depth == 0 => {
+                ranges.push((start, index));
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    if start < text.len() {
+        ranges.push((start, text.len()));
+    }
+    ranges
+}
+
+fn top_level_label_value(text: &str) -> Option<(&str, &str)> {
+    let mut angle_depth = 0usize;
+    let mut grouping_depth = 0usize;
+    for (index, character) in text.char_indices() {
+        match character {
+            '<' => angle_depth += 1,
+            '>' => angle_depth = angle_depth.saturating_sub(1),
+            '(' | '[' | '{' => grouping_depth += 1,
+            ')' | ']' | '}' => grouping_depth = grouping_depth.saturating_sub(1),
+            ':' if angle_depth == 0 && grouping_depth == 0 => {
+                let label = text[..index].trim();
+                if is_identifier_text(label) {
+                    return Some((label, text[index + character.len_utf8()..].trim()));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
+    let mut chars = text.char_indices();
+    if chars.next().is_none_or(|(_, character)| character != open) {
+        return None;
+    }
+    let mut depth = 0usize;
+    for (index, character) in text.char_indices() {
+        if character == open {
+            depth += 1;
+        } else if character == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 fn if_case_expression_matches(
