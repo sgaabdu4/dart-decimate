@@ -1183,6 +1183,80 @@ String prefixedFrameworkHelper(PrefixedFrameworkHelperWidget widget) {
 }
 
 #[test]
+fn object_pattern_helpers_ignore_unresolved_prefixed_framework_names()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+import 'package:fake/widgets.dart' as pkg;
+
+class PrefixedFakeFrameworkWidget extends pkg.StatelessWidget {
+  const PrefixedFakeFrameworkWidget({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(prefixedFakeFrameworkHelper(this));
+}
+
+String prefixedFakeFrameworkHelper(PrefixedFakeFrameworkWidget widget) {
+  final PrefixedFakeFrameworkWidget(:used) = widget;
+  return used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "PrefixedFakeFrameworkWidget.unused",
+            "PrefixedFakeFrameworkWidget.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn object_pattern_method_helpers_match_inherited_mixin_calls()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+mixin InheritedPatternHelperMixin {
+  String readMixinHelper(InheritedMixinHelperPanel widget) {
+    final InheritedMixinHelperPanel(:used) = widget;
+    return used;
+  }
+
+  String readSuperMixinHelper(SuperMixinHelperPanel widget) {
+    final SuperMixinHelperPanel(:used) = widget;
+    return used;
+  }
+}
+
+class InheritedMixinHelperPanel extends StatelessWidget with InheritedPatternHelperMixin {
+  const InheritedMixinHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(this.readMixinHelper(this));
+}
+
+class SuperMixinHelperPanel extends StatelessWidget with InheritedPatternHelperMixin {
+  const SuperMixinHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(super.readSuperMixinHelper(this));
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "InheritedMixinHelperPanel.unused",
+            "SuperMixinHelperPanel.unused"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn object_pattern_helpers_match_generic_invocations_and_parameter_types()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"

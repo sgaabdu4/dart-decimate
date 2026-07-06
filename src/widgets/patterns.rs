@@ -123,7 +123,7 @@ fn helper_name(declaration: Node<'_>, signature: Node<'_>, source: &str) -> Opti
     let name = field_text(signature, "name", source)
         .or_else(|| identifier_before_parameters(signature, source))?;
     let method_owner = if declaration.kind() == "method_declaration" {
-        Some(owner_class_name(declaration, source)?)
+        Some(owner_class_like_name(declaration, source)?)
     } else {
         None
     };
@@ -138,10 +138,10 @@ fn helper_name(declaration: Node<'_>, signature: Node<'_>, source: &str) -> Opti
     })
 }
 
-fn owner_class_name(node: Node<'_>, source: &str) -> Option<String> {
+fn owner_class_like_name(node: Node<'_>, source: &str) -> Option<String> {
     let mut parent = node.parent();
     while let Some(ancestor) = parent {
-        if ancestor.kind() == "class_declaration" {
+        if matches!(ancestor.kind(), "class_declaration" | "mixin_declaration") {
             return field_text(ancestor, "name", source);
         }
         parent = ancestor.parent();
@@ -1086,12 +1086,12 @@ fn helper_name_matches(
     body: Node<'_>,
     source: &str,
 ) -> bool {
-    if let Some(member) = this_or_super_member_name(invocation_name) {
+    if let Some((receiver, member)) = this_or_super_member_name(invocation_name) {
         return member == helper_name.name
             && helper_name.method_owner.as_ref().is_some_and(|owner| {
-                current_lexical_owner(invocation, source)
-                    .as_deref()
-                    .is_some_and(|current| current == owner)
+                current_lexical_class(invocation).is_some_and(|current| {
+                    helper_owner_matches_current_class(current, owner, receiver, source)
+                })
             });
     }
     if invocation_name.contains('.') {
@@ -1211,11 +1211,24 @@ fn local_function_name(node: Node<'_>, source: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn this_or_super_member_name(invocation_name: &str) -> Option<&str> {
-    let member = invocation_name
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemberReceiver {
+    This,
+    Super,
+}
+
+fn this_or_super_member_name(invocation_name: &str) -> Option<(MemberReceiver, &str)> {
+    let (receiver, member) = invocation_name
         .strip_prefix("this.")
-        .or_else(|| invocation_name.strip_prefix("super."))?;
-    (!member.contains('.')).then_some(member)
+        .map(|member| (MemberReceiver::This, member))
+        .or_else(|| {
+            invocation_name
+                .strip_prefix("super.")
+                .map(|member| (MemberReceiver::Super, member))
+        })?;
+    (!member.contains('.'))
+        .then_some(member)
+        .map(|member| (receiver, member))
 }
 
 fn callable_direct_parameter_bound_names(
@@ -1365,6 +1378,47 @@ fn current_lexical_class(node: Node<'_>) -> Option<Node<'_>> {
     None
 }
 
+fn helper_owner_matches_current_class(
+    current_class: Node<'_>,
+    owner: &str,
+    receiver: MemberReceiver,
+    source: &str,
+) -> bool {
+    if receiver == MemberReceiver::This
+        && field_text(current_class, "name", source).as_deref() == Some(owner)
+    {
+        return true;
+    }
+    let root = root_node(current_class);
+    class_inherits_from(root, current_class, owner, source, &mut BTreeSet::new())
+}
+
+fn class_inherits_from(
+    root: Node<'_>,
+    class: Node<'_>,
+    owner: &str,
+    source: &str,
+    visited: &mut BTreeSet<String>,
+) -> bool {
+    for inherited in class_inherited_types(root, class, source) {
+        if inherited.name.contains('.') {
+            continue;
+        }
+        if !visited.insert(inherited.name.clone()) {
+            continue;
+        }
+        if inherited.name == owner {
+            return true;
+        }
+        if let Some(inherited_class) = find_class_like_declaration(root, &inherited.name, source)
+            && class_inherits_from(root, inherited_class, owner, source, visited)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn current_class_member_shadows_top_level(invocation: Node<'_>, name: &str, source: &str) -> bool {
     current_lexical_class(invocation)
         .is_some_and(|class| class_or_inherited_member_shadows_top_level(class, name, source))
@@ -1386,13 +1440,13 @@ fn class_or_inherited_member_shadows_top_level_in(
     if class_declares_member(class, name, source) {
         return true;
     }
-    for inherited in class_inherited_types(class, source) {
+    for inherited in class_inherited_types(root, class, source) {
         if !visited.insert(inherited.name.clone()) {
             continue;
         }
         let Some(inherited_class) = find_class_like_declaration(root, &inherited.name, source)
         else {
-            if unresolved_inherited_type_may_shadow(&inherited) {
+            if unresolved_inherited_type_may_shadow(root, &inherited, source) {
                 return true;
             }
             continue;
@@ -1423,24 +1477,95 @@ enum InheritedTypeKind {
     Interface,
 }
 
-fn unresolved_inherited_type_may_shadow(inherited: &InheritedType) -> bool {
+fn unresolved_inherited_type_may_shadow(
+    root: Node<'_>,
+    inherited: &InheritedType,
+    source: &str,
+) -> bool {
     let inherited_name = simple_type_name(&inherited.name);
     inherited.kind != InheritedTypeKind::Superclass
-        || !matches!(
+        || !framework_or_object_base_is_known(
+            root,
+            &inherited.name,
             inherited_name.as_str(),
-            "StatelessWidget"
-                | "StatefulWidget"
-                | "ConsumerWidget"
-                | "ConsumerStatefulWidget"
-                | "HookWidget"
-                | "HookConsumerWidget"
-                | "State"
-                | "ConsumerState"
-                | "Object"
+            source,
         )
 }
 
-fn class_inherited_types(class: Node<'_>, source: &str) -> Vec<InheritedType> {
+fn framework_or_object_base_is_known(
+    root: Node<'_>,
+    inherited_name: &str,
+    simple_name: &str,
+    source: &str,
+) -> bool {
+    if simple_name == "Object" {
+        return !inherited_name.contains('.');
+    }
+    if !matches!(
+        simple_name,
+        "StatelessWidget"
+            | "StatefulWidget"
+            | "ConsumerWidget"
+            | "ConsumerStatefulWidget"
+            | "HookWidget"
+            | "HookConsumerWidget"
+            | "State"
+            | "ConsumerState"
+    ) {
+        return false;
+    }
+    if let Some((prefix, _)) = inherited_name.split_once('.') {
+        return import_prefix_resolves_to_framework(root, prefix, source);
+    }
+    true
+}
+
+fn import_prefix_resolves_to_framework(root: Node<'_>, prefix: &str, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" {
+            return;
+        }
+        if import_alias(node, source).as_deref() != Some(prefix) {
+            return;
+        }
+        if import_uri(node, source).is_some_and(|uri| framework_import_uri(&uri)) {
+            found = true;
+        }
+    });
+    found
+}
+
+fn import_alias(node: Node<'_>, source: &str) -> Option<String> {
+    find_first_named_descendant(node, "import_specification")
+        .and_then(|specification| field_text(specification, "alias", source))
+}
+
+fn import_uri(node: Node<'_>, source: &str) -> Option<String> {
+    find_first_named_descendant(node, "uri")
+        .and_then(|uri| uri.utf8_text(source.as_bytes()).ok())
+        .and_then(unquote_dart_string)
+}
+
+fn unquote_dart_string(text: &str) -> Option<String> {
+    let trimmed = text.trim().trim_start_matches('r');
+    let quote = trimmed.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    trimmed
+        .strip_prefix(quote)
+        .and_then(|rest| rest.strip_suffix(quote))
+        .map(str::to_owned)
+}
+
+fn framework_import_uri(uri: &str) -> bool {
+    uri.starts_with("package:flutter/")
+        || uri.starts_with("package:flutter_riverpod/")
+        || uri.starts_with("package:hooks_riverpod/")
+}
+
+fn class_inherited_types(_root: Node<'_>, class: Node<'_>, source: &str) -> Vec<InheritedType> {
     let Some(body) = class.child_by_field_name("body") else {
         return Vec::new();
     };

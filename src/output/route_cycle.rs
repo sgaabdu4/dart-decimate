@@ -456,29 +456,47 @@ fn constructor_receiver_matches_route(
         return false;
     };
     let type_text = strip_whitespace(type_text);
-    let mut candidates = vec![simple_type_name(&type_text)];
     if let Some(constructor) = node
         .child_by_field_name("constructor")
         .and_then(|constructor| constructor.utf8_text(source.as_bytes()).ok())
     {
         let suffix = format!(".{constructor}");
         if let Some(owner) = type_text.strip_suffix(&suffix) {
-            candidates.push(simple_type_name(owner));
+            return route_classes
+                .iter()
+                .any(|route_class| direct_route_type_text_matches(owner, route_class));
         }
     }
-    candidates
+    route_classes
         .iter()
-        .any(|candidate| route_classes.contains(candidate))
-        || route_classes
-            .iter()
-            .any(|route_class| named_constructor_type_text_matches_route(&type_text, route_class))
+        .any(|route_class| direct_route_type_text_matches(&type_text, route_class))
+        || route_classes.iter().any(|route_class| {
+            direct_named_constructor_type_text_matches_route(&type_text, route_class)
+        })
 }
 
-fn named_constructor_type_text_matches_route(type_text: &str, route_class: &str) -> bool {
-    type_text
-        .strip_prefix(route_class)
-        .is_some_and(|rest| rest.starts_with('.'))
-        || type_text.contains(&format!(".{route_class}."))
+fn direct_route_type_text_matches(type_text: &str, route_class: &str) -> bool {
+    let type_text = type_text.trim_end_matches('?');
+    let base = type_text.split('<').next().unwrap_or(type_text);
+    !base.contains('.') && base == route_class
+}
+
+fn direct_named_constructor_type_text_matches_route(type_text: &str, route_class: &str) -> bool {
+    let Some(rest) = type_text.strip_prefix(route_class) else {
+        return false;
+    };
+    let after_type_arguments = if rest.starts_with('<') {
+        let Some(end) = matching_enclosed_end(rest, '<', '>') else {
+            return false;
+        };
+        rest.get(end + 1..).unwrap_or("")
+    } else {
+        rest
+    };
+    let Some(constructor) = after_type_arguments.strip_prefix('.') else {
+        return false;
+    };
+    is_identifier_text(constructor)
 }
 
 fn direct_constructor_call_text(text: &str, route_class: &str) -> bool {
@@ -553,12 +571,7 @@ fn receiver_after_route_type<'source>(
     receiver: &'source str,
     route_class: &str,
 ) -> Option<&'source str> {
-    if let Some(after_type) = receiver.strip_prefix(route_class) {
-        return Some(after_type);
-    }
-    let qualified_suffix = format!(".{route_class}");
-    let route_start = receiver.find(&qualified_suffix)? + 1;
-    receiver.get(route_start + route_class.len()..)
+    receiver.strip_prefix(route_class)
 }
 
 fn unwrap_parenthesized_text(text: &str) -> Option<&str> {
@@ -598,6 +611,14 @@ fn matching_enclosed_end(text: &str, open: char, close: char) -> Option<usize> {
 
 fn is_identifier_character(character: char) -> bool {
     character == '_' || character == '$' || character.is_ascii_alphanumeric()
+}
+
+fn is_identifier_text(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first == '$' || first.is_ascii_alphabetic())
+        && chars.all(is_identifier_character)
 }
 
 fn simple_type_name(text: &str) -> String {
