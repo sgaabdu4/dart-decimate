@@ -393,6 +393,7 @@ fn collect_root_aliases_from_lexical_declaration(
     roots: &mut BTreeSet<String>,
     source: &str,
 ) {
+    remove_roots_shadowed_by_lexical_sibling(node, roots, source);
     match node.kind() {
         "local_variable_declaration" | "pattern_variable_declaration" => {
             collect_root_aliases_from_declaration_shape(node, roots, source);
@@ -409,6 +410,18 @@ fn collect_root_aliases_from_lexical_declaration(
             }
         }
         _ => {}
+    }
+}
+
+fn remove_roots_shadowed_by_lexical_sibling(
+    node: Node<'_>,
+    roots: &mut BTreeSet<String>,
+    source: &str,
+) {
+    if node.kind() == "local_function_declaration"
+        && let Some(name) = local_function_name(node, source)
+    {
+        roots.remove(&name);
     }
 }
 
@@ -934,6 +947,9 @@ fn helper_name_matches(
     if lexical_local_binding_before(body, invocation, &helper_name.name, source) {
         return false;
     }
+    if lexical_header_binding_before(body, invocation, &helper_name.name, source) {
+        return false;
+    }
     if enclosing_callable_parameter_binds_name(invocation, body, &helper_name.name, source) {
         return false;
     }
@@ -965,6 +981,23 @@ fn lexical_local_binding_before(body: Node<'_>, site: Node<'_>, name: &str, sour
         .into_iter()
         .rev()
         .any(|(scope, child)| prior_lexical_sibling_binds_name(scope, child, name, source))
+}
+
+fn lexical_header_binding_before(body: Node<'_>, site: Node<'_>, name: &str, source: &str) -> bool {
+    let mut steps = Vec::new();
+    let mut path_child = site;
+    let mut parent = site.parent();
+    while let Some(scope) = parent {
+        steps.push((scope, path_child));
+        if same_node(scope, body) {
+            break;
+        }
+        path_child = scope;
+        parent = scope.parent();
+    }
+    steps.into_iter().rev().any(|(scope, child)| {
+        scoped_header_binding_exists(scope, child, site.start_byte(), name, source)
+    })
 }
 
 fn enclosing_callable_parameter_binds_name(

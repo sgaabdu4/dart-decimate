@@ -144,6 +144,7 @@ fn collect_route_aliases_from_lexical_declaration(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) {
+    remove_aliases_shadowed_by_lexical_sibling(node, aliases, source);
     match node.kind() {
         "local_variable_declaration" | "pattern_variable_declaration" => {
             collect_route_aliases_from_declaration_shape(node, aliases, route_classes, source);
@@ -165,6 +166,18 @@ fn collect_route_aliases_from_lexical_declaration(
             }
         }
         _ => {}
+    }
+}
+
+fn remove_aliases_shadowed_by_lexical_sibling(
+    node: Node<'_>,
+    aliases: &mut BTreeSet<String>,
+    source: &str,
+) {
+    if node.kind() == "local_function_declaration"
+        && let Some(name) = local_function_name(node, source)
+    {
+        aliases.remove(&name);
     }
 }
 
@@ -408,6 +421,14 @@ fn is_body_statement_child(kind: &str) -> bool {
             | "while_statement"
             | "yield_statement"
     )
+}
+
+fn local_function_name(node: Node<'_>, source: &str) -> Option<String> {
+    direct_named_child(node, "function_signature")
+        .and_then(|signature| signature.child_by_field_name("name"))
+        .or_else(|| node.child_by_field_name("name"))
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
 }
 
 fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {

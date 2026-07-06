@@ -679,6 +679,35 @@ class ForwardedViewData {
 }
 
 #[test]
+fn forwarded_usage_ignores_local_function_root_shadows() -> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class LocalFunctionForwardingPanel extends StatefulWidget {
+  const LocalFunctionForwardingPanel({super.key, required this.items});
+  final List<String> items;
+  State<LocalFunctionForwardingPanel> createState() => _LocalFunctionForwardingPanelState();
+}
+
+class _LocalFunctionForwardingPanelState extends State<LocalFunctionForwardingPanel> {
+  Widget build(BuildContext context) {
+    void widget() {}
+    final data = ForwardedViewData.fromLocalFunction(source: widget);
+    return Text(data.label);
+  }
+}
+
+class ForwardedViewData {
+  ForwardedViewData.fromLocalFunction({required LocalFunctionForwardingPanel source})
+      : label = source.items.join(',');
+  final String label;
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["LocalFunctionForwardingPanel.items"]);
+    Ok(())
+}
+
+#[test]
 fn object_pattern_usage_ignores_shadowed_root_aliases() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
 class AliasPatternPanel extends StatefulWidget {
@@ -734,6 +763,37 @@ class _HeaderPatternPanelState extends State<HeaderPatternPanel> {
     assert_eq!(
         targets,
         vec!["HeaderPatternPanel.unused", "HeaderPatternPanel.used"]
+    );
+    Ok(())
+}
+
+#[test]
+fn object_pattern_usage_ignores_local_function_root_shadows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class LocalFunctionPatternPanel extends StatefulWidget {
+  const LocalFunctionPatternPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  State<LocalFunctionPatternPanel> createState() => _LocalFunctionPatternPanelState();
+}
+
+class _LocalFunctionPatternPanelState extends State<LocalFunctionPatternPanel> {
+  Widget build(BuildContext context) {
+    void widget() {}
+    final LocalFunctionPatternPanel(:used) = widget;
+    return Text(used);
+  }
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "LocalFunctionPatternPanel.unused",
+            "LocalFunctionPatternPanel.used"
+        ]
     );
     Ok(())
 }
@@ -1101,6 +1161,40 @@ String readHelperArity(
     let targets = unused_param_targets(parse_findings(source)?.unused_params);
 
     assert_eq!(targets, vec!["HelperArityPanel.unused"]);
+    Ok(())
+}
+
+#[test]
+fn bare_object_pattern_helper_calls_ignore_header_shadows() -> Result<(), Box<dyn std::error::Error>>
+{
+    let source = r"
+class HeaderShadowHelperPanel extends StatelessWidget {
+  const HeaderShadowHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) {
+    if (Object() case final readHeaderHelper) {
+      return Text(readHeaderHelper(this));
+    }
+    return const SizedBox();
+  }
+}
+
+String readHeaderHelper(HeaderShadowHelperPanel widget) {
+  final HeaderShadowHelperPanel(:used) = widget;
+  return used;
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "HeaderShadowHelperPanel.unused",
+            "HeaderShadowHelperPanel.used"
+        ]
+    );
     Ok(())
 }
 
