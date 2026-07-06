@@ -1257,6 +1257,73 @@ class SuperMixinHelperPanel extends StatelessWidget with InheritedPatternHelperM
 }
 
 #[test]
+fn object_pattern_method_helpers_resolve_actual_dispatch_owner()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class ThisOverrideHelperPanel extends StatelessWidget with ThisOverrideHelperMixin {
+  const ThisOverrideHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(this.readThisOverrideHelper(this));
+  String readThisOverrideHelper(ThisOverrideHelperPanel widget) => 'override';
+}
+
+mixin ThisOverrideHelperMixin {
+  String readThisOverrideHelper(ThisOverrideHelperPanel widget) {
+    final ThisOverrideHelperPanel(:used) = widget;
+    return used;
+  }
+}
+
+class SuperOverrideLeafPanel extends StatelessWidget with SuperOverrideBaseMixin, SuperOverrideMidMixin {
+  const SuperOverrideLeafPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(super.readSuperOverrideHelper(this));
+}
+
+mixin SuperOverrideMidMixin {
+  String readSuperOverrideHelper(SuperOverrideLeafPanel widget) => 'override';
+}
+
+mixin SuperOverrideBaseMixin {
+  String readSuperOverrideHelper(SuperOverrideLeafPanel widget) {
+    final SuperOverrideLeafPanel(:used) = widget;
+    return used;
+  }
+}
+
+class BareInheritedHelperPanel extends StatelessWidget with BareInheritedHelperMixin {
+  const BareInheritedHelperPanel({super.key, required this.used, required this.unused});
+  final String used;
+  final String unused;
+  Widget build(BuildContext context) => Text(readBareInheritedHelper(this));
+}
+
+mixin BareInheritedHelperMixin {
+  String readBareInheritedHelper(BareInheritedHelperPanel widget) {
+    final BareInheritedHelperPanel(:used) = widget;
+    return used;
+  }
+}
+";
+    let mut targets = unused_param_targets(parse_findings(source)?.unused_params);
+    targets.sort();
+
+    assert_eq!(
+        targets,
+        vec![
+            "BareInheritedHelperPanel.unused",
+            "SuperOverrideLeafPanel.unused",
+            "SuperOverrideLeafPanel.used",
+            "ThisOverrideHelperPanel.unused",
+            "ThisOverrideHelperPanel.used"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn object_pattern_helpers_match_generic_invocations_and_parameter_types()
 -> Result<(), Box<dyn std::error::Error>> {
     let source = r"

@@ -1089,9 +1089,10 @@ fn helper_name_matches(
     if let Some((receiver, member)) = this_or_super_member_name(invocation_name) {
         return member == helper_name.name
             && helper_name.method_owner.as_ref().is_some_and(|owner| {
-                current_lexical_class(invocation).is_some_and(|current| {
-                    helper_owner_matches_current_class(current, owner, receiver, source)
-                })
+                current_lexical_class(invocation)
+                    .and_then(|current| dispatched_member_owner(current, member, receiver, source))
+                    .as_deref()
+                    == Some(owner.as_str())
             });
     }
     if invocation_name.contains('.') {
@@ -1109,16 +1110,15 @@ fn helper_name_matches(
     if enclosing_callable_parameter_binds_name(invocation, body, &helper_name.name, source) {
         return false;
     }
-    if helper_name.method_owner.is_none()
-        && current_class_member_shadows_top_level(invocation, &helper_name.name, source)
-    {
-        return false;
-    }
-    helper_name.method_owner.as_ref().is_none_or(|owner| {
-        current_lexical_owner(invocation, source)
+    if let Some(owner) = &helper_name.method_owner {
+        return current_lexical_class(invocation)
+            .and_then(|current| {
+                dispatched_member_owner(current, &helper_name.name, MemberReceiver::This, source)
+            })
             .as_deref()
-            .is_some_and(|current| current == owner)
-    })
+            == Some(owner.as_str());
+    }
+    !current_class_member_shadows_top_level(invocation, &helper_name.name, source)
 }
 
 fn lexical_local_binding_before(body: Node<'_>, site: Node<'_>, name: &str, source: &str) -> bool {
@@ -1363,10 +1363,6 @@ fn optional_parameters_directly_bind_name(parameters: Node<'_>, name: &str, sour
         .any(|candidate| formal_parameter_name(candidate, source).as_deref() == Some(name))
 }
 
-fn current_lexical_owner(node: Node<'_>, source: &str) -> Option<String> {
-    current_lexical_class(node).and_then(|class| field_text(class, "name", source))
-}
-
 fn current_lexical_class(node: Node<'_>) -> Option<Node<'_>> {
     let mut parent = node.parent();
     while let Some(ancestor) = parent {
@@ -1378,45 +1374,82 @@ fn current_lexical_class(node: Node<'_>) -> Option<Node<'_>> {
     None
 }
 
-fn helper_owner_matches_current_class(
+fn dispatched_member_owner(
     current_class: Node<'_>,
-    owner: &str,
+    name: &str,
     receiver: MemberReceiver,
     source: &str,
-) -> bool {
-    if receiver == MemberReceiver::This
-        && field_text(current_class, "name", source).as_deref() == Some(owner)
-    {
-        return true;
-    }
+) -> Option<String> {
     let root = root_node(current_class);
-    class_inherits_from(root, current_class, owner, source, &mut BTreeSet::new())
+    let mut visited = BTreeSet::new();
+    match receiver {
+        MemberReceiver::This => class_or_inherited_member_dispatch_owner(
+            root,
+            current_class,
+            name,
+            source,
+            &mut visited,
+        ),
+        MemberReceiver::Super => {
+            inherited_member_dispatch_owner(root, current_class, name, source, &mut visited)
+        }
+    }
 }
 
-fn class_inherits_from(
+fn class_or_inherited_member_dispatch_owner(
     root: Node<'_>,
     class: Node<'_>,
-    owner: &str,
+    name: &str,
     source: &str,
     visited: &mut BTreeSet<String>,
-) -> bool {
-    for inherited in class_inherited_types(root, class, source) {
+) -> Option<String> {
+    if class_declares_member(class, name, source) {
+        return field_text(class, "name", source);
+    }
+    inherited_member_dispatch_owner(root, class, name, source, visited)
+}
+
+fn inherited_member_dispatch_owner(
+    root: Node<'_>,
+    class: Node<'_>,
+    name: &str,
+    source: &str,
+    visited: &mut BTreeSet<String>,
+) -> Option<String> {
+    for inherited in dispatch_inherited_types(root, class, source) {
         if inherited.name.contains('.') {
-            continue;
+            return None;
         }
         if !visited.insert(inherited.name.clone()) {
             continue;
         }
-        if inherited.name == owner {
-            return true;
-        }
-        if let Some(inherited_class) = find_class_like_declaration(root, &inherited.name, source)
-            && class_inherits_from(root, inherited_class, owner, source, visited)
+        let inherited_class = find_class_like_declaration(root, &inherited.name, source)?;
+        if let Some(owner) =
+            class_or_inherited_member_dispatch_owner(root, inherited_class, name, source, visited)
         {
-            return true;
+            return Some(owner);
         }
     }
-    false
+    None
+}
+
+fn dispatch_inherited_types(root: Node<'_>, class: Node<'_>, source: &str) -> Vec<InheritedType> {
+    let inherited = class_inherited_types(root, class, source);
+    let mut ordered = Vec::new();
+    ordered.extend(
+        inherited
+            .iter()
+            .filter(|inherited| inherited.kind == InheritedTypeKind::Mixin)
+            .rev()
+            .cloned(),
+    );
+    ordered.extend(
+        inherited
+            .iter()
+            .filter(|inherited| inherited.kind == InheritedTypeKind::Superclass)
+            .cloned(),
+    );
+    ordered
 }
 
 fn current_class_member_shadows_top_level(invocation: Node<'_>, name: &str, source: &str) -> bool {

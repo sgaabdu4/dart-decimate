@@ -311,6 +311,8 @@ fn initializer_type(node: Node<'_>, source: &str) -> Option<String> {
     let (_, right) = text.split_once('=')?;
     let expression = right.trim().trim_end_matches([',', ';']).trim();
     let unwrapped = unwrap_parenthesized_text(expression).unwrap_or(expression);
+    let without_postfix = unwrapped.trim_end_matches(['?', '!']).trim();
+    let unwrapped = unwrap_parenthesized_text(without_postfix).unwrap_or(without_postfix);
     let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
     let compact = strip_whitespace(without_keyword);
     for target_type in [BUILD_CONTEXT, GO_ROUTER] {
