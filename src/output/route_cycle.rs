@@ -335,12 +335,9 @@ fn arguments_contain_route_location(
 
 fn route_location_argument(arguments: Node<'_>) -> Option<Node<'_>> {
     let mut cursor = arguments.walk();
-    for argument in arguments.named_children(&mut cursor) {
-        if argument.kind() != "named_argument" {
-            return Some(argument);
-        }
-    }
-    None
+    arguments
+        .named_children(&mut cursor)
+        .find(|argument| argument.kind() != "named_argument")
 }
 
 fn route_location_expression(

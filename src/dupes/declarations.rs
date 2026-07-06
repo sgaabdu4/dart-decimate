@@ -69,6 +69,254 @@ fn strip_line_comment(line: &str) -> &str {
     line.split_once("//").map_or(line, |(code, _)| code)
 }
 
+fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
+    abstract_type_header(line)
+        || line == "}"
+        || line == "};"
+        || (in_declaration_body && abstract_member_signature(line))
+}
+
+fn declaration_only_lines(
+    lines: &[(usize, &str)],
+    direct_type_body_lines: &BTreeSet<usize>,
+) -> bool {
+    let mut index = 0;
+    while index < lines.len() {
+        let (line_number, line) = lines[index];
+        let in_declaration_body = direct_type_body_lines.contains(&line_number);
+        if declaration_only_line(line, in_declaration_body) {
+            index += 1;
+            continue;
+        }
+        if in_declaration_body && let Some(end) = multiline_signature_end(lines, index) {
+            let signature = lines[index..=end]
+                .iter()
+                .map(|(_, line)| *line)
+                .collect::<Vec<_>>()
+                .join(" ");
+            if abstract_member_signature(&signature) {
+                index = end + 1;
+                continue;
+            }
+        }
+        return false;
+    }
+    true
+}
+
+fn multiline_signature_end(lines: &[(usize, &str)], start: usize) -> Option<usize> {
+    if lines[start].1.ends_with(';') {
+        return None;
+    }
+    lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find_map(|(index, (_, line))| line.ends_with(';').then_some(index))
+}
+
+fn abstract_type_header(line: &str) -> bool {
+    let Some(header) = line.strip_suffix('{').map(str::trim) else {
+        return false;
+    };
+    declaration_type_header(header)
+}
+
+fn declaration_type_header(header: &str) -> bool {
+    let tokens = header.split_whitespace().collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return false;
+    }
+    for (index, token) in tokens.iter().enumerate() {
+        match *token {
+            "class" => {
+                if index > 0
+                    && tokens.get(index.saturating_sub(1)) == Some(&"mixin")
+                    && type_modifiers(&tokens[..index.saturating_sub(1)])
+                {
+                    return true;
+                }
+                return index > 0 && type_modifiers(&tokens[..index]);
+            }
+            "mixin" => {
+                if tokens.get(index + 1) == Some(&"class") {
+                    continue;
+                }
+                return type_modifiers(&tokens[..index]);
+            }
+            "enum" | "extension" => return type_modifiers(&tokens[..index]),
+            _ => {}
+        }
+    }
+    false
+}
+
+fn type_modifiers(tokens: &[&str]) -> bool {
+    tokens.iter().all(|token| {
+        matches!(
+            *token,
+            "abstract" | "base" | "final" | "interface" | "sealed"
+        )
+    })
+}
+
+fn abstract_member_signature(line: &str) -> bool {
+    let Some(signature) = line.strip_suffix(';').map(str::trim) else {
+        return false;
+    };
+    if signature_contains_non_operator_equals(signature)
+        || signature_contains_top_level_body_brace(signature)
+        || signature.starts_with("import ")
+        || signature.starts_with("export ")
+        || signature.starts_with("part ")
+    {
+        return false;
+    }
+    getter_signature(signature) || callable_member_signature(signature)
+}
+
+fn signature_contains_non_operator_equals(signature: &str) -> bool {
+    let Some(paren) = signature.find('(') else {
+        return signature.contains('=');
+    };
+    let before_parameters = signature[..paren].trim();
+    let tokens = before_parameters.split_whitespace().collect::<Vec<_>>();
+    if tokens.len() >= 2 && tokens.get(tokens.len() - 2) == Some(&"operator") {
+        let Some(operator_token) = tokens.last() else {
+            return signature.contains('=');
+        };
+        let Some(operator_start) = before_parameters.rfind(operator_token) else {
+            return signature.contains('=');
+        };
+        return before_parameters[..operator_start].contains('=')
+            || signature[paren..].contains('=');
+    }
+    signature.contains('=')
+}
+
+fn signature_contains_top_level_body_brace(signature: &str) -> bool {
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut quote = None::<char>;
+    let mut escaped = false;
+
+    for character in signature.chars() {
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+
+        match character {
+            '"' | '\'' => quote = Some(character),
+            '(' => paren_depth += 1,
+            ')' => paren_depth = paren_depth.saturating_sub(1),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            '{' | '}' if paren_depth == 0 && bracket_depth == 0 => return true,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn getter_signature(signature: &str) -> bool {
+    let tokens = signature.split_whitespace().collect::<Vec<_>>();
+    let Some(get_index) = tokens.iter().position(|token| *token == "get") else {
+        return false;
+    };
+    get_index + 1 < tokens.len()
+        && tokens[..get_index]
+            .iter()
+            .all(|token| !EXPRESSION_STARTERS.contains(token))
+        && identifier_like(tokens[get_index + 1])
+}
+
+fn callable_member_signature(signature: &str) -> bool {
+    let Some(paren) = signature.find('(') else {
+        return false;
+    };
+    let before_parameters = signature[..paren].trim();
+    if before_parameters.contains('.') {
+        return false;
+    }
+    let tokens = before_parameters.split_whitespace().collect::<Vec<_>>();
+    if tokens.len() < 2
+        || tokens
+            .iter()
+            .any(|token| EXPRESSION_STARTERS.contains(token))
+    {
+        return false;
+    }
+    let Some(member_name) = tokens.last() else {
+        return false;
+    };
+    identifier_like(member_name) || tokens.get(tokens.len().saturating_sub(2)) == Some(&"operator")
+}
+
+fn identifier_like(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first == '$' || first.is_ascii_alphabetic())
+        && chars.all(|character| {
+            character == '_' || character == '$' || character.is_ascii_alphanumeric()
+        })
+}
+
+const EXPRESSION_STARTERS: &[&str] = &[
+    "assert", "await", "break", "continue", "do", "for", "if", "return", "switch", "throw",
+    "while", "yield",
+];
+
+struct DeclarationContext {
+    direct_type_body_lines: BTreeSet<usize>,
+}
+
+impl DeclarationContext {
+    fn from_source(source: &str) -> Self {
+        let mut direct_type_body_lines = BTreeSet::new();
+        let mut type_body_depths = Vec::<usize>::new();
+        let mut brace_depth = 0usize;
+
+        for (index, raw_line) in source.lines().enumerate() {
+            let line_number = index + 1;
+            let line = strip_line_comment(raw_line).trim();
+            if type_body_depths
+                .last()
+                .is_some_and(|type_depth| brace_depth == *type_depth)
+            {
+                direct_type_body_lines.insert(line_number);
+            }
+
+            let opens_type = abstract_type_header(line);
+            let opens = line.chars().filter(|character| *character == '{').count();
+            let closes = line.chars().filter(|character| *character == '}').count();
+            if opens_type && opens > 0 {
+                type_body_depths.push(brace_depth + 1);
+            }
+            brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
+            while type_body_depths
+                .last()
+                .is_some_and(|type_depth| brace_depth < *type_depth)
+            {
+                type_body_depths.pop();
+            }
+        }
+
+        Self {
+            direct_type_body_lines,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,254 +508,5 @@ mod tests {
 
         assert!(!filter.is_declaration_only_clone(&group));
         Ok(())
-    }
-}
-
-fn declaration_only_line(line: &str, in_declaration_body: bool) -> bool {
-    abstract_type_header(line)
-        || line == "}"
-        || line == "};"
-        || (in_declaration_body && abstract_member_signature(line))
-}
-
-fn declaration_only_lines(
-    lines: &[(usize, &str)],
-    direct_type_body_lines: &BTreeSet<usize>,
-) -> bool {
-    let mut index = 0;
-    while index < lines.len() {
-        let (line_number, line) = lines[index];
-        let in_declaration_body = direct_type_body_lines.contains(&line_number);
-        if declaration_only_line(line, in_declaration_body) {
-            index += 1;
-            continue;
-        }
-        if in_declaration_body && let Some(end) = multiline_signature_end(lines, index) {
-            let signature = lines[index..=end]
-                .iter()
-                .map(|(_, line)| *line)
-                .collect::<Vec<_>>()
-                .join(" ");
-            if abstract_member_signature(&signature) {
-                index = end + 1;
-                continue;
-            }
-        }
-        return false;
-    }
-    true
-}
-
-fn multiline_signature_end(lines: &[(usize, &str)], start: usize) -> Option<usize> {
-    if lines[start].1.ends_with(';') {
-        return None;
-    }
-    lines
-        .iter()
-        .enumerate()
-        .skip(start + 1)
-        .find_map(|(index, (_, line))| line.ends_with(';').then_some(index))
-}
-
-fn abstract_type_header(line: &str) -> bool {
-    let Some(header) = line.strip_suffix('{').map(str::trim) else {
-        return false;
-    };
-    declaration_type_header(header)
-}
-
-fn declaration_type_header(header: &str) -> bool {
-    let tokens = header.split_whitespace().collect::<Vec<_>>();
-    if tokens.is_empty() {
-        return false;
-    }
-    for (index, token) in tokens.iter().enumerate() {
-        match *token {
-            "class" => {
-                if index > 0
-                    && tokens.get(index.saturating_sub(1)) == Some(&"mixin")
-                    && type_modifiers(&tokens[..index.saturating_sub(1)])
-                {
-                    return true;
-                }
-                return index > 0 && type_modifiers(&tokens[..index]);
-            }
-            "mixin" => {
-                if tokens.get(index + 1) == Some(&"class") {
-                    continue;
-                }
-                return type_modifiers(&tokens[..index]);
-            }
-            "enum" => return type_modifiers(&tokens[..index]),
-            "extension" => return type_modifiers(&tokens[..index]),
-            _ => {}
-        }
-    }
-    false
-}
-
-fn type_modifiers(tokens: &[&str]) -> bool {
-    tokens.iter().all(|token| {
-        matches!(
-            *token,
-            "abstract" | "base" | "final" | "interface" | "sealed"
-        )
-    })
-}
-
-fn abstract_member_signature(line: &str) -> bool {
-    let Some(signature) = line.strip_suffix(';').map(str::trim) else {
-        return false;
-    };
-    if signature_contains_non_operator_equals(signature)
-        || signature_contains_top_level_body_brace(signature)
-        || signature.starts_with("import ")
-        || signature.starts_with("export ")
-        || signature.starts_with("part ")
-    {
-        return false;
-    }
-    getter_signature(signature) || callable_member_signature(signature)
-}
-
-fn signature_contains_non_operator_equals(signature: &str) -> bool {
-    let Some(paren) = signature.find('(') else {
-        return signature.contains('=');
-    };
-    let before_parameters = signature[..paren].trim();
-    let tokens = before_parameters.split_whitespace().collect::<Vec<_>>();
-    if tokens.len() >= 2 && tokens.get(tokens.len() - 2) == Some(&"operator") {
-        let Some(operator_token) = tokens.last() else {
-            return signature.contains('=');
-        };
-        let Some(operator_start) = before_parameters.rfind(operator_token) else {
-            return signature.contains('=');
-        };
-        return before_parameters[..operator_start].contains('=')
-            || signature[paren..].contains('=');
-    }
-    signature.contains('=')
-}
-
-fn signature_contains_top_level_body_brace(signature: &str) -> bool {
-    let mut paren_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    let mut quote = None::<char>;
-    let mut escaped = false;
-
-    for character in signature.chars() {
-        if let Some(delimiter) = quote {
-            if escaped {
-                escaped = false;
-            } else if character == '\\' {
-                escaped = true;
-            } else if character == delimiter {
-                quote = None;
-            }
-            continue;
-        }
-
-        match character {
-            '"' | '\'' => quote = Some(character),
-            '(' => paren_depth += 1,
-            ')' => paren_depth = paren_depth.saturating_sub(1),
-            '[' => bracket_depth += 1,
-            ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            '{' | '}' if paren_depth == 0 && bracket_depth == 0 => return true,
-            _ => {}
-        }
-    }
-
-    false
-}
-
-fn getter_signature(signature: &str) -> bool {
-    let tokens = signature.split_whitespace().collect::<Vec<_>>();
-    let Some(get_index) = tokens.iter().position(|token| *token == "get") else {
-        return false;
-    };
-    get_index + 1 < tokens.len()
-        && tokens[..get_index]
-            .iter()
-            .all(|token| !EXPRESSION_STARTERS.contains(token))
-        && identifier_like(tokens[get_index + 1])
-}
-
-fn callable_member_signature(signature: &str) -> bool {
-    let Some(paren) = signature.find('(') else {
-        return false;
-    };
-    let before_parameters = signature[..paren].trim();
-    if before_parameters.contains('.') {
-        return false;
-    }
-    let tokens = before_parameters.split_whitespace().collect::<Vec<_>>();
-    if tokens.len() < 2
-        || tokens
-            .iter()
-            .any(|token| EXPRESSION_STARTERS.contains(token))
-    {
-        return false;
-    }
-    let Some(member_name) = tokens.last() else {
-        return false;
-    };
-    identifier_like(member_name) || tokens.get(tokens.len().saturating_sub(2)) == Some(&"operator")
-}
-
-fn identifier_like(value: &str) -> bool {
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    (first == '_' || first == '$' || first.is_ascii_alphabetic())
-        && chars.all(|character| {
-            character == '_' || character == '$' || character.is_ascii_alphanumeric()
-        })
-}
-
-const EXPRESSION_STARTERS: &[&str] = &[
-    "assert", "await", "break", "continue", "do", "for", "if", "return", "switch", "throw",
-    "while", "yield",
-];
-
-struct DeclarationContext {
-    direct_type_body_lines: BTreeSet<usize>,
-}
-
-impl DeclarationContext {
-    fn from_source(source: &str) -> Self {
-        let mut direct_type_body_lines = BTreeSet::new();
-        let mut type_body_depths = Vec::<usize>::new();
-        let mut brace_depth = 0usize;
-
-        for (index, raw_line) in source.lines().enumerate() {
-            let line_number = index + 1;
-            let line = strip_line_comment(raw_line).trim();
-            if type_body_depths
-                .last()
-                .is_some_and(|type_depth| brace_depth == *type_depth)
-            {
-                direct_type_body_lines.insert(line_number);
-            }
-
-            let opens_type = abstract_type_header(line);
-            let opens = line.chars().filter(|character| *character == '{').count();
-            let closes = line.chars().filter(|character| *character == '}').count();
-            if opens_type && opens > 0 {
-                type_body_depths.push(brace_depth + 1);
-            }
-            brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
-            while type_body_depths
-                .last()
-                .is_some_and(|type_depth| brace_depth < *type_depth)
-            {
-                type_body_depths.pop();
-            }
-        }
-
-        Self {
-            direct_type_body_lines,
-        }
     }
 }

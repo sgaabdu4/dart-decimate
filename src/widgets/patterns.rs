@@ -1236,7 +1236,7 @@ fn if_case_expression_matches(
     case_pattern_expression_matches(pattern, owner, expression, roots, source)
 }
 
-fn expression_after_if_keyword<'source>(text: &'source str) -> Option<&'source str> {
+fn expression_after_if_keyword(text: &str) -> Option<&str> {
     let keyword = find_keyword(text, "if")?;
     let after_keyword = text.get(keyword + "if".len()..)?.trim_start();
     Some(

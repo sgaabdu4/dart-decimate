@@ -456,8 +456,10 @@ void main(BuildContext context) {
 ";
         let parsed = parse_tree(Path::new("lib/widgets.dart"), source)?;
         let root = parsed.tree().root_node();
-        let call = first_named_node(root, "call_expression").unwrap();
-        let member = first_named_node(root, "member_expression").unwrap();
+        let call = first_named_node(root, "call_expression")
+            .ok_or_else(|| std::io::Error::other("missing call_expression"))?;
+        let member = first_named_node(root, "member_expression")
+            .ok_or_else(|| std::io::Error::other("missing member_expression"))?;
 
         assert_eq!(
             split_closure_body_constructor_name(call, member, parsed.source()),

@@ -2,6 +2,209 @@ use std::path::Path;
 
 use super::*;
 
+const STATE_FIELD_ROOT_SHADOWS_SOURCE: &str = r"
+class RealStateReadPanel extends StatefulWidget {
+  const RealStateReadPanel({super.key, required this.title});
+  final String title;
+  State<RealStateReadPanel> createState() => _RealStateReadPanelState();
+}
+class _RealStateReadPanelState extends State<RealStateReadPanel> {
+  Widget build(BuildContext context) => Text(widget.title);
+}
+class DidUpdateWidgetPanel extends StatefulWidget {
+  const DidUpdateWidgetPanel({super.key, required this.title});
+  final String title;
+  State<DidUpdateWidgetPanel> createState() => _DidUpdateWidgetPanelState();
+}
+class _DidUpdateWidgetPanelState extends State<DidUpdateWidgetPanel> {
+  void didUpdateWidget(covariant DidUpdateWidgetPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    Text(oldWidget.title);
+  }
+  Widget build(BuildContext context) => const SizedBox();
+}
+class LocalShadowStatePanel extends StatefulWidget {
+  const LocalShadowStatePanel({super.key, required this.title});
+  final String title;
+  State<LocalShadowStatePanel> createState() => _LocalShadowStatePanelState();
+}
+class _LocalShadowStatePanelState extends State<LocalShadowStatePanel> {
+  Widget build(BuildContext context) {
+    final widget = const LocalShadowStatePanel(title: 'local');
+    return Text(widget.title);
+  }
+}
+class CallbackShadowStatePanel extends StatefulWidget {
+  const CallbackShadowStatePanel({super.key, required this.title});
+  final String title;
+  State<CallbackShadowStatePanel> createState() => _CallbackShadowStatePanelState();
+}
+class _CallbackShadowStatePanelState extends State<CallbackShadowStatePanel> {
+  Widget build(BuildContext context) {
+    return [const CallbackShadowStatePanel(title: 'local')]
+        .map((widget) => Text(widget.title))
+        .first;
+  }
+}
+class HeaderShadowStatePanel extends StatefulWidget {
+  const HeaderShadowStatePanel({super.key, required this.title});
+  final String title;
+  State<HeaderShadowStatePanel> createState() => _HeaderShadowStatePanelState();
+}
+class _HeaderShadowStatePanelState extends State<HeaderShadowStatePanel> {
+  Widget build(BuildContext context) {
+    for (final widget in [const HeaderShadowStatePanel(title: 'local')]) {
+      Text(widget.title);
+    }
+    return const SizedBox();
+  }
+}
+class PatternShadowStatePanel extends StatefulWidget {
+  const PatternShadowStatePanel({super.key, required this.title});
+  final String title;
+  State<PatternShadowStatePanel> createState() => _PatternShadowStatePanelState();
+}
+class _PatternShadowStatePanelState extends State<PatternShadowStatePanel> {
+  Widget build(BuildContext context) {
+    final record = (widget: const PatternShadowStatePanel(title: 'local'));
+    final (:widget) = record;
+    return Text(widget.title);
+  }
+}
+class CaseShadowStatePanel extends StatefulWidget {
+  const CaseShadowStatePanel({super.key, required this.title});
+  final String title;
+  State<CaseShadowStatePanel> createState() => _CaseShadowStatePanelState();
+}
+class _CaseShadowStatePanelState extends State<CaseShadowStatePanel> {
+  Widget build(BuildContext context) {
+    if ((widget: const CaseShadowStatePanel(title: 'local')) case (:final widget)) {
+      Text(widget.title);
+    }
+    return const SizedBox();
+  }
+}
+class OldWidgetLocalShadowPanel extends StatefulWidget {
+  const OldWidgetLocalShadowPanel({super.key, required this.title});
+  final String title;
+  State<OldWidgetLocalShadowPanel> createState() => _OldWidgetLocalShadowPanelState();
+}
+class _OldWidgetLocalShadowPanelState extends State<OldWidgetLocalShadowPanel> {
+  void didUpdateWidget(covariant OldWidgetLocalShadowPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldWidget = const OldWidgetLocalShadowPanel(title: 'local');
+    Text(oldWidget.title);
+  }
+  Widget build(BuildContext context) => const SizedBox();
+}
+";
+
+const DIRECT_FIELD_SHADOWS_SOURCE: &str = r"
+class LocalShadowCard extends StatelessWidget {
+  const LocalShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    const title = 'local';
+    return Text(title);
+  }
+}
+class ParameterShadowCard extends StatelessWidget {
+  const ParameterShadowCard({super.key, required this.title});
+  final String title;
+  Widget label(String title) => Text(title);
+  Widget build(BuildContext context) => label('local');
+}
+class CallbackParameterShadowCard extends StatelessWidget {
+  const CallbackParameterShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    return ['local'].map((title) => Text(title)).first;
+  }
+}
+class DirectFieldCard extends StatelessWidget {
+  const DirectFieldCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Text(title);
+}
+class LaterLocalShadowCard extends StatelessWidget {
+  const LaterLocalShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final child = Text(title);
+    const title = 'local';
+    return child;
+  }
+}
+class LaterCallbackShadowCard extends StatelessWidget {
+  const LaterCallbackShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final child = Text(title);
+    ['local'].map((title) => Text(title)).toList();
+    return child;
+  }
+}
+class EarlierBlockShadowCard extends StatelessWidget {
+  const EarlierBlockShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    if (true) {
+      const title = 'local';
+      Text(title);
+    }
+    return Text(title);
+  }
+}
+class EarlierFunctionShadowCard extends StatelessWidget {
+  const EarlierFunctionShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    void label() {
+      const title = 'local';
+      Text(title);
+    }
+    label();
+    return Text(title);
+  }
+}
+class PriorCallbackShadowThenUseCard extends StatelessWidget {
+  const PriorCallbackShadowThenUseCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final labels = ['local'].map((title) => title).toList();
+    return Text(title);
+  }
+}
+class PriorCallbackLocalThenUseCard extends StatelessWidget {
+  const PriorCallbackLocalThenUseCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) {
+    final labels = ['local'].map((value) {
+      final title = value;
+      return title;
+    }).toList();
+    return Text(title);
+  }
+}
+class ElseBranchShadowCard extends StatelessWidget {
+  const ElseBranchShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context, bool useLocal) {
+    if (useLocal) {
+      const title = 'local';
+      return Text(title);
+    } else {
+      return Text(title);
+    }
+  }
+}
+class FunctionTypedSignatureShadowCard extends StatelessWidget {
+  const FunctionTypedSignatureShadowCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context, String Function(String title) format) => Text(title);
+}
+";
+
 #[test]
 fn flags_unused_stateless_widget_field_formal() -> Result<(), Box<dyn std::error::Error>> {
     let source = r"
@@ -107,103 +310,8 @@ class _UsedViaStateState extends State<UsedViaState> {
 
 #[test]
 fn state_field_reads_ignore_widget_root_shadows() -> Result<(), Box<dyn std::error::Error>> {
-    let source = r"
-class RealStateReadPanel extends StatefulWidget {
-  const RealStateReadPanel({super.key, required this.title});
-  final String title;
-  State<RealStateReadPanel> createState() => _RealStateReadPanelState();
-}
-class _RealStateReadPanelState extends State<RealStateReadPanel> {
-  Widget build(BuildContext context) => Text(widget.title);
-}
-class DidUpdateWidgetPanel extends StatefulWidget {
-  const DidUpdateWidgetPanel({super.key, required this.title});
-  final String title;
-  State<DidUpdateWidgetPanel> createState() => _DidUpdateWidgetPanelState();
-}
-class _DidUpdateWidgetPanelState extends State<DidUpdateWidgetPanel> {
-  void didUpdateWidget(covariant DidUpdateWidgetPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    Text(oldWidget.title);
-  }
-  Widget build(BuildContext context) => const SizedBox();
-}
-class LocalShadowStatePanel extends StatefulWidget {
-  const LocalShadowStatePanel({super.key, required this.title});
-  final String title;
-  State<LocalShadowStatePanel> createState() => _LocalShadowStatePanelState();
-}
-class _LocalShadowStatePanelState extends State<LocalShadowStatePanel> {
-  Widget build(BuildContext context) {
-    final widget = const LocalShadowStatePanel(title: 'local');
-    return Text(widget.title);
-  }
-}
-class CallbackShadowStatePanel extends StatefulWidget {
-  const CallbackShadowStatePanel({super.key, required this.title});
-  final String title;
-  State<CallbackShadowStatePanel> createState() => _CallbackShadowStatePanelState();
-}
-class _CallbackShadowStatePanelState extends State<CallbackShadowStatePanel> {
-  Widget build(BuildContext context) {
-    return [const CallbackShadowStatePanel(title: 'local')]
-        .map((widget) => Text(widget.title))
-        .first;
-  }
-}
-class HeaderShadowStatePanel extends StatefulWidget {
-  const HeaderShadowStatePanel({super.key, required this.title});
-  final String title;
-  State<HeaderShadowStatePanel> createState() => _HeaderShadowStatePanelState();
-}
-class _HeaderShadowStatePanelState extends State<HeaderShadowStatePanel> {
-  Widget build(BuildContext context) {
-    for (final widget in [const HeaderShadowStatePanel(title: 'local')]) {
-      Text(widget.title);
-    }
-    return const SizedBox();
-  }
-}
-class PatternShadowStatePanel extends StatefulWidget {
-  const PatternShadowStatePanel({super.key, required this.title});
-  final String title;
-  State<PatternShadowStatePanel> createState() => _PatternShadowStatePanelState();
-}
-class _PatternShadowStatePanelState extends State<PatternShadowStatePanel> {
-  Widget build(BuildContext context) {
-    final record = (widget: const PatternShadowStatePanel(title: 'local'));
-    final (:widget) = record;
-    return Text(widget.title);
-  }
-}
-class CaseShadowStatePanel extends StatefulWidget {
-  const CaseShadowStatePanel({super.key, required this.title});
-  final String title;
-  State<CaseShadowStatePanel> createState() => _CaseShadowStatePanelState();
-}
-class _CaseShadowStatePanelState extends State<CaseShadowStatePanel> {
-  Widget build(BuildContext context) {
-    if ((widget: const CaseShadowStatePanel(title: 'local')) case (:final widget)) {
-      Text(widget.title);
-    }
-    return const SizedBox();
-  }
-}
-class OldWidgetLocalShadowPanel extends StatefulWidget {
-  const OldWidgetLocalShadowPanel({super.key, required this.title});
-  final String title;
-  State<OldWidgetLocalShadowPanel> createState() => _OldWidgetLocalShadowPanelState();
-}
-class _OldWidgetLocalShadowPanelState extends State<OldWidgetLocalShadowPanel> {
-  void didUpdateWidget(covariant OldWidgetLocalShadowPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final oldWidget = const OldWidgetLocalShadowPanel(title: 'local');
-    Text(oldWidget.title);
-  }
-  Widget build(BuildContext context) => const SizedBox();
-}
-";
-    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+    let targets =
+        unused_param_targets(parse_findings(STATE_FIELD_ROOT_SHADOWS_SOURCE)?.unused_params);
 
     assert_eq!(
         targets,
@@ -222,112 +330,7 @@ class _OldWidgetLocalShadowPanelState extends State<OldWidgetLocalShadowPanel> {
 #[test]
 fn direct_field_reads_ignore_local_and_parameter_shadows() -> Result<(), Box<dyn std::error::Error>>
 {
-    let source = r"
-class LocalShadowCard extends StatelessWidget {
-  const LocalShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    const title = 'local';
-    return Text(title);
-  }
-}
-class ParameterShadowCard extends StatelessWidget {
-  const ParameterShadowCard({super.key, required this.title});
-  final String title;
-  Widget label(String title) => Text(title);
-  Widget build(BuildContext context) => label('local');
-}
-class CallbackParameterShadowCard extends StatelessWidget {
-  const CallbackParameterShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    return ['local'].map((title) => Text(title)).first;
-  }
-}
-class DirectFieldCard extends StatelessWidget {
-  const DirectFieldCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) => Text(title);
-}
-class LaterLocalShadowCard extends StatelessWidget {
-  const LaterLocalShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    final child = Text(title);
-    const title = 'local';
-    return child;
-  }
-}
-class LaterCallbackShadowCard extends StatelessWidget {
-  const LaterCallbackShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    final child = Text(title);
-    ['local'].map((title) => Text(title)).toList();
-    return child;
-  }
-}
-class EarlierBlockShadowCard extends StatelessWidget {
-  const EarlierBlockShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    if (true) {
-      const title = 'local';
-      Text(title);
-    }
-    return Text(title);
-  }
-}
-class EarlierFunctionShadowCard extends StatelessWidget {
-  const EarlierFunctionShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    void label() {
-      const title = 'local';
-      Text(title);
-    }
-    label();
-    return Text(title);
-  }
-}
-class PriorCallbackShadowThenUseCard extends StatelessWidget {
-  const PriorCallbackShadowThenUseCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    final labels = ['local'].map((title) => title).toList();
-    return Text(title);
-  }
-}
-class PriorCallbackLocalThenUseCard extends StatelessWidget {
-  const PriorCallbackLocalThenUseCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context) {
-    final labels = ['local'].map((value) {
-      final title = value;
-      return title;
-    }).toList();
-    return Text(title);
-  }
-}
-class ElseBranchShadowCard extends StatelessWidget {
-  const ElseBranchShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context, bool useLocal) {
-    if (useLocal) {
-      const title = 'local';
-      return Text(title);
-    } else {
-      return Text(title);
-    }
-  }
-}
-class FunctionTypedSignatureShadowCard extends StatelessWidget {
-  const FunctionTypedSignatureShadowCard({super.key, required this.title});
-  final String title;
-  Widget build(BuildContext context, String Function(String title) format) => Text(title);
-}
-";
-    let unused = parse_findings(source)?.unused_params;
+    let unused = parse_findings(DIRECT_FIELD_SHADOWS_SOURCE)?.unused_params;
     let targets = unused
         .iter()
         .map(|param| format!("{}.{}", param.widget_class, param.param_name))
