@@ -582,7 +582,7 @@ fn clone_group_from_occurrences(
     occurrences: Vec<(CloneOccurrence, usize)>,
     options: &DuplicateOptions,
 ) -> Option<CodeClone> {
-    let mut seen = BTreeSet::<(PathBuf, usize, usize)>::new();
+    let mut seen = BTreeSet::<(PathBuf, usize, usize, usize)>::new();
     let mut instances = Vec::new();
     let mut token_count = 0;
     let mut line_count = 0;
@@ -593,6 +593,7 @@ fn clone_group_from_occurrences(
             occurrence.path.clone(),
             occurrence.start_line,
             occurrence.end_line,
+            occurrence.column,
         )) {
             continue;
         }
@@ -611,10 +612,11 @@ fn clone_group_from_occurrences(
         return None;
     }
     instances.sort_by(|left, right| {
-        (&left.path, left.start_line, left.end_line).cmp(&(
+        (&left.path, left.start_line, left.end_line, left.column).cmp(&(
             &right.path,
             right.start_line,
             right.end_line,
+            right.column,
         ))
     });
 

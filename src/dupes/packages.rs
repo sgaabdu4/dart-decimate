@@ -96,10 +96,11 @@ impl CopiedPackageFilter {
             }
         }
         instances.sort_by(|left, right| {
-            (&left.path, left.start_line, left.end_line).cmp(&(
+            (&left.path, left.start_line, left.end_line, left.column).cmp(&(
                 &right.path,
                 right.start_line,
                 right.end_line,
+                right.column,
             ))
         });
         group.instances = instances;

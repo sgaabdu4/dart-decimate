@@ -219,6 +219,50 @@ fn copied_package_canonicalization_keeps_unmatched_occurrences()
 }
 
 #[test]
+fn copied_package_canonicalization_orders_same_line_instances_by_column()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "functions/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "functions/delete_user/shared/pubspec.yaml",
+        "name: shared\n",
+    )?;
+    let canonical = fixture.path().join("functions/shared/lib/pagination.dart");
+    let mirror = fixture
+        .path()
+        .join("functions/delete_user/shared/lib/pagination.dart");
+    let mut group = CodeClone {
+        fingerprint: "dup:test".to_owned(),
+        instances: vec![
+            instance(&mirror, 10, 12, 8),
+            instance(&mirror, 10, 12, 4),
+            instance(&canonical, 10, 12, 8),
+            instance(&canonical, 10, 12, 4),
+        ],
+        line_count: 3,
+        token_count: 20,
+    };
+    let mut filter = CopiedPackageFilter::new(fixture.path());
+
+    filter.canonicalize_copied_package_instances(&mut group);
+
+    assert_eq!(group.instances.len(), 2);
+    assert!(group.instances.iter().all(|clone| clone.path == canonical));
+    assert_eq!(
+        group
+            .instances
+            .iter()
+            .map(|clone| clone.column)
+            .collect::<Vec<_>>(),
+        vec![4, 8]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -279,6 +323,20 @@ fn options(mode: DuplicateMode, min_lines: usize, min_tokens: usize) -> Duplicat
         ignore_imports: true,
         top: None,
         threshold: None,
+    }
+}
+
+fn instance(
+    path: &std::path::Path,
+    start_line: usize,
+    end_line: usize,
+    column: usize,
+) -> CodeCloneInstance {
+    CodeCloneInstance {
+        path: path.to_path_buf(),
+        start_line,
+        end_line,
+        column,
     }
 }
 
