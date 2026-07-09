@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.11"
+    "dart-decimate": "^0.0.13"
   }
 }
 ```
@@ -282,9 +282,10 @@ Dart Decimate finds:
 - import/export/part/augment targets that do not resolve
 - invalid `part` / `part of` relationships
 
-Generated typed GoRouter route registries that only cycle through real
-typed-route navigation helpers are warning-level; unrelated imports in the cycle
-stay error-level.
+Generated typed GoRouter route registry back-edges are warning-level only when
+the importing file uses real typed-route navigation helpers. Mixed cycles still
+emit error-level residual findings for unrelated edges, registry-to-registry
+imports, exports, or non-route registry API usage.
 
 Useful commands:
 
@@ -485,6 +486,7 @@ Every finding includes:
 - `column`
 - `safe_to_delete`
 - related `files`
+- related dependency `edge`, when available
 - suggested `actions`
 
 Example shape:
@@ -650,21 +652,27 @@ dart-decimate license status --format json
 ## Development
 
 ```bash
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-npm run version:check
+git diff --check
+npm run lint
 npm run version:bump:check -- origin/main
 npm run release:check
-npm run migration:check
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+npm ci --ignore-scripts
+npx fallow audit --base origin/main --quiet
+cargo test --all-targets
 npm run pack:check
+npm run test:postinstall:prebuilt
+npm run test:npx:prebuilt
+npm run test:npx:local
+npm run test:npx:mcp:local
 ```
 
 This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.11`.
+Current version: `0.0.13`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base
@@ -683,8 +691,9 @@ Release reruns for the same commit may update GitHub release assets. If the npm
 package already exists for that commit, the publish step is skipped; a reused tag
 or npm version from another commit fails.
 
-Local hooks block stale package names, mismatched versions, reused npm versions,
-and direct pushes to `main`.
+Local hooks block direct pushes to `main`, fetch the configured base ref when
+needed, and run the same version, release, lint, Fallow, package, and test gates
+as the local no-mistakes configuration.
 
 ## License
 

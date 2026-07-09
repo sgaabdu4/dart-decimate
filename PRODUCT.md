@@ -81,7 +81,9 @@ Phase 3 runs graph intelligence algorithms:
   private class-like fields, getters, setters, and methods
 - public library `export` chains count as public API reachability and respect
   `show`/`hide` combinators
-- circular dependency detection via strongly connected components
+- circular dependency detection via strongly connected components, with
+  generated typed GoRouter route-registry helper back-edges classified before
+  findings are emitted
 - export-only cycle detection for barrel/re-export loops
 - architecture boundary rules over graph edges
 - structural Dart health analysis for cyclomatic and cognitive function
@@ -175,7 +177,8 @@ Phase 4 exposes the CLI and agent output contract:
 - `dart-decimate audit` summary includes `risk_score`, `risk_level`, and
   introduced/pre-existing attribution; `--gate new-only` fails only on
   introduced error findings while keeping related pre-existing findings visible
-- JSON findings include paths, line/column locations, `safe_to_delete`, and `actions`
+- JSON findings include paths, line/column locations, optional dependency
+  `edge`, `safe_to_delete`, and `actions`
 - JSON reports include read-only `next_steps` for trace-before-delete and
   grouped security-surface review workflows
 - `dart-decimate audit --base REF` runs full graph analysis and reports only findings
@@ -239,8 +242,10 @@ Current implemented parity:
 
 - file-level dead code reachability
 - circular dependency detection, with generated typed GoRouter route registry
-  cycles downgraded only when every cycle edge is a real typed-route navigation
-  helper shape
+  helper back-edges downgraded only when they are real typed-route navigation
+  helper imports, while residual cycles, route-registry-to-registry imports,
+  exports, shadowed route names, prefixed non-route API usage, re-exported
+  non-route APIs, and interpolated non-route API references remain errors
 - generated Dart filtering for companion files, Flutter l10n outputs, and
   FlutterFire options, including dead-file protection and generated-only cycle
   suppression

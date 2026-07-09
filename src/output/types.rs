@@ -367,7 +367,7 @@ pub enum FindingKind {
     MissingContextMountedAfterAwait,
     /// Missing entry point.
     MissingEntryPoint,
-    /// Strongly connected dependency component.
+    /// Circular dependency finding after graph policy classification.
     CircularDependency,
     /// Strongly connected component composed only of export edges.
     ReExportCycle,
