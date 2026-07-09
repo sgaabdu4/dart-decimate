@@ -11,8 +11,8 @@ use super::{
     argument_list, helper_has_typed_route_navigation_call,
     navigation::term_identifier_shadowed_at,
     registry_api::{VisibleNonRouteRegistryApi, visible_non_route_registry_api},
-    route_location_argument, route_location_expression_member, typed_route_navigation_call,
-    visit_named,
+    route_extension_navigation_call, route_location_argument, route_location_expression_member,
+    typed_route_navigation_call, visit_named,
 };
 use crate::{
     DartFile, DependencyCycle, DependencyKind, Location, ResolvedDependency, scan::ScannedProject,
@@ -285,14 +285,19 @@ fn typed_route_navigation_member_reference(
             parent.kind(),
             "call_expression" | "function_expression_invocation"
         ) && typed_route_navigation_call(root, parent, source, route_classes)
-            && (navigation_call_member_identifier(parent, node, source)
-                || route_location_argument_member_identifier(
-                    parent,
-                    node,
-                    root,
-                    source,
-                    route_classes,
-                ))
+            && (route_extension_navigation_call_member_identifier(
+                root,
+                parent,
+                node,
+                source,
+                route_classes,
+            ) || route_location_argument_member_identifier(
+                parent,
+                node,
+                root,
+                source,
+                route_classes,
+            ))
         {
             return true;
         }
@@ -304,7 +309,13 @@ fn typed_route_navigation_member_reference(
     false
 }
 
-fn navigation_call_member_identifier(call: Node<'_>, node: Node<'_>, source: &str) -> bool {
+fn route_extension_navigation_call_member_identifier(
+    root: Node<'_>,
+    call: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+    route_classes: &BTreeSet<String>,
+) -> bool {
     let Some(arguments) = argument_list(call) else {
         return false;
     };
@@ -317,6 +328,10 @@ fn navigation_call_member_identifier(call: Node<'_>, node: Node<'_>, source: &st
     let Some(name) = super::navigation_call_name(prefix) else {
         return false;
     };
+    if !route_extension_navigation_call(root, call, prefix, &name, arguments, route_classes, source)
+    {
+        return false;
+    }
     node.utf8_text(source.as_bytes()).ok() == Some(name.as_str())
 }
 
