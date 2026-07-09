@@ -8,10 +8,14 @@ use petgraph::visit::EdgeRef;
 use tree_sitter::Node;
 
 use super::{
-    helper_has_typed_route_navigation_call, registry_api::visible_non_route_registry_api_names,
+    helper_has_typed_route_navigation_call,
+    navigation::term_identifier_shadowed_at,
+    registry_api::{VisibleNonRouteRegistryApi, visible_non_route_registry_api},
     visit_named,
 };
-use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan::ScannedProject};
+use crate::{
+    DartFile, DependencyCycle, DependencyKind, Location, ResolvedDependency, scan::ScannedProject,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::output) struct TypedGoRouterCycle {
@@ -180,16 +184,10 @@ fn helper_references_non_route_registry_api(
     root: Node<'_>,
     source: &str,
 ) -> bool {
-    let non_route_api_names =
-        visible_non_route_registry_api_names(dependency, route_file, files_by_path, dependencies);
-    !non_route_api_names.is_empty()
-        && helper_references_imported_api(
-            dependency,
-            helper_file,
-            root,
-            source,
-            &non_route_api_names,
-        )
+    let non_route_api =
+        visible_non_route_registry_api(dependency, route_file, files_by_path, dependencies);
+    !non_route_api.is_empty()
+        && helper_references_imported_api(dependency, helper_file, root, source, &non_route_api)
 }
 
 fn helper_references_imported_api(
@@ -197,7 +195,7 @@ fn helper_references_imported_api(
     helper_file: &DartFile,
     root: Node<'_>,
     source: &str,
-    imported_names: &BTreeSet<String>,
+    imported_api: &VisibleNonRouteRegistryApi,
 ) -> bool {
     let mut found = false;
     let mut syntactic_references = BTreeSet::new();
@@ -213,27 +211,159 @@ fn helper_references_imported_api(
             node.start_position().row + 1,
             node.start_position().column,
         ));
-        if !imported_names.contains(name) {
+        if imported_api.top_level_names.contains(name)
+            && top_level_reference_uses_imported_api(
+                dependency,
+                helper_file,
+                root,
+                node,
+                source,
+                name,
+            )
+        {
+            found = true;
             return;
         }
-        if let Some(prefix) = dependency.visibility.prefix.as_deref() {
-            found = identifier_uses_prefix(source, node.start_byte(), prefix);
-            return;
+        if imported_api.member_names.contains(name)
+            && member_reference_uses_imported_api(dependency, root, node, source)
+        {
+            found = true;
         }
-        found = !identifier_has_prefix(source, node.start_byte())
-            && !helper_declares_or_aliases_name(helper_file, name);
     });
     found
         || (dependency.visibility.prefix.is_none()
             && helper_file.references.iter().any(|reference| {
-                imported_names.contains(reference.name.as_str())
+                let matched = imported_api
+                    .top_level_names
+                    .contains(reference.name.as_str())
                     && !syntactic_references.contains(&(
                         reference.name.clone(),
                         reference.location.line,
                         reference.location.column,
                     ))
                     && !helper_declares_or_aliases_name(helper_file, &reference.name)
+                    && !reference_is_declaration_name(
+                        root,
+                        source,
+                        &reference.name,
+                        reference.location,
+                    )
+                    && !reference_shadowed_at(root, source, &reference.name, reference.location);
+                matched
             }))
+}
+
+fn top_level_reference_uses_imported_api(
+    dependency: &ResolvedDependency,
+    helper_file: &DartFile,
+    root: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+    name: &str,
+) -> bool {
+    if let Some(prefix) = dependency.visibility.prefix.as_deref() {
+        return identifier_uses_prefix(source, node.start_byte(), prefix)
+            && !term_identifier_shadowed_at(root, node, prefix, source);
+    }
+    !identifier_has_prefix(source, node.start_byte())
+        && !helper_declares_or_aliases_name(helper_file, name)
+        && !term_identifier_shadowed_at(root, node, name, source)
+}
+
+fn member_reference_uses_imported_api(
+    dependency: &ResolvedDependency,
+    root: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+) -> bool {
+    if let Some(prefix) = dependency.visibility.prefix.as_deref() {
+        return member_reference_receiver_uses_prefix(node, source, prefix)
+            && !term_identifier_shadowed_at(root, node, prefix, source);
+    }
+    identifier_has_prefix(source, node.start_byte())
+}
+
+fn member_reference_receiver_uses_prefix(node: Node<'_>, source: &str, prefix: &str) -> bool {
+    let Some(receiver) = member_reference_receiver_text(node, source) else {
+        return false;
+    };
+    let compact = receiver
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
+    compact == prefix || compact.starts_with(&format!("{prefix}."))
+}
+
+fn member_reference_receiver_text<'source>(
+    node: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if matches!(
+            parent.kind(),
+            "member_expression" | "null_aware_member_expression" | "assignable_expression"
+        ) && parent
+            .child_by_field_name("property")
+            .is_some_and(|property| same_node(property, node))
+        {
+            return parent
+                .child_by_field_name("object")
+                .and_then(|object| object.utf8_text(source.as_bytes()).ok());
+        }
+        current = parent.parent();
+    }
+    None
+}
+
+fn reference_shadowed_at(root: Node<'_>, source: &str, name: &str, location: Location) -> bool {
+    let Some(site) = reference_node_at(root, source, name, location) else {
+        return false;
+    };
+    term_identifier_shadowed_at(root, site, name, source)
+}
+
+fn reference_is_declaration_name(
+    root: Node<'_>,
+    source: &str,
+    name: &str,
+    location: Location,
+) -> bool {
+    let Some(node) = reference_node_at(root, source, name, location) else {
+        return false;
+    };
+    node.utf8_text(source.as_bytes()).ok() == Some(name) && identifier_is_declaration_name(node)
+}
+
+fn reference_node_at<'tree>(
+    root: Node<'tree>,
+    source: &str,
+    name: &str,
+    location: Location,
+) -> Option<Node<'tree>> {
+    let byte = byte_offset_at_location(source, location)?;
+    root.descendant_for_byte_range(byte, byte + name.len())
+}
+
+fn byte_offset_at_location(source: &str, location: Location) -> Option<usize> {
+    if location.line == 0 {
+        return None;
+    }
+    let mut line = 1;
+    let mut line_start = 0;
+    loop {
+        if line == location.line {
+            let line_end = source
+                .get(line_start..)?
+                .find('\n')
+                .map_or(source.len(), |relative| line_start + relative);
+            let offset = line_start.checked_add(location.column)?;
+            return (offset <= line_end).then_some(offset);
+        }
+        let newline = source.get(line_start..)?.find('\n')?;
+        line_start += newline + 1;
+        line += 1;
+    }
 }
 
 fn reference_identifier_text<'source>(
@@ -247,17 +377,23 @@ fn reference_identifier_text<'source>(
     if name == "_" || has_ancestor_kind(node, &["import_or_export", "part_directive"]) {
         return None;
     }
-    let Some(parent) = node.parent() else {
-        return Some(name);
-    };
-    if parent.kind() == "type_alias" && is_type_alias_name(parent, node) {
-        return None;
-    }
-    if DECLARATION_NAME_OWNER_KINDS.contains(&parent.kind()) && is_child_field(parent, node, "name")
-    {
+    if identifier_is_declaration_name(node) {
         return None;
     }
     Some(name)
+}
+
+fn identifier_is_declaration_name(node: Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if parent.kind() == "type_alias" && is_type_alias_name(parent, node) {
+        return true;
+    }
+    if parent.kind() == "identifier_list" {
+        return true;
+    }
+    DECLARATION_NAME_OWNER_KINDS.contains(&parent.kind()) && is_child_field(parent, node, "name")
 }
 
 fn identifier_uses_prefix(source: &str, identifier_start: usize, prefix: &str) -> bool {
@@ -321,13 +457,16 @@ const DECLARATION_NAME_OWNER_KINDS: &[&str] = &[
     "function_signature",
     "getter_signature",
     "initialized_identifier",
+    "initialized_variable_definition",
     "mixin_declaration",
     "normal_formal_parameter",
     "operator_signature",
     "redirecting_factory_constructor_signature",
     "setter_signature",
     "static_final_declaration",
+    "typed_identifier",
     "type_alias",
+    "variable_pattern",
 ];
 
 fn has_ancestor_kind(node: Node<'_>, kinds: &[&str]) -> bool {

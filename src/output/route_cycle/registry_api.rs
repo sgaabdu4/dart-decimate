@@ -3,30 +3,42 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     DartCombinator, DartCombinatorKind, DartFile, DependencyKind, DependencyVisibility,
-    ResolvedDependency,
+    MemberDeclaration, MemberKind, ResolvedDependency,
 };
 
-pub(super) fn visible_non_route_registry_api_names(
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct VisibleNonRouteRegistryApi {
+    pub(super) top_level_names: BTreeSet<String>,
+    pub(super) member_names: BTreeSet<String>,
+}
+
+impl VisibleNonRouteRegistryApi {
+    pub(super) fn is_empty(&self) -> bool {
+        self.top_level_names.is_empty() && self.member_names.is_empty()
+    }
+}
+
+pub(super) fn visible_non_route_registry_api(
     dependency: &ResolvedDependency,
     route_file: &DartFile,
     files_by_path: &BTreeMap<PathBuf, &DartFile>,
     dependencies: &[ResolvedDependency],
-) -> BTreeSet<String> {
+) -> VisibleNonRouteRegistryApi {
     let route_classes = route_file
         .routes
         .iter()
         .map(|route| route.route_class.as_str())
         .collect::<BTreeSet<_>>();
-    let mut names = BTreeSet::new();
+    let mut api = VisibleNonRouteRegistryApi::default();
     let collector = ExportApiCollector {
         dependency,
         files_by_path,
         dependencies,
         route_classes: &route_classes,
     };
-    collector.collect_library(&route_file.path, &[], &mut names);
-    collector.collect_exports(&route_file.path, &[], 0, &mut names);
-    names
+    collector.collect_library(&route_file.path, &[], &mut api);
+    collector.collect_exports(&route_file.path, &[], 0, &mut api);
+    api
 }
 
 struct ExportApiCollector<'a> {
@@ -42,7 +54,7 @@ impl ExportApiCollector<'_> {
         from_path: &Path,
         chain: &[DependencyVisibility],
         depth: usize,
-        names: &mut BTreeSet<String>,
+        api: &mut VisibleNonRouteRegistryApi,
     ) {
         if depth > 8 {
             return;
@@ -55,8 +67,8 @@ impl ExportApiCollector<'_> {
         {
             let mut next_chain = chain.to_owned();
             next_chain.push(edge.visibility.clone());
-            self.collect_library(&edge.to_path, &next_chain, names);
-            self.collect_exports(&edge.to_path, &next_chain, depth + 1, names);
+            self.collect_library(&edge.to_path, &next_chain, api);
+            self.collect_exports(&edge.to_path, &next_chain, depth + 1, api);
         }
     }
 
@@ -64,13 +76,13 @@ impl ExportApiCollector<'_> {
         &self,
         library_path: &Path,
         chain: &[DependencyVisibility],
-        names: &mut BTreeSet<String>,
+        api: &mut VisibleNonRouteRegistryApi,
     ) {
         for path in library_paths(self.dependencies, library_path) {
             let Some(file) = self.files_by_path.get(&path) else {
                 continue;
             };
-            names.extend(
+            api.top_level_names.extend(
                 file.declarations
                     .iter()
                     .filter(|declaration| {
@@ -79,6 +91,16 @@ impl ExportApiCollector<'_> {
                             && is_visible_through_export_chain(&declaration.name, chain)
                     })
                     .map(|declaration| declaration.name.clone()),
+            );
+            api.member_names.extend(
+                file.members
+                    .iter()
+                    .filter(|member| {
+                        is_non_route_registry_api_member(member)
+                            && dependency_imports_name(self.dependency, &member.owner)
+                            && is_visible_through_export_chain(&member.owner, chain)
+                    })
+                    .map(|member| member.name.clone()),
             );
         }
     }
@@ -108,6 +130,21 @@ fn is_non_route_registry_api_name(name: &str, route_classes: &BTreeSet<&str>) ->
     !name.starts_with('_')
         && !route_classes.contains(name)
         && !is_route_registry_infrastructure_declaration(name)
+}
+
+fn is_non_route_registry_api_member(member: &MemberDeclaration) -> bool {
+    !member.name.starts_with('_')
+        && !member.owner.starts_with('_')
+        && member.kind != MemberKind::Constructor
+        && !is_route_registry_navigation_member(&member.name)
+        && !is_route_registry_infrastructure_declaration(&member.owner)
+}
+
+fn is_route_registry_navigation_member(name: &str) -> bool {
+    matches!(
+        name,
+        "go" | "push" | "pushReplacement" | "replace" | "location"
+    )
 }
 
 fn is_route_registry_infrastructure_declaration(name: &str) -> bool {
