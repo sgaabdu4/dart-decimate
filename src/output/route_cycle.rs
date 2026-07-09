@@ -1,147 +1,25 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::path::PathBuf;
+use std::collections::BTreeSet;
 
 use tree_sitter::Node;
 
-use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan::ScannedProject};
-
 mod aliases;
+mod classification;
 mod navigation;
 mod receivers;
+mod registry_api;
 mod state_context;
 #[cfg(test)]
 mod tests;
 
 use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliases_at};
+pub(super) use classification::{
+    ResidualCycle, TypedGoRouterCycle, decompose_typed_go_router_cycle,
+};
 use navigation::{
     navigation_receiver_accepts_route_location, route_extension_navigation_has_context_argument,
 };
 use receivers::route_extension_receiver_node;
 use state_context::class_extends_state;
-
-pub(super) fn is_typed_go_router_registry_cycle(
-    project: &ScannedProject,
-    cycle: &DependencyCycle,
-) -> bool {
-    let cycle_files = cycle.files.iter().cloned().collect::<BTreeSet<_>>();
-    let route_files = project
-        .files
-        .iter()
-        .filter(|file| cycle_files.contains(&file.path) && is_typed_go_router_registry(file))
-        .map(|file| file.path.clone())
-        .collect::<BTreeSet<_>>();
-    if route_files.is_empty() {
-        return false;
-    }
-
-    let dependencies = project.graph.dependencies();
-    let internal_dependencies = dependencies
-        .iter()
-        .filter(|dependency| {
-            cycle_files.contains(&dependency.from_path)
-                && cycle_files.contains(&dependency.to_path)
-                && dependency.from_path != dependency.to_path
-        })
-        .collect::<Vec<_>>();
-    let files_by_path = project
-        .files
-        .iter()
-        .map(|file| (file.path.clone(), file))
-        .collect::<BTreeMap<_, _>>();
-    if internal_dependencies.is_empty()
-        || internal_dependencies.iter().any(|dependency| {
-            !is_typed_go_router_registry_edge(dependency, &route_files, &files_by_path)
-        })
-    {
-        return false;
-    }
-
-    let mut route_helpers = BTreeMap::<PathBuf, BTreeSet<PathBuf>>::new();
-    for dependency in &internal_dependencies {
-        if route_files.contains(&dependency.from_path) {
-            route_helpers
-                .entry(dependency.from_path.clone())
-                .or_default()
-                .insert(dependency.to_path.clone());
-        }
-    }
-
-    let helper_files = cycle_files
-        .difference(&route_files)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    !helper_files.is_empty()
-        && route_files.iter().all(|route_file| {
-            route_helpers
-                .get(route_file)
-                .is_some_and(|helpers| !helpers.is_empty())
-        })
-        && helper_files.iter().all(|helper_file| {
-            route_files.iter().any(|route_file| {
-                route_helpers
-                    .get(route_file)
-                    .is_some_and(|helpers| helpers.contains(helper_file))
-                    && internal_dependencies.iter().any(|dependency| {
-                        dependency.from_path == *helper_file && dependency.to_path == *route_file
-                    })
-            })
-        })
-}
-
-fn is_typed_go_router_registry_edge(
-    dependency: &ResolvedDependency,
-    route_files: &BTreeSet<PathBuf>,
-    files_by_path: &BTreeMap<PathBuf, &DartFile>,
-) -> bool {
-    if dependency.kind != DependencyKind::Import {
-        return false;
-    }
-    let from_is_route = route_files.contains(&dependency.from_path);
-    let to_is_route = route_files.contains(&dependency.to_path);
-    if from_is_route == to_is_route {
-        return false;
-    }
-    let route_path = if from_is_route {
-        &dependency.from_path
-    } else {
-        &dependency.to_path
-    };
-    let helper_path = if from_is_route {
-        &dependency.to_path
-    } else {
-        &dependency.from_path
-    };
-    let Some(route_file) = files_by_path.get(route_path) else {
-        return false;
-    };
-    let Some(helper_file) = files_by_path.get(helper_path) else {
-        return false;
-    };
-    is_typed_go_router_navigation_helper(helper_file, route_file)
-}
-
-fn is_typed_go_router_navigation_helper(helper_file: &DartFile, route_file: &DartFile) -> bool {
-    let route_classes = route_file
-        .routes
-        .iter()
-        .map(|route| route.route_class.clone())
-        .collect::<BTreeSet<_>>();
-    if route_classes.is_empty() {
-        return false;
-    }
-    let Ok(source) = fs::read_to_string(&helper_file.path) else {
-        return false;
-    };
-    let Ok(parsed) = crate::dart_parser::parse_dart_source_lossy(&helper_file.path, &source) else {
-        return false;
-    };
-    helper_has_typed_route_navigation_call(
-        parsed.tree().root_node(),
-        parsed.source(),
-        &route_classes,
-    )
-}
 
 fn helper_has_typed_route_navigation_call(
     root: Node<'_>,
@@ -347,6 +225,16 @@ fn route_location_expression(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
+    route_location_expression_member(node, root, site, route_classes, source).is_some()
+}
+
+fn route_location_expression_member<'tree>(
+    node: Node<'tree>,
+    root: Node<'tree>,
+    site: Node<'tree>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> Option<Node<'tree>> {
     route_location_member(
         unwrap_expression_node(node),
         root,
@@ -373,34 +261,31 @@ fn unwrap_expression_node(mut node: Node<'_>) -> Node<'_> {
     }
 }
 
-fn route_location_member(
-    node: Node<'_>,
-    root: Node<'_>,
-    site: Node<'_>,
+fn route_location_member<'tree>(
+    node: Node<'tree>,
+    root: Node<'tree>,
+    site: Node<'tree>,
     route_classes: &BTreeSet<String>,
     source: &str,
-) -> bool {
+) -> Option<Node<'tree>> {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
     ) {
-        return false;
+        return None;
     }
-    let Some(property) = node.child_by_field_name("property") else {
-        return false;
-    };
+    let property = node.child_by_field_name("property")?;
     if property.utf8_text(source.as_bytes()).ok() != Some("location") {
-        return false;
+        return None;
     }
-    let Some(object) = node.child_by_field_name("object") else {
-        return false;
-    };
-    route_constructor_receiver(root, object, route_classes, source)
+    let object = node.child_by_field_name("object")?;
+    (route_constructor_receiver(root, object, route_classes, source)
         || route_alias_receiver_node(
             object,
             &route_aliases_at(root, site, route_classes, source),
             source,
-        )
+        ))
+    .then_some(node)
 }
 
 pub(super) fn route_constructor_receiver(
@@ -669,25 +554,6 @@ fn strip_method_type_arguments(name: &str) -> &str {
     } else {
         name
     }
-}
-
-fn is_typed_go_router_registry(file: &DartFile) -> bool {
-    if file.routes.is_empty()
-        && !file.references.iter().any(|reference| {
-            matches!(
-                reference.name.as_str(),
-                "TypedGoRoute"
-                    | "TypedRelativeGoRoute"
-                    | "TypedShellRoute"
-                    | "TypedStatefulShellRoute"
-                    | "TypedStatefulShellBranch"
-            )
-        })
-    {
-        return false;
-    }
-
-    file.parts.iter().any(|part| part.uri.ends_with(".g.dart"))
 }
 
 fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {

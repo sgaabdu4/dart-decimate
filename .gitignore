@@ -1,4 +1,5 @@
 /target/
+/node_modules/
 /.cargo-home/
 /.rustup-home/
 /.dart-decimate/
