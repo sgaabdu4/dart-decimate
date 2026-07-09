@@ -3492,6 +3492,93 @@ extension AppRouteNavigation on AppRoute {
 }
 
 #[test]
+fn cycles_keeps_typed_route_path_route_registry_imports_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_routes.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<AppRoute>(path: '/')
+class AppRoute extends GoRouteData {
+  const AppRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeRoute();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'home_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/home')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_routes.g.dart",
+        "part of 'home_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => const AppRoute().go(context);
+}
+
+extension AppRouteNavigation on AppRoute {
+  void go(BuildContext context) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 2);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
+    let error = finding_with_severity(&json, "dart-decimate/circular-dependency", "error");
+    assert_eq!(error["edge"]["kind"], "import");
+    assert_eq!(error["edge"]["from"], "lib/core/router/app_routes.dart");
+    assert_eq!(error["edge"]["to"], "lib/features/home/home_routes.dart");
+    Ok(())
+}
+
+#[test]
 fn cycles_keeps_route_registry_sccs_with_internal_exports_as_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

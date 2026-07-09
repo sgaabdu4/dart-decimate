@@ -92,6 +92,7 @@ pub(in crate::output) fn decompose_typed_go_router_cycle(
 
     let mut residual_cycles = residual_dependency_cycles(&cycle_files, &residual_dependencies);
     append_typed_route_path_edge_errors(
+        &route_files,
         &typed_back_edges,
         &residual_dependencies,
         &residual_reachability,
@@ -554,6 +555,7 @@ fn append_route_registry_edge_errors(
 }
 
 fn append_typed_route_path_edge_errors(
+    route_files: &BTreeSet<PathBuf>,
     typed_back_edges: &[ResolvedDependency],
     residual_dependencies: &[ResolvedDependency],
     residual_reachability: &ResidualReachability,
@@ -561,7 +563,10 @@ fn append_typed_route_path_edge_errors(
 ) {
     let mut path_edges = residual_dependencies
         .iter()
-        .filter(|dependency| dependency.kind != DependencyKind::Import)
+        .filter(|dependency| {
+            dependency.kind != DependencyKind::Import
+                || route_registry_import_edge(route_files, dependency)
+        })
         .filter(|dependency| {
             typed_back_edges.iter().any(|typed_back_edge| {
                 dependency_lies_on_typed_route_path(
@@ -600,6 +605,15 @@ fn append_typed_route_path_edge_errors(
             edge: Some(dependency),
         });
     }
+}
+
+fn route_registry_import_edge(
+    route_files: &BTreeSet<PathBuf>,
+    dependency: &ResolvedDependency,
+) -> bool {
+    dependency.kind == DependencyKind::Import
+        && route_files.contains(&dependency.from_path)
+        && route_files.contains(&dependency.to_path)
 }
 
 fn same_dependency(left: &ResolvedDependency, right: &ResolvedDependency) -> bool {
