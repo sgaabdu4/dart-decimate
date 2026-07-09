@@ -68,24 +68,47 @@ if (findings.length > 0) {
 console.log("dart-decimate migration ok");
 
 function* walk(dir) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const absolute = path.join(dir, entry.name);
-    const relative = path.relative(root, absolute);
-    if (entry.isDirectory()) {
-      if (isSkipped(relative)) {
-        continue;
-      }
-      yield* walk(absolute);
-      continue;
-    }
-    if (
-      entry.isFile() &&
-      !skippedFiles.has(relative) &&
-      (extensions.has(path.extname(entry.name)) || explicitFiles.has(relative))
-    ) {
-      yield absolute;
+  for (const entry of scanEntries(dir)) {
+    if (entry.directory) {
+      yield* walk(entry.absolute);
+    } else {
+      yield entry.absolute;
     }
   }
+}
+
+function scanEntries(dir) {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .map((entry) => scanEntry(dir, entry))
+    .filter(isIncludedEntry);
+}
+
+function scanEntry(dir, entry) {
+  const absolute = path.join(dir, entry.name);
+  return {
+    absolute,
+    directory: entry.isDirectory(),
+    file: entry.isFile(),
+    relative: path.relative(root, absolute),
+  };
+}
+
+function isIncludedEntry(entry) {
+  if (entry.directory) {
+    return !isSkipped(entry.relative);
+  }
+  return shouldScanFile(entry);
+}
+
+function shouldScanFile(entry) {
+  if (!entry.file) {
+    return false;
+  }
+  if (skippedFiles.has(entry.relative)) {
+    return false;
+  }
+  return extensions.has(path.extname(entry.relative)) || explicitFiles.has(entry.relative);
 }
 
 function isSkipped(relative) {
