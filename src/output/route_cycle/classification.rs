@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
+use tree_sitter::Node;
 
-use super::helper_has_typed_route_navigation_call;
+use super::{helper_has_typed_route_navigation_call, visit_named};
 use crate::{
     DartCombinatorKind, DartFile, DependencyCycle, DependencyKind, ResolvedDependency,
     scan::ScannedProject,
@@ -130,9 +131,7 @@ fn is_typed_go_router_navigation_helper(
         .iter()
         .map(|route| route.route_class.clone())
         .collect::<BTreeSet<_>>();
-    if route_classes.is_empty()
-        || helper_references_non_route_registry_api(dependency, helper_file, route_file)
-    {
+    if route_classes.is_empty() {
         return false;
     }
     let Ok(source) = fs::read_to_string(&helper_file.path) else {
@@ -141,17 +140,20 @@ fn is_typed_go_router_navigation_helper(
     let Ok(parsed) = crate::dart_parser::parse_dart_source_lossy(&helper_file.path, &source) else {
         return false;
     };
-    helper_has_typed_route_navigation_call(
-        parsed.tree().root_node(),
-        parsed.source(),
-        &route_classes,
-    )
+    let root = parsed.tree().root_node();
+    let source = parsed.source();
+    if helper_references_non_route_registry_api(dependency, helper_file, route_file, root, source) {
+        return false;
+    }
+    helper_has_typed_route_navigation_call(root, source, &route_classes)
 }
 
 fn helper_references_non_route_registry_api(
     dependency: &ResolvedDependency,
     helper_file: &DartFile,
     route_file: &DartFile,
+    root: Node<'_>,
+    source: &str,
 ) -> bool {
     let route_classes = route_file
         .routes
@@ -170,10 +172,171 @@ fn helper_references_non_route_registry_api(
         .map(|declaration| declaration.name.as_str())
         .collect::<BTreeSet<_>>();
     !non_route_api_names.is_empty()
-        && helper_file
-            .references
+        && helper_references_imported_api(
+            dependency,
+            helper_file,
+            root,
+            source,
+            &non_route_api_names,
+        )
+}
+
+fn helper_references_imported_api(
+    dependency: &ResolvedDependency,
+    helper_file: &DartFile,
+    root: Node<'_>,
+    source: &str,
+    imported_names: &BTreeSet<&str>,
+) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found {
+            return;
+        }
+        let Some(name) = reference_identifier_text(node, source) else {
+            return;
+        };
+        if !imported_names.contains(name) {
+            return;
+        }
+        if let Some(prefix) = dependency.visibility.prefix.as_deref() {
+            found = identifier_uses_prefix(source, node.start_byte(), prefix);
+            return;
+        }
+        found = !identifier_has_prefix(source, node.start_byte())
+            && !helper_declares_or_aliases_name(helper_file, name);
+    });
+    found
+}
+
+fn reference_identifier_text<'source>(
+    node: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    if !matches!(node.kind(), "identifier" | "type_identifier") {
+        return None;
+    }
+    let name = node.utf8_text(source.as_bytes()).ok()?;
+    if name == "_" || has_ancestor_kind(node, &["import_or_export", "part_directive"]) {
+        return None;
+    }
+    let Some(parent) = node.parent() else {
+        return Some(name);
+    };
+    if parent.kind() == "type_alias" && is_type_alias_name(parent, node) {
+        return None;
+    }
+    if DECLARATION_NAME_OWNER_KINDS.contains(&parent.kind()) && is_child_field(parent, node, "name")
+    {
+        return None;
+    }
+    Some(name)
+}
+
+fn identifier_uses_prefix(source: &str, identifier_start: usize, prefix: &str) -> bool {
+    let Some(dot) = previous_non_whitespace(source, identifier_start) else {
+        return false;
+    };
+    if source.as_bytes().get(dot) != Some(&b'.') {
+        return false;
+    }
+    let Some(prefix_end) = previous_non_whitespace(source, dot) else {
+        return false;
+    };
+    let Some(prefix_start) = (prefix_end + 1).checked_sub(prefix.len()) else {
+        return false;
+    };
+    source
+        .get(prefix_start..=prefix_end)
+        .is_some_and(|candidate| candidate == prefix)
+        && source
+            .get(..prefix_start)
+            .and_then(|before| before.chars().next_back())
+            .is_none_or(|character| !is_identifier_character(character) && character != '.')
+}
+
+fn identifier_has_prefix(source: &str, identifier_start: usize) -> bool {
+    previous_non_whitespace(source, identifier_start)
+        .is_some_and(|index| source.as_bytes().get(index) == Some(&b'.'))
+}
+
+fn previous_non_whitespace(source: &str, before: usize) -> Option<usize> {
+    source
+        .get(..before)?
+        .char_indices()
+        .rev()
+        .find_map(|(index, character)| (!character.is_whitespace()).then_some(index))
+}
+
+fn helper_declares_or_aliases_name(helper_file: &DartFile, name: &str) -> bool {
+    helper_file
+        .declarations
+        .iter()
+        .any(|declaration| declaration.name == name)
+        || helper_file
+            .imports
             .iter()
-            .any(|reference| non_route_api_names.contains(reference.name.as_str()))
+            .any(|import| import.prefix.as_deref() == Some(name))
+}
+
+const DECLARATION_NAME_OWNER_KINDS: &[&str] = &[
+    "class_declaration",
+    "constant_constructor_signature",
+    "constructor_signature",
+    "default_formal_parameter",
+    "enum_declaration",
+    "enum_constant",
+    "extension_declaration",
+    "extension_type_declaration",
+    "factory_constructor_signature",
+    "field_formal_parameter",
+    "formal_parameter",
+    "function_signature",
+    "getter_signature",
+    "initialized_identifier",
+    "mixin_declaration",
+    "normal_formal_parameter",
+    "operator_signature",
+    "redirecting_factory_constructor_signature",
+    "setter_signature",
+    "static_final_declaration",
+    "type_alias",
+];
+
+fn has_ancestor_kind(node: Node<'_>, kinds: &[&str]) -> bool {
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent {
+        if kinds.contains(&ancestor.kind()) {
+            return true;
+        }
+        parent = ancestor.parent();
+    }
+    false
+}
+
+fn is_child_field(parent: Node<'_>, child: Node<'_>, field_name: &str) -> bool {
+    let mut cursor = parent.walk();
+    parent
+        .children_by_field_name(field_name, &mut cursor)
+        .any(|field| same_node(field, child))
+}
+
+fn is_type_alias_name(parent: Node<'_>, child: Node<'_>) -> bool {
+    let mut cursor = parent.walk();
+    parent
+        .named_children(&mut cursor)
+        .find(|node| matches!(node.kind(), "identifier" | "type_identifier"))
+        .is_some_and(|name| same_node(name, child))
+}
+
+fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
+    left.kind() == right.kind()
+        && left.start_byte() == right.start_byte()
+        && left.end_byte() == right.end_byte()
+}
+
+fn is_identifier_character(character: char) -> bool {
+    character == '_' || character == '$' || character.is_ascii_alphanumeric()
 }
 
 fn is_route_registry_infrastructure_declaration(name: &str) -> bool {
