@@ -461,7 +461,7 @@ Plain English:
 - `files`: Dart files Dart Decimate parsed
 - `edges`: imports, exports, parts, and augments it resolved
 - `quality_score`: project health from `0` to `100`
-- `cycles`: circular dependency groups
+- `cycles`: emitted circular dependency findings after policy classification
 - `code_duplications`: duplicated code groups
 - `complex_functions`: functions over the complexity limits
 - `dead_files`: files Dart Decimate thinks are unreachable

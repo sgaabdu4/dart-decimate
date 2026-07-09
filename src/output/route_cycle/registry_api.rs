@@ -26,61 +26,56 @@ pub(super) fn visible_non_route_registry_api_names(
         })
         .map(|declaration| declaration.name.clone())
         .collect::<BTreeSet<_>>();
-    collect_visible_exported_non_route_api_names(
+    ExportApiCollector {
         dependency,
         files_by_path,
         dependencies,
-        &route_file.path,
-        &[],
-        0,
-        &route_classes,
-        &mut names,
-    );
+        route_classes: &route_classes,
+    }
+    .collect(&route_file.path, &[], 0, &mut names);
     names
 }
 
-fn collect_visible_exported_non_route_api_names(
-    dependency: &ResolvedDependency,
-    files_by_path: &BTreeMap<PathBuf, &DartFile>,
-    dependencies: &[ResolvedDependency],
-    from_path: &Path,
-    chain: &[DependencyVisibility],
-    depth: usize,
-    route_classes: &BTreeSet<&str>,
-    names: &mut BTreeSet<String>,
-) {
-    if depth > 8 {
-        return;
-    }
+struct ExportApiCollector<'a> {
+    dependency: &'a ResolvedDependency,
+    files_by_path: &'a BTreeMap<PathBuf, &'a DartFile>,
+    dependencies: &'a [ResolvedDependency],
+    route_classes: &'a BTreeSet<&'a str>,
+}
 
-    for edge in dependencies
-        .iter()
-        .filter(|edge| edge.kind == DependencyKind::Export && edge.from_path == from_path)
-    {
-        let mut next_chain = chain.to_owned();
-        next_chain.push(edge.visibility.clone());
-        if let Some(file) = files_by_path.get(&edge.to_path) {
-            names.extend(
-                file.declarations
-                    .iter()
-                    .filter(|declaration| {
-                        is_non_route_registry_api_name(&declaration.name, route_classes)
-                            && dependency_imports_name(dependency, &declaration.name)
-                            && is_visible_through_export_chain(&declaration.name, &next_chain)
-                    })
-                    .map(|declaration| declaration.name.clone()),
-            );
+impl ExportApiCollector<'_> {
+    fn collect(
+        &self,
+        from_path: &Path,
+        chain: &[DependencyVisibility],
+        depth: usize,
+        names: &mut BTreeSet<String>,
+    ) {
+        if depth > 8 {
+            return;
         }
-        collect_visible_exported_non_route_api_names(
-            dependency,
-            files_by_path,
-            dependencies,
-            &edge.to_path,
-            &next_chain,
-            depth + 1,
-            route_classes,
-            names,
-        );
+
+        for edge in self
+            .dependencies
+            .iter()
+            .filter(|edge| edge.kind == DependencyKind::Export && edge.from_path == from_path)
+        {
+            let mut next_chain = chain.to_owned();
+            next_chain.push(edge.visibility.clone());
+            if let Some(file) = self.files_by_path.get(&edge.to_path) {
+                names.extend(
+                    file.declarations
+                        .iter()
+                        .filter(|declaration| {
+                            is_non_route_registry_api_name(&declaration.name, self.route_classes)
+                                && dependency_imports_name(self.dependency, &declaration.name)
+                                && is_visible_through_export_chain(&declaration.name, &next_chain)
+                        })
+                        .map(|declaration| declaration.name.clone()),
+                );
+            }
+            self.collect(&edge.to_path, &next_chain, depth + 1, names);
+        }
     }
 }
 

@@ -279,9 +279,9 @@ pub struct ReportSummary {
     pub attack_surface: usize,
     /// Missing requested entry points.
     pub missing_entry_points: usize,
-    /// Circular dependency components.
+    /// Circular dependency findings after policy classification.
     pub cycles: usize,
-    /// Export-only circular dependency components.
+    /// Export-only circular dependency findings after policy classification.
     pub re_export_cycles: usize,
     /// Architecture boundary violations.
     pub boundary_violations: usize,
