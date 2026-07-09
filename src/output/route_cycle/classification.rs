@@ -8,10 +8,10 @@ use petgraph::visit::EdgeRef;
 use tree_sitter::Node;
 
 use super::{
-    helper_has_typed_route_navigation_call,
+    argument_list, helper_has_typed_route_navigation_call,
     navigation::term_identifier_shadowed_at,
     registry_api::{VisibleNonRouteRegistryApi, visible_non_route_registry_api},
-    visit_named,
+    route_location_argument, route_location_expression, typed_route_navigation_call, visit_named,
 };
 use crate::{
     DartFile, DependencyCycle, DependencyKind, Location, ResolvedDependency, scan::ScannedProject,
@@ -161,33 +161,21 @@ fn is_typed_go_router_navigation_helper(
     };
     let root = parsed.tree().root_node();
     let source = parsed.source();
-    if helper_references_non_route_registry_api(
-        dependency,
-        helper_file,
-        route_file,
-        files_by_path,
-        dependencies,
-        root,
-        source,
-    ) {
+    let non_route_api =
+        visible_non_route_registry_api(dependency, route_file, files_by_path, dependencies);
+    if !non_route_api.is_empty()
+        && helper_references_imported_api(
+            dependency,
+            helper_file,
+            root,
+            source,
+            &non_route_api,
+            &route_classes,
+        )
+    {
         return false;
     }
     helper_has_typed_route_navigation_call(root, source, &route_classes)
-}
-
-fn helper_references_non_route_registry_api(
-    dependency: &ResolvedDependency,
-    helper_file: &DartFile,
-    route_file: &DartFile,
-    files_by_path: &BTreeMap<PathBuf, &DartFile>,
-    dependencies: &[ResolvedDependency],
-    root: Node<'_>,
-    source: &str,
-) -> bool {
-    let non_route_api =
-        visible_non_route_registry_api(dependency, route_file, files_by_path, dependencies);
-    !non_route_api.is_empty()
-        && helper_references_imported_api(dependency, helper_file, root, source, &non_route_api)
 }
 
 fn helper_references_imported_api(
@@ -196,6 +184,7 @@ fn helper_references_imported_api(
     root: Node<'_>,
     source: &str,
     imported_api: &VisibleNonRouteRegistryApi,
+    route_classes: &BTreeSet<String>,
 ) -> bool {
     let mut found = false;
     let mut syntactic_references = BTreeSet::new();
@@ -226,6 +215,7 @@ fn helper_references_imported_api(
         }
         if imported_api.member_names.contains(name)
             && member_reference_uses_imported_api(dependency, root, node, source)
+            && !typed_route_navigation_member_reference(root, node, source, route_classes)
         {
             found = true;
         }
@@ -233,7 +223,7 @@ fn helper_references_imported_api(
     found
         || (dependency.visibility.prefix.is_none()
             && helper_file.references.iter().any(|reference| {
-                let matched = imported_api
+                imported_api
                     .top_level_names
                     .contains(reference.name.as_str())
                     && !syntactic_references.contains(&(
@@ -248,8 +238,7 @@ fn helper_references_imported_api(
                         &reference.name,
                         reference.location,
                     )
-                    && !reference_shadowed_at(root, source, &reference.name, reference.location);
-                matched
+                    && !reference_shadowed_at(root, source, &reference.name, reference.location)
             }))
 }
 
@@ -281,6 +270,68 @@ fn member_reference_uses_imported_api(
             && !term_identifier_shadowed_at(root, node, prefix, source);
     }
     identifier_has_prefix(source, node.start_byte())
+}
+
+fn typed_route_navigation_member_reference(
+    root: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if matches!(
+            parent.kind(),
+            "call_expression" | "function_expression_invocation"
+        ) && typed_route_navigation_call(root, parent, source, route_classes)
+            && (navigation_call_member_identifier(parent, node, source)
+                || route_location_argument_contains_node(parent, node, root, source, route_classes))
+        {
+            return true;
+        }
+        if same_node(parent, root) {
+            break;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+fn navigation_call_member_identifier(call: Node<'_>, node: Node<'_>, source: &str) -> bool {
+    let Some(arguments) = argument_list(call) else {
+        return false;
+    };
+    if node.start_byte() >= arguments.start_byte() {
+        return false;
+    }
+    let Some(prefix) = source.get(call.start_byte()..arguments.start_byte()) else {
+        return false;
+    };
+    let Some(name) = super::navigation_call_name(prefix) else {
+        return false;
+    };
+    node.utf8_text(source.as_bytes()).ok() == Some(name.as_str())
+}
+
+fn route_location_argument_contains_node(
+    call: Node<'_>,
+    node: Node<'_>,
+    root: Node<'_>,
+    source: &str,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let Some(arguments) = argument_list(call) else {
+        return false;
+    };
+    let Some(argument) = route_location_argument(arguments) else {
+        return false;
+    };
+    node_within(argument, node)
+        && route_location_expression(argument, root, call, route_classes, source)
+}
+
+fn node_within(parent: Node<'_>, child: Node<'_>) -> bool {
+    parent.start_byte() <= child.start_byte() && child.end_byte() <= parent.end_byte()
 }
 
 fn member_reference_receiver_uses_prefix(node: Node<'_>, source: &str, prefix: &str) -> bool {
