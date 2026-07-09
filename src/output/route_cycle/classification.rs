@@ -11,7 +11,8 @@ use super::{
     argument_list, helper_has_typed_route_navigation_call,
     navigation::term_identifier_shadowed_at,
     registry_api::{VisibleNonRouteRegistryApi, visible_non_route_registry_api},
-    route_location_argument, route_location_expression, typed_route_navigation_call, visit_named,
+    route_location_argument, route_location_expression_member, typed_route_navigation_call,
+    visit_named,
 };
 use crate::{
     DartFile, DependencyCycle, DependencyKind, Location, ResolvedDependency, scan::ScannedProject,
@@ -285,7 +286,13 @@ fn typed_route_navigation_member_reference(
             "call_expression" | "function_expression_invocation"
         ) && typed_route_navigation_call(root, parent, source, route_classes)
             && (navigation_call_member_identifier(parent, node, source)
-                || route_location_argument_contains_node(parent, node, root, source, route_classes))
+                || route_location_argument_member_identifier(
+                    parent,
+                    node,
+                    root,
+                    source,
+                    route_classes,
+                ))
         {
             return true;
         }
@@ -313,7 +320,7 @@ fn navigation_call_member_identifier(call: Node<'_>, node: Node<'_>, source: &st
     node.utf8_text(source.as_bytes()).ok() == Some(name.as_str())
 }
 
-fn route_location_argument_contains_node(
+fn route_location_argument_member_identifier(
     call: Node<'_>,
     node: Node<'_>,
     root: Node<'_>,
@@ -326,12 +333,9 @@ fn route_location_argument_contains_node(
     let Some(argument) = route_location_argument(arguments) else {
         return false;
     };
-    node_within(argument, node)
-        && route_location_expression(argument, root, call, route_classes, source)
-}
-
-fn node_within(parent: Node<'_>, child: Node<'_>) -> bool {
-    parent.start_byte() <= child.start_byte() && child.end_byte() <= parent.end_byte()
+    route_location_expression_member(argument, root, call, route_classes, source)
+        .and_then(|member| member.child_by_field_name("property"))
+        .is_some_and(|property| same_node(property, node))
 }
 
 fn member_reference_receiver_uses_prefix(node: Node<'_>, source: &str, prefix: &str) -> bool {

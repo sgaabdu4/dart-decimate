@@ -3565,6 +3565,213 @@ extension BuildContextNavigation on BuildContext {
 }
 
 #[test]
+fn cycles_keeps_route_location_constructor_extension_member_imports_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+extension AuthContext on BuildContext {
+  bool requireAuth() => true;
+}
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute(this.allowed);
+  final bool allowed;
+  String get location => '/';
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => context.go(new HomeRoute(context.requireAuth()).location);
+}
+
+extension BuildContextNavigation on BuildContext {
+  void go(String location) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
+    Ok(())
+}
+
+#[test]
+fn cycles_keeps_route_location_constructor_static_member_imports_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute(this.allowed);
+  final bool allowed;
+  static bool get requiresAuth => true;
+  String get location => '/';
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context) => context.go(new HomeRoute(HomeRoute.requiresAuth).location);
+}
+
+extension BuildContextNavigation on BuildContext {
+  void go(String location) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
+    Ok(())
+}
+
+#[test]
+fn cycles_downgrades_route_location_constructor_arguments_without_registry_api()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+extension AuthContext on BuildContext {
+  bool requireAuth() => true;
+}
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute(this.allowed);
+  final bool allowed;
+  String get location => '/';
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  void open(BuildContext context, bool allowed) => context.go(new HomeRoute(allowed).location);
+}
+
+extension BuildContextNavigation on BuildContext {
+  void go(String location) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    Ok(())
+}
+
+#[test]
 fn cycles_downgrades_generated_route_extension_navigation_members()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

@@ -225,6 +225,16 @@ fn route_location_expression(
     route_classes: &BTreeSet<String>,
     source: &str,
 ) -> bool {
+    route_location_expression_member(node, root, site, route_classes, source).is_some()
+}
+
+fn route_location_expression_member<'tree>(
+    node: Node<'tree>,
+    root: Node<'tree>,
+    site: Node<'tree>,
+    route_classes: &BTreeSet<String>,
+    source: &str,
+) -> Option<Node<'tree>> {
     route_location_member(
         unwrap_expression_node(node),
         root,
@@ -251,34 +261,31 @@ fn unwrap_expression_node(mut node: Node<'_>) -> Node<'_> {
     }
 }
 
-fn route_location_member(
-    node: Node<'_>,
-    root: Node<'_>,
-    site: Node<'_>,
+fn route_location_member<'tree>(
+    node: Node<'tree>,
+    root: Node<'tree>,
+    site: Node<'tree>,
     route_classes: &BTreeSet<String>,
     source: &str,
-) -> bool {
+) -> Option<Node<'tree>> {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
     ) {
-        return false;
+        return None;
     }
-    let Some(property) = node.child_by_field_name("property") else {
-        return false;
-    };
+    let property = node.child_by_field_name("property")?;
     if property.utf8_text(source.as_bytes()).ok() != Some("location") {
-        return false;
+        return None;
     }
-    let Some(object) = node.child_by_field_name("object") else {
-        return false;
-    };
-    route_constructor_receiver(root, object, route_classes, source)
+    let object = node.child_by_field_name("object")?;
+    (route_constructor_receiver(root, object, route_classes, source)
         || route_alias_receiver_node(
             object,
             &route_aliases_at(root, site, route_classes, source),
             source,
-        )
+        ))
+    .then_some(node)
 }
 
 pub(super) fn route_constructor_receiver(
