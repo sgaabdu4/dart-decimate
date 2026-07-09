@@ -7,11 +7,11 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use tree_sitter::Node;
 
-use super::{helper_has_typed_route_navigation_call, visit_named};
-use crate::{
-    DartCombinatorKind, DartFile, DependencyCycle, DependencyKind, ResolvedDependency,
-    scan::ScannedProject,
+use super::{
+    helper_has_typed_route_navigation_call, registry_api::visible_non_route_registry_api_names,
+    visit_named,
 };
+use crate::{DartFile, DependencyCycle, DependencyKind, ResolvedDependency, scan::ScannedProject};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::output) struct TypedGoRouterCycle {
@@ -45,20 +45,25 @@ pub(in crate::output) fn decompose_typed_go_router_cycle(
         .iter()
         .map(|file| (file.path.clone(), file))
         .collect::<BTreeMap<_, _>>();
-    let internal_dependencies = project
-        .graph
-        .dependencies()
-        .into_iter()
+    let dependencies = project.graph.dependencies();
+    let internal_dependencies = dependencies
+        .iter()
         .filter(|dependency| {
             cycle_files.contains(&dependency.from_path)
                 && cycle_files.contains(&dependency.to_path)
                 && dependency.from_path != dependency.to_path
         })
+        .cloned()
         .collect::<Vec<_>>();
     let typed_back_edges = internal_dependencies
         .iter()
         .filter(|dependency| {
-            is_typed_go_router_navigation_back_edge(dependency, &route_files, &files_by_path)
+            is_typed_go_router_navigation_back_edge(
+                dependency,
+                &route_files,
+                &files_by_path,
+                &dependencies,
+            )
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -105,6 +110,7 @@ fn is_typed_go_router_navigation_back_edge(
     dependency: &ResolvedDependency,
     route_files: &BTreeSet<PathBuf>,
     files_by_path: &BTreeMap<PathBuf, &DartFile>,
+    dependencies: &[ResolvedDependency],
 ) -> bool {
     if dependency.kind != DependencyKind::Import
         || !route_files.contains(&dependency.to_path)
@@ -118,13 +124,21 @@ fn is_typed_go_router_navigation_back_edge(
     let Some(helper_file) = files_by_path.get(&dependency.from_path) else {
         return false;
     };
-    is_typed_go_router_navigation_helper(dependency, helper_file, route_file)
+    is_typed_go_router_navigation_helper(
+        dependency,
+        helper_file,
+        route_file,
+        files_by_path,
+        dependencies,
+    )
 }
 
 fn is_typed_go_router_navigation_helper(
     dependency: &ResolvedDependency,
     helper_file: &DartFile,
     route_file: &DartFile,
+    files_by_path: &BTreeMap<PathBuf, &DartFile>,
+    dependencies: &[ResolvedDependency],
 ) -> bool {
     let route_classes = route_file
         .routes
@@ -142,7 +156,15 @@ fn is_typed_go_router_navigation_helper(
     };
     let root = parsed.tree().root_node();
     let source = parsed.source();
-    if helper_references_non_route_registry_api(dependency, helper_file, route_file, root, source) {
+    if helper_references_non_route_registry_api(
+        dependency,
+        helper_file,
+        route_file,
+        files_by_path,
+        dependencies,
+        root,
+        source,
+    ) {
         return false;
     }
     helper_has_typed_route_navigation_call(root, source, &route_classes)
@@ -152,25 +174,13 @@ fn helper_references_non_route_registry_api(
     dependency: &ResolvedDependency,
     helper_file: &DartFile,
     route_file: &DartFile,
+    files_by_path: &BTreeMap<PathBuf, &DartFile>,
+    dependencies: &[ResolvedDependency],
     root: Node<'_>,
     source: &str,
 ) -> bool {
-    let route_classes = route_file
-        .routes
-        .iter()
-        .map(|route| route.route_class.as_str())
-        .collect::<BTreeSet<_>>();
-    let non_route_api_names = route_file
-        .declarations
-        .iter()
-        .filter(|declaration| {
-            !declaration.name.starts_with('_')
-                && !route_classes.contains(declaration.name.as_str())
-                && !is_route_registry_infrastructure_declaration(&declaration.name)
-                && dependency_imports_name(dependency, &declaration.name)
-        })
-        .map(|declaration| declaration.name.as_str())
-        .collect::<BTreeSet<_>>();
+    let non_route_api_names =
+        visible_non_route_registry_api_names(dependency, route_file, files_by_path, dependencies);
     !non_route_api_names.is_empty()
         && helper_references_imported_api(
             dependency,
@@ -186,9 +196,10 @@ fn helper_references_imported_api(
     helper_file: &DartFile,
     root: Node<'_>,
     source: &str,
-    imported_names: &BTreeSet<&str>,
+    imported_names: &BTreeSet<String>,
 ) -> bool {
     let mut found = false;
+    let mut syntactic_references = BTreeSet::new();
     visit_named(root, &mut |node| {
         if found {
             return;
@@ -196,6 +207,11 @@ fn helper_references_imported_api(
         let Some(name) = reference_identifier_text(node, source) else {
             return;
         };
+        syntactic_references.insert((
+            name.to_owned(),
+            node.start_position().row + 1,
+            node.start_position().column,
+        ));
         if !imported_names.contains(name) {
             return;
         }
@@ -207,6 +223,16 @@ fn helper_references_imported_api(
             && !helper_declares_or_aliases_name(helper_file, name);
     });
     found
+        || (dependency.visibility.prefix.is_none()
+            && helper_file.references.iter().any(|reference| {
+                imported_names.contains(reference.name.as_str())
+                    && !syntactic_references.contains(&(
+                        reference.name.clone(),
+                        reference.location.line,
+                        reference.location.column,
+                    ))
+                    && !helper_declares_or_aliases_name(helper_file, &reference.name)
+            }))
 }
 
 fn reference_identifier_text<'source>(
@@ -337,52 +363,6 @@ fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
 
 fn is_identifier_character(character: char) -> bool {
     character == '_' || character == '$' || character.is_ascii_alphanumeric()
-}
-
-fn is_route_registry_infrastructure_declaration(name: &str) -> bool {
-    matches!(
-        name,
-        "BuildContext"
-            | "ConsumerState"
-            | "CustomTransitionPage"
-            | "GoRouteData"
-            | "GoRouter"
-            | "GoRouterState"
-            | "MaterialPage"
-            | "NoTransitionPage"
-            | "Page"
-            | "ShellRouteData"
-            | "State"
-            | "StatefulWidget"
-            | "StatefulShellRouteData"
-            | "StatelessWidget"
-            | "TypedGoRoute"
-            | "TypedRelativeGoRoute"
-            | "TypedShellRoute"
-            | "TypedStatefulShellBranch"
-            | "TypedStatefulShellRoute"
-            | "Widget"
-    )
-}
-
-fn dependency_imports_name(dependency: &ResolvedDependency, name: &str) -> bool {
-    let mut show_seen = false;
-    let mut shown = false;
-    for combinator in &dependency.visibility.combinators {
-        match combinator.kind {
-            DartCombinatorKind::Show => {
-                show_seen = true;
-                if combinator.names.iter().any(|shown| shown == name) {
-                    shown = true;
-                }
-            }
-            DartCombinatorKind::Hide if combinator.names.iter().any(|hidden| hidden == name) => {
-                return false;
-            }
-            DartCombinatorKind::Hide => {}
-        }
-    }
-    !show_seen || shown
 }
 
 fn typed_route_cycle_files(

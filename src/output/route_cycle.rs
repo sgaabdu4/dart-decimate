@@ -6,6 +6,7 @@ mod aliases;
 mod classification;
 mod navigation;
 mod receivers;
+mod registry_api;
 mod state_context;
 #[cfg(test)]
 mod tests;
