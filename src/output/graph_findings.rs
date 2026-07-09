@@ -1,10 +1,12 @@
+use std::path::{Path, PathBuf};
+
 use super::format::{dependency_kind, display_path};
-use super::route_cycle::is_typed_go_router_registry_cycle;
+use super::route_cycle::{ResidualCycle, TypedGoRouterCycle, decompose_typed_go_router_cycle};
 use super::{Finding, FindingAction, FindingEdge, FindingKind, Severity};
 use crate::{
     BoundaryCallViolation, BoundaryCoverageGap, BoundaryViolation, DeadCodeReport, DependencyCycle,
     InvalidPartReason, InvalidPartRelationship, PolicySeverity, PolicyViolation, ReExportCycle,
-    UnresolvedDependency, scan::ScannedProject,
+    ResolvedDependency, UnresolvedDependency, scan::ScannedProject,
 };
 
 pub(super) fn add_dead_code_findings(
@@ -76,37 +78,17 @@ pub(super) fn add_cycle_findings(
     findings: &mut Vec<Finding>,
 ) {
     for cycle in cycles {
-        let classification = cycle_classification(project, cycle);
-        let files = cycle
-            .files
-            .iter()
-            .map(|path| display_path(&project.root, path))
-            .collect::<Vec<_>>();
-        let path = files.first().cloned().unwrap_or_default();
-        findings.push(Finding {
-            rule_id: "dart-decimate/circular-dependency".to_owned(),
-            fingerprint: None,
-            kind: FindingKind::CircularDependency,
-            severity: classification.severity,
-            message: classification.message(files.len()),
-            path: path.clone(),
-            line: 1,
-            column: 0,
-            safe_to_delete: false,
-            files,
-            edge: None,
-            actions: vec![
-                FindingAction::new(classification.action, classification.description, false)
-                    .with_target_path(path.clone())
-                    .with_dart_decimate_args([
-                        "inspect",
-                        "--format",
-                        "json",
-                        "--file",
-                        path.as_str(),
-                    ]),
-            ],
-        });
+        if let Some(typed_cycle) = decompose_typed_go_router_cycle(project, cycle) {
+            add_typed_go_router_cycle_findings(project, &typed_cycle, findings);
+        } else {
+            push_cycle_finding(
+                project,
+                &cycle.files,
+                CycleClassification::error(),
+                None,
+                findings,
+            );
+        }
     }
 }
 
@@ -116,33 +98,125 @@ struct CycleClassification {
     action: &'static str,
     description: &'static str,
     route_registry: bool,
+    typed_route_residual: bool,
 }
 
 impl CycleClassification {
     fn message(self, file_count: usize) -> String {
         if self.route_registry {
             format!("Typed GoRouter route registry cycle spans {file_count} Dart files")
+        } else if self.typed_route_residual {
+            format!(
+                "Circular dependency spans {file_count} Dart files after typed GoRouter helper imports are excluded"
+            )
         } else {
             format!("Circular dependency spans {file_count} Dart files")
         }
     }
-}
 
-fn cycle_classification(project: &ScannedProject, cycle: &DependencyCycle) -> CycleClassification {
-    if is_typed_go_router_registry_cycle(project, cycle) {
-        return CycleClassification {
+    const fn error() -> Self {
+        Self {
+            severity: Severity::Error,
+            action: "break-cycle",
+            description: "Inspect the cycle edge; split barrels or move shared ownership before expanding imports",
+            route_registry: false,
+            typed_route_residual: false,
+        }
+    }
+
+    const fn typed_route_warning() -> Self {
+        Self {
             severity: Severity::Warning,
             action: "review-typed-route-cycle",
             description: "Keep typed routes if this is only the route registry to screen navigation helper cycle; split unrelated imports out of the cycle",
             route_registry: true,
-        };
+            typed_route_residual: false,
+        }
     }
 
-    CycleClassification {
-        severity: Severity::Error,
-        action: "break-cycle",
-        description: "Inspect the cycle edge; split barrels or move shared ownership before expanding imports",
-        route_registry: false,
+    const fn typed_route_residual_error() -> Self {
+        Self {
+            severity: Severity::Error,
+            action: "break-cycle",
+            description: "Inspect the non-route cycle edge after excluding typed GoRouter helper imports",
+            route_registry: false,
+            typed_route_residual: true,
+        }
+    }
+}
+
+fn add_typed_go_router_cycle_findings(
+    project: &ScannedProject,
+    typed_cycle: &TypedGoRouterCycle,
+    findings: &mut Vec<Finding>,
+) {
+    for residual in &typed_cycle.residual_cycles {
+        push_residual_cycle_finding(project, residual, findings);
+    }
+    push_cycle_finding(
+        project,
+        &typed_cycle.typed_route_files,
+        CycleClassification::typed_route_warning(),
+        None,
+        findings,
+    );
+}
+
+fn push_residual_cycle_finding(
+    project: &ScannedProject,
+    residual: &ResidualCycle,
+    findings: &mut Vec<Finding>,
+) {
+    push_cycle_finding(
+        project,
+        &residual.files,
+        CycleClassification::typed_route_residual_error(),
+        residual.edge.as_ref(),
+        findings,
+    );
+}
+
+fn push_cycle_finding(
+    project: &ScannedProject,
+    paths: &[PathBuf],
+    classification: CycleClassification,
+    dependency: Option<&ResolvedDependency>,
+    findings: &mut Vec<Finding>,
+) {
+    let files = paths
+        .iter()
+        .map(|path| display_path(&project.root, path))
+        .collect::<Vec<_>>();
+    let path = dependency.map_or_else(
+        || files.first().cloned().unwrap_or_default(),
+        |dependency| display_path(&project.root, &dependency.from_path),
+    );
+    findings.push(Finding {
+        rule_id: "dart-decimate/circular-dependency".to_owned(),
+        fingerprint: None,
+        kind: FindingKind::CircularDependency,
+        severity: classification.severity,
+        message: classification.message(files.len()),
+        path: path.clone(),
+        line: dependency.map_or(1, |dependency| dependency.location.line),
+        column: dependency.map_or(0, |dependency| dependency.location.column),
+        safe_to_delete: false,
+        files,
+        edge: dependency.map(|dependency| finding_edge(&project.root, dependency)),
+        actions: vec![
+            FindingAction::new(classification.action, classification.description, false)
+                .with_target_path(path.clone())
+                .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()]),
+        ],
+    });
+}
+
+fn finding_edge(root: &Path, dependency: &ResolvedDependency) -> FindingEdge {
+    FindingEdge {
+        from: display_path(root, &dependency.from_path),
+        to: display_path(root, &dependency.to_path),
+        specifier: dependency.specifier.clone(),
+        kind: dependency_kind(dependency.kind),
     }
 }
 

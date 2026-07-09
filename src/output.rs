@@ -523,8 +523,8 @@ fn apply_graph_policy_summary(
         .dead_code
         .as_ref()
         .map_or(0, |dead_code| dead_code.missing_entry_points.len());
-    summary.cycles = results.cycles.len();
-    summary.re_export_cycles = results.re_export_cycles.len();
+    summary.cycles = kind_count(findings, FindingKind::CircularDependency);
+    summary.re_export_cycles = kind_count(findings, FindingKind::ReExportCycle);
     summary.boundary_violations = results.boundary_violations.len();
     summary.boundary_coverage = kind_count(findings, FindingKind::BoundaryCoverage);
     summary.boundary_call_violations = kind_count(findings, FindingKind::BoundaryCallViolation);

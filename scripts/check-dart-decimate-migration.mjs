@@ -7,6 +7,7 @@ const root = process.cwd();
 const skippedDirs = new Set([
   ".git",
   "target",
+  "node_modules",
   "npm/bin-cache",
   ".cargo-home",
   ".rustup-home",
