@@ -221,7 +221,12 @@ fn unquote_dart_string(text: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn term_identifier_shadowed_at(root: Node<'_>, site: Node<'_>, name: &str, source: &str) -> bool {
+pub(super) fn term_identifier_shadowed_at(
+    root: Node<'_>,
+    site: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
     let mut path_child = site;
     let mut parent = site.parent();
     while let Some(scope) = parent {

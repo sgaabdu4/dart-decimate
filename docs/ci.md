@@ -36,7 +36,14 @@ This repository already runs:
   unpublished version
 - release guards that reject reused npm versions or tags on different commits
 - migration checks that block previous package, command, schema, and MCP names
+- Fallow audit against the base branch
 - Dependabot and weekly dependency/security audits
+
+Local gate settings live in `.no-mistakes.yaml`. They allow three auto-fix
+attempts for rebase, review, test, document, lint, and CI work, with deterministic
+`test`, `lint`, and `format` commands. The checked-in pre-push hook uses
+`DART_DECIMATE_BASE_REF` or `origin/main`, fetches a missing remote base, and
+runs the same lint/test stack before allowing a push.
 
 Generate CI templates:
 

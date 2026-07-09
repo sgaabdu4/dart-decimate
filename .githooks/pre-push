@@ -8,3 +8,47 @@ if [ "$branch" = "main" ] && [ "${DART_DECIMATE_ALLOW_MAIN_PUSH:-}" != "1" ]; th
   exit 1
 fi
 
+base_ref="${DART_DECIMATE_BASE_REF:-origin/main}"
+fetch_base_ref() {
+  case "$base_ref" in
+    refs/remotes/*/*)
+      remote_branch="${base_ref#refs/remotes/}"
+      remote="${remote_branch%%/*}"
+      branch_name="${remote_branch#*/}"
+      target_ref="$base_ref"
+      ;;
+    */*)
+      remote="${base_ref%%/*}"
+      branch_name="${base_ref#*/}"
+      target_ref="refs/remotes/$remote/$branch_name"
+      ;;
+    *)
+      echo "base ref '$base_ref' is missing; fetch it locally or set DART_DECIMATE_BASE_REF to <remote>/<branch>" >&2
+      exit 1
+      ;;
+  esac
+  git fetch --no-tags --depth=1 "$remote" "$branch_name:$target_ref"
+}
+
+if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
+  fetch_base_ref
+fi
+if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
+  echo "base ref '$base_ref' is missing after fetch" >&2
+  exit 1
+fi
+
+git diff --check
+npm run lint
+npm run version:bump:check -- "$base_ref"
+npm run release:check
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+npm ci --ignore-scripts
+npx fallow audit --base "$base_ref" --quiet
+cargo test --all-targets
+npm run pack:check
+npm run test:postinstall:prebuilt
+npm run test:npx:prebuilt
+npm run test:npx:local
+npm run test:npx:mcp:local
