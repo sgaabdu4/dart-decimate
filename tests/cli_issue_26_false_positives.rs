@@ -3084,6 +3084,147 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
+fn cycles_keeps_generated_part_route_registry_non_navigation_imports_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\nconst $appRoutes = Object();\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  Object routes() => $appRoutes;
+  void open(BuildContext context) => const HomeRoute().go(context);
+}
+
+extension HomeRouteNavigation on HomeRoute {
+  void go(BuildContext context) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
+    Ok(())
+}
+
+#[test]
+fn cycles_keeps_reexported_part_route_registry_non_navigation_imports_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+export 'package:app/core/router/route_config.dart' show routerProvider;
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/route_config.dart",
+        "part 'route_config.g.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/route_config.g.dart",
+        "part of 'route_config.dart';\nconst routerProvider = Object();\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  const HomeScreen();
+  Object provider() => routerProvider;
+  void open(BuildContext context) => const HomeRoute().go(context);
+}
+
+extension HomeRouteNavigation on HomeRoute {
+  void go(BuildContext context) {}
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
+    Ok(())
+}
+
+#[test]
 fn cycles_keeps_interpolated_route_registry_non_navigation_imports_as_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
