@@ -248,7 +248,8 @@ Current implemented parity:
   non-route APIs, and interpolated non-route API references remain errors
 - Git-ignore-aware Dart discovery plus generated Dart filtering for companion
   files, Flutter l10n outputs, and FlutterFire options, including dead-file
-  protection and generated-only cycle suppression
+  protection, generated-only cycle suppression, and parent ignore rules for
+  nested package scan roots
 - simple directory boundary rules, built-in `layered`, `hexagonal`,
   `feature-sliced`, and `bulletproof` boundary presets, opt-in boundary
   coverage checks for unzoned Dart library files with `allowUnmatched`
@@ -295,12 +296,14 @@ Current implemented parity:
   with parameter-name normalization and nested route path joining
 - `dart-decimate/unrendered-widget` findings for Flutter widget classes with no
   reachable production object construction, counting constructor calls inside
-  builder callbacks and subclass construction while ignoring type-only
-  references, generated/test/dead files, and explicit package export chains
+  builder callbacks and declaration-resolved subclass construction while
+  ignoring type-only references, generated/test/dead files, unrelated classes
+  with the same name, and explicit package export chains
 - Flutter widget hygiene findings for private widget classes, top-level widget
   helper boundaries, and unused widget constructor parameters, including normal
   reads, transformed and assertion constructor-initializer reads, inherited
-  field reads, forwarding helpers, and widget-class object-pattern destructuring
+  field reads across imported files, forwarding helpers, and widget-class
+  object-pattern destructuring
 - separate `dart-decimate/re-export-cycle` findings for barrel export loops
 - read-only file, symbol, dependency, clone, and Fallow-compatible `trace`
   symbol-trace JSON envelopes for deletion review, using `kind` discriminators
@@ -414,10 +417,11 @@ Current implemented parity:
   `security_candidates`, config-level `security.categories` filtering, redacted
   evidence, benign password-route/copy filtering unless copy is bound to a
   secret-like name or contains concrete token-like material, and non-autofixable
-  `dart-decimate/security-*` findings; Firebase client API keys are
-  warning-level by default, Stripe `sk_test_`/`sk_live_` placeholders remain
-  secret review candidates, and fixed Dart-runtime `Process.start` calls with
-  fixed list arguments are not treated as shell injection; exact rule config
+  `dart-decimate/security-*` findings; OAuth authorization/token endpoint URLs
+  are treated as public metadata, Firebase client API keys are warning-level by
+  default, Stripe key names and `sk_test_`/`sk_live_` placeholders remain secret
+  review candidates, and fixed Dart-runtime `Process.start` calls with fixed
+  list arguments are not treated as shell injection; exact rule config
   can promote warnings and security gates exit `8` when new review-required
   candidates are present
 - `dart-decimate check` and `dart-decimate audit` include feature flag and security
@@ -450,7 +454,8 @@ Current implemented parity:
   `.dart-decimaterc` supports `production = true` and `[cli].production`, with
   `--no-production` as an explicit CLI override
 - non-production entry inference includes nested `test/`, `integration_test/`,
-  and `test_driver/` files with `main()`, plus configured Patrol test suffixes
+  and `test_driver/` files with `main()`, plus package-scoped configured Patrol
+  test suffixes
 - Fallow-style `--workspace` report scoping for local pub package names,
   package-root globs, comma lists, and `!` excludes, keeping full-graph analysis
   while filtering JSON findings and scoped detail arrays; `list --workspace`

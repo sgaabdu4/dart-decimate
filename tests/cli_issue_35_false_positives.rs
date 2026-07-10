@@ -21,6 +21,17 @@ fn git_ignored_generated_files_do_not_emit_source_findings()
         "lib/gen/assets.gen.dart",
         "// GENERATED CODE - DO NOT MODIFY BY HAND\nimport 'package:vector_graphics/vector_graphics.dart';\n",
     )?;
+    write(&fixture, "packages/shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "packages/shared/lib/nested.g.dart",
+        "// GENERATED CODE - DO NOT MODIFY BY HAND\npart of 'nested.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/lib/assets.gen.dart",
+        "// GENERATED CODE - DO NOT MODIFY BY HAND\nimport 'package:vector_graphics/vector_graphics.dart';\n",
+    )?;
 
     let json = check(&fixture)?;
 
@@ -33,6 +44,16 @@ fn git_ignored_generated_files_do_not_emit_source_findings()
         &json,
         "dart-decimate/unlisted-dependency",
         "lib/gen/assets.gen.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/part-of-violation",
+        "packages/shared/lib/nested.g.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/unlisted-dependency",
+        "packages/shared/lib/assets.gen.dart",
     );
     Ok(())
 }
@@ -67,6 +88,41 @@ fn runner_discovered_tests_are_reachability_roots() -> Result<(), Box<dyn std::e
     ] {
         assert_no_finding_path(&json, "dart-decimate/dead-file", path);
     }
+    Ok(())
+}
+
+#[test]
+fn patrol_suffix_is_scoped_to_its_package() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "integration_test/features/foreign_patrol.dart",
+        "class ForeignPatrolHelper {}\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/pubspec.yaml",
+        "name: shared\npatrol:\n  test_file_suffix: _patrol.dart\n",
+    )?;
+    write(
+        &fixture,
+        "packages/shared/integration_test/features/shared_patrol.dart",
+        "class SharedPatrolTest {}\n",
+    )?;
+
+    let json = check(&fixture)?;
+    assert_finding_path(
+        &json,
+        "dart-decimate/dead-file",
+        "integration_test/features/foreign_patrol.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/dead-file",
+        "packages/shared/integration_test/features/shared_patrol.dart",
+    );
     Ok(())
 }
 
@@ -147,7 +203,7 @@ fn widget_initializer_and_inheritance_reads_count_as_usage()
     write(
         &fixture,
         "lib/main.dart",
-        "import 'widgets.dart';\nvoid main() {\n  TimerView(builder: (_, _) => const SizedBox());\n  TableView.builder(itemCount: 1);\n  const AssertedView(count: 1);\n  const InitialsAvatar();\n  const Screen();\n}\n",
+        "import 'avatar.dart';\nimport 'widgets.dart';\nvoid main() {\n  TimerView(builder: (_, _) => const SizedBox());\n  TableView.builder(itemCount: 1);\n  const AssertedView(count: 1);\n  const InitialsAvatar();\n  const CrossFileAvatar();\n  const Screen();\n}\n",
     )?;
     write(
         &fixture,
@@ -209,6 +265,29 @@ class Screen extends StatelessWidget {
 }
 ",
     )?;
+    write(
+        &fixture,
+        "lib/base_avatar.dart",
+        r"import 'widgets.dart';
+
+abstract class CrossFileBase extends StatelessWidget {
+  const CrossFileBase({this.size});
+  final double? size;
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/avatar.dart",
+        r"import 'base_avatar.dart';
+import 'widgets.dart';
+
+class CrossFileAvatar extends CrossFileBase {
+  const CrossFileAvatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: size ?? 40);
+}
+",
+    )?;
 
     let json = check(&fixture)?;
 
@@ -218,10 +297,37 @@ class Screen extends StatelessWidget {
         "TableView.itemCount",
         "AssertedView.count",
         "BaseAvatar.size",
+        "CrossFileBase.size",
     ] {
         assert_no_action_target(&json, "dart-decimate/unused-widget-param", target);
     }
     assert_no_action_target(&json, "dart-decimate/unrendered-widget", "BaseInput");
+    Ok(())
+}
+
+#[test]
+fn unrelated_class_name_does_not_render_widget_hierarchy() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'other.dart';\nvoid main() { SearchInput(); }\n",
+    )?;
+    write(&fixture, "lib/other.dart", "class SearchInput {}\n")?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"class Widget {}
+class StatefulWidget extends Widget { const StatefulWidget(); }
+class BaseInput extends StatefulWidget { const BaseInput(); }
+class SearchInput extends BaseInput { const SearchInput(); }
+",
+    )?;
+
+    let json = check(&fixture)?;
+    assert_action_target(&json, "dart-decimate/unrendered-widget", "BaseInput");
     Ok(())
 }
 
@@ -235,8 +341,8 @@ fn security_classification_keeps_only_real_review_candidates()
         "lib/main.dart",
         r"import 'dart:io';
 
-const authorizationEndpoint = 'https://auth.example.invalid/oauth2/authorize';
-const tokenEndpoint = 'https://auth.example.invalid/oauth2/token';
+const authorizationEndpoint = 'https://login.acme.com/oauth2/authorize';
+const tokenEndpoint = 'https://login.acme.com/oauth2/token';
 const firebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyExamplePublicFirebaseApiKey',
   appId: '1:000000000000:android:example',
@@ -273,11 +379,36 @@ abstract class Env {
 
     assert_eq!(candidates.len(), 2, "{json:#}");
     let secret = candidate(candidates, "hardcoded-secret");
-    assert_eq!(secret["occurrences"].as_array().map(Vec::len), Some(1));
-    assert_eq!(secret["occurrences"][0]["line"], 27);
+    assert_eq!(secret["occurrences"].as_array().map(Vec::len), Some(2));
+    assert_eq!(secret["occurrences"][0]["line"], 26);
+    assert_eq!(secret["occurrences"][1]["line"], 27);
     let process = candidate(candidates, "process-execution");
     assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(1));
     assert_eq!(process["occurrences"][0]["line"], 21);
+    Ok(())
+}
+
+#[test]
+fn stripe_secret_names_and_prefixes_are_independent_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"const envName = 'STRIPE_SECRET_KEY';
+const stripeSecretKey = 'placeholder';
+const testKey = 'sk_test_replace_with_your_secret';
+const liveKey = 'sk_live_replace_with_your_secret';
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let secret = candidate(candidates, "hardcoded-secret");
+    assert_eq!(secret["occurrences"].as_array().map(Vec::len), Some(4));
     Ok(())
 }
 
@@ -428,6 +559,13 @@ fn assert_no_finding_path(json: &Value, rule_id: &str, path: &str) {
     );
 }
 
+fn assert_finding_path(json: &Value, rule_id: &str, path: &str) {
+    assert!(
+        findings(json).any(|finding| finding["rule_id"] == rule_id && finding["path"] == path),
+        "missing {rule_id} for {path}: {json:#}"
+    );
+}
+
 fn assert_no_unused_dev_dependency(json: &Value, dependency: &str) {
     assert!(
         findings(json).all(|finding| {
@@ -454,6 +592,15 @@ fn assert_no_action_target(json: &Value, rule_id: &str, target: &str) {
             finding["rule_id"] != rule_id || finding["actions"][0]["target_symbol"] != target
         }),
         "unexpected {rule_id} for {target}: {json:#}"
+    );
+}
+
+fn assert_action_target(json: &Value, rule_id: &str, target: &str) {
+    assert!(
+        findings(json).any(|finding| {
+            finding["rule_id"] == rule_id && finding["actions"][0]["target_symbol"] == target
+        }),
+        "missing {rule_id} for {target}: {json:#}"
     );
 }
 

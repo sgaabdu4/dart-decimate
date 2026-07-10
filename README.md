@@ -391,10 +391,11 @@ generates client config. To make them fail a gate, set
 `"dart-decimate/security-firebase-api-key" = "error"` in `[rules]`. Common
 authentication copy such as password reset and password requirement text is
 filtered before reporting hardcoded-secret candidates unless it is bound to a
-secret-like name or contains a concrete token-like segment. Stripe `sk_test_`
-and `sk_live_` values remain review candidates even when they look like
-placeholders. A fixed `Process.start` of `Platform.resolvedExecutable` with
-fixed list arguments is not classified as shell command injection.
+secret-like name or contains a concrete token-like segment. OAuth authorization
+and token endpoint URLs are treated as public metadata. Stripe secret-key names
+and `sk_test_`/`sk_live_` values remain review candidates even when they look
+like placeholders. A fixed `Process.start` of `Platform.resolvedExecutable`
+with fixed list arguments is not classified as shell command injection.
 
 Useful commands:
 

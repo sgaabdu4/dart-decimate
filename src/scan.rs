@@ -181,6 +181,7 @@ fn discover_dart_files(
     builder
         .standard_filters(false)
         .git_ignore(true)
+        .parents(true)
         .require_git(false)
         .filter_entry(move |entry| {
             entry.depth() == 0

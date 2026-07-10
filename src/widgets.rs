@@ -21,7 +21,7 @@ mod top_level;
 mod unrendered;
 
 use forwarding::{forwarded_param_used, widget_forwarded_param_uses};
-use inheritance::inherited_param_uses;
+use inheritance::{inherited_param_uses, inherited_param_uses_across_files};
 pub use lifecycle::MissingContextMountedAfterAwait;
 use lifecycle::lifecycle_findings;
 use params::{constructor_initializers_use_param, constructor_params};
@@ -159,6 +159,14 @@ pub fn analyze_widgets(
         .map(|path| analyze_file(path))
         .collect::<Result<Vec<_>, _>>()?;
     let mut findings = merge_file_widget_findings(file_findings);
+    let inherited_uses = inherited_param_uses_across_files(project, &paths)?;
+    findings.unused_params.retain(|finding| {
+        !inherited_uses.contains(&(
+            finding.path.clone(),
+            finding.widget_class.clone(),
+            finding.param_name.clone(),
+        ))
+    });
     sort_file_widget_findings(&mut findings);
     let unrendered_widgets = unrendered_widgets(project, &paths)?;
 

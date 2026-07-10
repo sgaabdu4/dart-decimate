@@ -51,7 +51,11 @@ fn detect_hardcoded_secrets(
             ));
             continue;
         }
+        if oauth_endpoint_metadata_context(source, literal.index, &literal.value) {
+            continue;
+        }
         let stripe_secret = stripe_secret_prefix(&literal.value)
+            || stripe_secret_name(&literal.value)
             || stripe_secret_binding_context(source, literal.index);
         if is_placeholder(&literal.value) && !stripe_secret {
             continue;
@@ -69,6 +73,22 @@ fn detect_hardcoded_secrets(
         } else {
             literal_secret_binding_context(source, literal.index)
         };
+        if stripe_secret && !is_module_uri_directive_line(line) {
+            candidates.push(detected(
+                path,
+                source,
+                literal.index,
+                SecurityCategory::HardcodedSecret,
+                "secret-literal",
+                if secret_value {
+                    SecurityConfidence::High
+                } else {
+                    SecurityConfidence::Medium
+                },
+                "stripe-secret-signal",
+            ));
+            continue;
+        }
         if is_module_uri_directive_line(line)
             || firebase_api_key_context(source, literal.index)
             || (!secret_value && benign_secret_named_literal(&literal.value, secret_binding_name))
@@ -947,6 +967,34 @@ fn stripe_secret_binding_context(source: &str, index: usize) -> bool {
 
 fn stripe_secret_prefix(value: &str) -> bool {
     value.starts_with("sk_test_") || value.starts_with("sk_live_")
+}
+
+fn stripe_secret_name(value: &str) -> bool {
+    value
+        .chars()
+        .filter(|character| !matches!(character, '_' | '-'))
+        .collect::<String>()
+        .eq_ignore_ascii_case("stripeSecretKey")
+}
+
+fn oauth_endpoint_metadata_context(source: &str, index: usize, value: &str) -> bool {
+    let Some(identifier) = literal_binding_identifier(source, index) else {
+        return false;
+    };
+    let identifier = identifier
+        .chars()
+        .filter(|character| *character != '_')
+        .collect::<String>();
+    matches!(
+        identifier.to_ascii_lowercase().as_str(),
+        "authorizationendpoint" | "tokenendpoint"
+    ) && matches_url_scheme(value)
+        && !literal_has_secret_like_url_parameter(value)
+}
+
+fn matches_url_scheme(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
 }
 
 fn named_argument_context(source: &str, index: usize, name: &str) -> bool {

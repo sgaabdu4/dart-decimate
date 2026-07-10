@@ -80,7 +80,9 @@ fn is_default_entry_point(
     patrol_suffix: Option<&str>,
     mode: EntryPointMode,
 ) -> bool {
-    let relative = path.strip_prefix(root).unwrap_or(path);
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
     is_public_library_entry_point(relative)
         || has_path_suffix(relative, &["lib", "main.dart"])
         || is_bin_entry_point(relative)
