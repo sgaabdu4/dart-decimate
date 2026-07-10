@@ -247,6 +247,39 @@ abstract class Env {
     Ok(())
 }
 
+#[test]
+fn multiline_run_in_shell_is_a_process_candidate() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+Future<Process> unsafeStart() {
+  final dartExe = Platform.resolvedExecutable;
+  final snapshot = '/path/to/analysis_server.dart.snapshot';
+  return Process.start(
+    dartExe,
+    [
+      snapshot,
+    ],
+    runInShell: true,
+  );
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+
+    let process = candidate(candidates, "process-execution");
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(1));
+    Ok(())
+}
+
 fn check(fixture: &TempDir) -> Result<Value, Box<dyn std::error::Error>> {
     run_json(["dart-decimate", "check", root(fixture), "--format", "json"])
 }

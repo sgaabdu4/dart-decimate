@@ -227,13 +227,16 @@ fn detect_process_execution(
         "processManager.start(",
     ] {
         for index in match_indices(source, pattern) {
-            let window = following_window(source, index, 3);
             let args = call_inside_after(source, index + pattern.len());
-            let safe_dart_runtime_start = pattern == "Process.start("
+            let run_in_shell = args
+                .as_deref()
+                .is_some_and(|call| named_bool_argument_is_true(call, "runInShell"));
+            let safe_dart_runtime_start = !run_in_shell
+                && pattern == "Process.start("
                 && args
                     .as_deref()
                     .is_some_and(|call| resolved_dart_runtime_start(source, index, call));
-            let risky = window.contains("runInShell: true")
+            let risky = run_in_shell
                 || args.as_deref().is_some_and(|call| {
                     !safe_dart_runtime_start
                         && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
@@ -516,6 +519,14 @@ fn top_level_call_arguments(call: &str) -> Vec<&str> {
     }
     arguments.push(&call[start..]);
     arguments
+}
+
+fn named_bool_argument_is_true(call: &str, name: &str) -> bool {
+    top_level_call_arguments(call).into_iter().any(|argument| {
+        argument
+            .split_once(':')
+            .is_some_and(|(candidate, value)| candidate.trim() == name && value.trim() == "true")
+    })
 }
 
 fn fixed_argument_list(source: &str, index: usize, arguments: &str) -> bool {

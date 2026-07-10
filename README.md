@@ -659,22 +659,7 @@ dart-decimate license status --format json
 
 ## Development
 
-```bash
-git diff --check
-npm run lint
-npm run version:bump:check -- origin/main
-npm run release:check
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-npm ci --ignore-scripts
-npx fallow audit --base origin/main --quiet
-cargo test --all-targets
-npm run pack:check
-npm run test:postinstall:prebuilt
-npm run test:npx:prebuilt
-npm run test:npx:local
-npm run test:npx:mcp:local
-```
+See [docs/ci.md](docs/ci.md) for the local verification commands and CI gates.
 
 This repository forbids `unsafe_code`.
 
