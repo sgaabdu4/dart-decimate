@@ -24,24 +24,39 @@ fn pubspec_has_top_level_key(package_root: &Path, key: &str) -> bool {
 fn known_tooling_convention(package_root: &Path, dependency: &str) -> bool {
     match dependency {
         "flutter_gen_runner" => pubspec_has_top_level_key(package_root, "flutter_gen"),
-        "test" => contains_dart_file(&package_root.join("test")),
+        "test" => contains_runnable_test(&package_root.join("test")),
         _ => false,
     }
 }
 
-fn contains_dart_file(dir: &Path) -> bool {
+fn contains_runnable_test(dir: &Path) -> bool {
     let Ok(entries) = fs::read_dir(dir) else {
         return false;
     };
     entries.flatten().any(|entry| {
         let path = entry.path();
         entry.file_type().ok().is_some_and(|file_type| {
-            file_type.is_file()
-                && path
-                    .extension()
-                    .is_some_and(|extension| extension == "dart")
-                || file_type.is_dir() && contains_dart_file(&path)
+            file_type.is_file() && is_runnable_test_file(&path)
+                || file_type.is_dir() && contains_runnable_test(&path)
         })
+    })
+}
+
+fn is_runnable_test_file(path: &Path) -> bool {
+    if path.extension().is_none_or(|extension| extension != "dart") {
+        return false;
+    }
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with("_test.dart"))
+    {
+        return true;
+    }
+    crate::extract_dart_file(path).ok().is_some_and(|file| {
+        file.declarations
+            .iter()
+            .any(|declaration| declaration.name == "main")
     })
 }
 

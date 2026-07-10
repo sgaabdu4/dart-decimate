@@ -113,6 +113,33 @@ flutter_gen:\n  integrations:\n    flutter_svg: true\n",
 }
 
 #[test]
+fn test_dependency_requires_a_runner_discoverable_file() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\ndev_dependencies:\n  test: ^1.0.0\n",
+    )?;
+    write(
+        &fixture,
+        "test/support.dart",
+        "String fixtureName() => 'support';\n",
+    )?;
+
+    let helper_only = check(&fixture)?;
+    assert_unused_dev_dependency(&helper_only, "test");
+
+    write(
+        &fixture,
+        "test/scenarios/smoke.dart",
+        "void main() { fixtureName(); }\n",
+    )?;
+    let runnable = check(&fixture)?;
+    assert_no_unused_dev_dependency(&runnable, "test");
+    Ok(())
+}
+
+#[test]
 fn widget_initializer_and_inheritance_reads_count_as_usage()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -120,7 +147,7 @@ fn widget_initializer_and_inheritance_reads_count_as_usage()
     write(
         &fixture,
         "lib/main.dart",
-        "import 'widgets.dart';\nvoid main() {\n  TimerView(builder: (_, _) => const SizedBox());\n  TableView.builder(itemCount: 1);\n  const InitialsAvatar();\n  const Screen();\n}\n",
+        "import 'widgets.dart';\nvoid main() {\n  TimerView(builder: (_, _) => const SizedBox());\n  TableView.builder(itemCount: 1);\n  const AssertedView(count: 1);\n  const InitialsAvatar();\n  const Screen();\n}\n",
     )?;
     write(
         &fixture,
@@ -149,6 +176,12 @@ class TableView extends StatelessWidget {
       : itemCount = itemCount + (header == null ? 0 : 1);
   final Widget? header;
   final int itemCount;
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+class AssertedView extends StatelessWidget {
+  const AssertedView({required this.count}) : assert(count > 0);
+  final int count;
   Widget build(BuildContext context) => const SizedBox();
 }
 
@@ -183,6 +216,7 @@ class Screen extends StatelessWidget {
         "TimerView.builder",
         "TableView.header",
         "TableView.itemCount",
+        "AssertedView.count",
         "BaseAvatar.size",
     ] {
         assert_no_action_target(&json, "dart-decimate/unused-widget-param", target);
@@ -401,6 +435,16 @@ fn assert_no_unused_dev_dependency(json: &Value, dependency: &str) {
                 || finding["actions"][0]["target_dependency"] != dependency
         }),
         "unexpected unused dev dependency {dependency}: {json:#}"
+    );
+}
+
+fn assert_unused_dev_dependency(json: &Value, dependency: &str) {
+    assert!(
+        findings(json).any(|finding| {
+            finding["rule_id"] == "dart-decimate/unused-dev-dependency"
+                && finding["actions"][0]["target_dependency"] == dependency
+        }),
+        "missing unused dev dependency {dependency}: {json:#}"
     );
 }
 

@@ -299,8 +299,8 @@ Current implemented parity:
   references, generated/test/dead files, and explicit package export chains
 - Flutter widget hygiene findings for private widget classes, top-level widget
   helper boundaries, and unused widget constructor parameters, including normal
-  reads, transformed constructor initializer reads, inherited field reads,
-  forwarding helpers, and widget-class object-pattern destructuring
+  reads, transformed and assertion constructor-initializer reads, inherited
+  field reads, forwarding helpers, and widget-class object-pattern destructuring
 - separate `dart-decimate/re-export-cycle` findings for barrel export loops
 - read-only file, symbol, dependency, clone, and Fallow-compatible `trace`
   symbol-trace JSON envelopes for deletion review, using `kind` discriminators
@@ -345,7 +345,8 @@ Current implemented parity:
 - conservative non-Dart tooling usage for dependency traces and unused-dev
   checks from Dart/Flutter config files such as `build.yaml`,
   `analysis_options.yaml`, Flutter launcher/splash config, workflow YAML, and
-  tool scripts, plus Envied, FlutterGen, and Dart test-runner conventions
+  tool scripts, plus Envied, FlutterGen, and runner-discoverable Dart test
+  conventions
 - generated Dart imports into known generator internals, such as
   `package:slang/generated.dart`, do not create unlisted-dependency findings
 - lockfile-backed `dependency_overrides` hygiene for overrides absent from the

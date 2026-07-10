@@ -64,17 +64,30 @@ pub(super) fn constructor_initializers_use_param(
         if constructor_owner(signature, source).as_deref() != Some(widget_class) {
             return false;
         }
-        let mut initializers = Vec::new();
-        collect_nodes(declaration, "field_initializer", &mut initializers);
-        initializers.into_iter().any(|initializer| {
-            let mut cursor = initializer.walk();
-            initializer
-                .children_by_field_name("value", &mut cursor)
-                .any(|value| {
-                    initializer_value_uses_param(value, param_name, source)
-                        && !initializer_is_direct_assignment(value, param_name, source)
-                })
-        })
+        let mut entries = Vec::new();
+        collect_nodes(declaration, "initializer_list_entry", &mut entries);
+        entries
+            .into_iter()
+            .any(|entry| initializer_entry_uses_param(entry, param_name, source))
+    })
+}
+
+fn initializer_entry_uses_param(entry: Node<'_>, param_name: &str, source: &str) -> bool {
+    let mut cursor = entry.walk();
+    entry.named_children(&mut cursor).any(|initializer| {
+        if initializer.kind() == "assertion" {
+            return initializer_value_uses_param(initializer, param_name, source);
+        }
+        if initializer.kind() != "field_initializer" {
+            return false;
+        }
+        let mut cursor = initializer.walk();
+        initializer
+            .children_by_field_name("value", &mut cursor)
+            .any(|value| {
+                initializer_value_uses_param(value, param_name, source)
+                    && !initializer_is_direct_assignment(value, param_name, source)
+            })
     })
 }
 
