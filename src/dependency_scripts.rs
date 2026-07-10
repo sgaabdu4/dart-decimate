@@ -2,7 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn package_used_in_tooling(package_root: &Path, dependency: &str) -> bool {
-    pubspec_tooling_section(package_root, dependency)
+    pubspec_has_top_level_key(package_root, dependency)
+        || known_tooling_convention(package_root, dependency)
         || tooling_files(package_root).into_iter().any(|path| {
             fs::read_to_string(path)
                 .ok()
@@ -10,16 +11,49 @@ pub(crate) fn package_used_in_tooling(package_root: &Path, dependency: &str) -> 
         })
 }
 
-fn pubspec_tooling_section(package_root: &Path, dependency: &str) -> bool {
+fn pubspec_has_top_level_key(package_root: &Path, key: &str) -> bool {
     let path = package_root.join("pubspec.yaml");
-    fs::read_to_string(path).ok().is_some_and(|source| {
-        source.lines().any(|line| {
-            let trimmed = line.trim_end();
-            !trimmed.starts_with(' ')
-                && !trimmed.starts_with('\t')
-                && trimmed == format!("{dependency}:")
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|source| serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&source).ok())
+        .is_some_and(|pubspec| pubspec.get(key).is_some())
+}
+
+fn known_tooling_convention(package_root: &Path, dependency: &str) -> bool {
+    match dependency {
+        "flutter_gen_runner" => pubspec_has_top_level_key(package_root, "flutter_gen"),
+        "test" => contains_runnable_test(&package_root.join("test")),
+        _ => false,
+    }
+}
+
+fn contains_runnable_test(dir: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        entry.file_type().ok().is_some_and(|file_type| {
+            file_type.is_file() && is_runnable_test_file(&path)
+                || file_type.is_dir() && contains_runnable_test(&path)
         })
     })
+}
+
+fn is_runnable_test_file(path: &Path) -> bool {
+    if path.extension().is_none_or(|extension| extension != "dart") {
+        return false;
+    }
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with("_test.dart"))
+    {
+        return true;
+    }
+    crate::extract_dart_file(path)
+        .ok()
+        .is_some_and(|file| crate::extract::has_top_level_function(&file, "main"))
 }
 
 fn tooling_files(package_root: &Path) -> Vec<PathBuf> {

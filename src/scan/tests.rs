@@ -222,6 +222,139 @@ fn scans_pub_workspace_member_files() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
+fn repository_scan_stops_parent_gitignore_discovery_at_git_root()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "*.dart\n")?;
+    write(&fixture, "repo/.git/HEAD", "ref: refs/heads/main\n")?;
+    write(&fixture, "repo/.gitignore", "ignored.dart\n")?;
+    write(&fixture, "repo/pubspec.yaml", "name: app\n")?;
+    write(&fixture, "repo/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "repo/lib/ignored.dart", "class Ignored {}\n")?;
+
+    let project = scan_project(fixture.path().join("repo"))?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(
+        project.files[0].path,
+        fixture.path().join("repo/lib/main.dart")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn non_repository_scan_uses_root_gitignore_without_parent_rules()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "*.dart\n")?;
+    write(&fixture, "app/.gitignore", "ignored.dart\n")?;
+    write(&fixture, "app/pubspec.yaml", "name: app\n")?;
+    write(&fixture, "app/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "app/lib/ignored.dart", "class Ignored {}\n")?;
+
+    let project = scan_project(fixture.path().join("app"))?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(
+        project.files[0].path,
+        fixture.path().join("app/lib/main.dart")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn ignored_external_package_root_is_not_scanned() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".git/HEAD", "ref: refs/heads/main\n")?;
+    write(&fixture, ".gitignore", "shared/\n")?;
+    write(
+        &fixture,
+        "app/pubspec.yaml",
+        "name: app\ndependencies:\n  shared:\n    path: ../shared\n",
+    )?;
+    write(&fixture, "app/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "shared/lib/generated.dart",
+        "class Generated {}\n",
+    )?;
+
+    let project = scan_project(fixture.path().join("app"))?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(
+        project.files[0].path,
+        fixture.path().join("app/lib/main.dart")
+    );
+    Ok(())
+}
+
+#[test]
+fn tracked_dart_files_override_gitignore_rules() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let status = crate::git_command::for_repository(fixture.path())
+        .args(["init", "--quiet"])
+        .status()?;
+    assert!(status.success());
+    write(&fixture, ".gitignore", "*.g.dart\n")?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "lib/tracked.g.dart", "class Tracked {}\n")?;
+    write(&fixture, "lib/untracked.g.dart", "class Untracked {}\n")?;
+    let status = crate::git_command::for_repository(fixture.path())
+        .args([
+            "add",
+            "--force",
+            ".gitignore",
+            "pubspec.yaml",
+            "lib/main.dart",
+            "lib/tracked.g.dart",
+        ])
+        .status()?;
+    assert!(status.success());
+
+    let project = scan_project(fixture.path())?;
+    let paths = project
+        .files
+        .iter()
+        .map(|file| file.path.strip_prefix(fixture.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    assert!(paths.contains(&Path::new("lib/tracked.g.dart")));
+    assert!(!paths.contains(&Path::new("lib/untracked.g.dart")));
+    Ok(())
+}
+
+#[test]
+fn existing_ignored_dependency_targets_are_not_unresolved() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "*.gen.dart\n")?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'assets.gen.dart';\nvoid main() {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/assets.gen.dart",
+        "class GeneratedAssets {}\n",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(project.graph.node_count(), 1);
+    assert_eq!(project.graph.edge_count(), 0);
+    assert!(project.graph.unresolved().is_empty());
+    Ok(())
+}
+
+#[test]
 fn scans_all_conditional_import_targets() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

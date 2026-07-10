@@ -151,7 +151,6 @@ fn decision_surface_output_format(
 mod tests {
     use std::cell::RefCell;
     use std::fs;
-    use std::process::Command;
 
     use tempfile::TempDir;
 
@@ -217,9 +216,8 @@ mod tests {
         fixture: &TempDir,
         args: [&str; N],
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let output = Command::new("git")
+        let output = crate::git_command::for_repository(fixture.path())
             .args(args)
-            .current_dir(fixture.path())
             .output()?;
         if output.status.success() {
             return Ok(());

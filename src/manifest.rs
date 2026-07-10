@@ -288,7 +288,7 @@ fn evidence_commands() -> Value {
         {
             "name": "trace-dependency",
             "kind": "trace-dependency",
-            "description": "Trace one pub dependency declaration and Dart import/export usage.",
+            "description": "Trace one pub dependency declaration and Dart, tooling, or code-generation usage.",
             "schema": TRACE_SCHEMA_VERSION,
             "flags": ["--root", "--format", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--dependency"]
         },

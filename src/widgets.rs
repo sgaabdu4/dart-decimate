@@ -12,19 +12,23 @@ use crate::graph::normalize_against;
 use crate::{DeadCodeReport, Location, ScannedProject};
 
 mod forwarding;
+mod inheritance;
 mod lifecycle;
 mod params;
 mod patterns;
 mod reads;
+mod resolution;
 mod top_level;
 mod unrendered;
 
 use forwarding::{forwarded_param_used, widget_forwarded_param_uses};
+use inheritance::{inherited_param_uses, inherited_param_uses_across_files};
 pub use lifecycle::MissingContextMountedAfterAwait;
 use lifecycle::lifecycle_findings;
-use params::constructor_params;
+use params::{constructor_initializers_use_param, constructor_params};
 use patterns::object_pattern_field_reads_for_widget;
 use reads::{state_body_uses_param, widget_body_uses_param};
+use resolution::{ClassKey, DeclarationResolver};
 use top_level::top_level_widget_functions;
 use unrendered::unrendered_widgets;
 
@@ -152,13 +156,35 @@ pub fn analyze_widgets(
     dead_code: Option<&DeadCodeReport>,
 ) -> Result<WidgetReport, WidgetAnalysisError> {
     let paths = widget_analysis_paths(project, dead_code);
-    let file_findings = paths
+    let mut file_facts = paths
         .par_iter()
         .map(|path| analyze_file(path))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut findings = merge_file_widget_findings(file_findings);
+    let resolver = DeclarationResolver::new(
+        project,
+        file_facts.iter().flat_map(|file| {
+            file.reachability.class_names.iter().map(|name| ClassKey {
+                path: file.reachability.path.clone(),
+                name: name.clone(),
+            })
+        }),
+    );
+    let mut findings = merge_file_widget_findings(
+        file_facts
+            .iter_mut()
+            .map(|file| std::mem::take(&mut file.findings))
+            .collect(),
+    );
+    let inherited_uses = inherited_param_uses_across_files(&file_facts, &resolver);
+    findings.unused_params.retain(|finding| {
+        !inherited_uses.contains(&(
+            finding.path.clone(),
+            finding.widget_class.clone(),
+            finding.param_name.clone(),
+        ))
+    });
     sort_file_widget_findings(&mut findings);
-    let unrendered_widgets = unrendered_widgets(project, &paths)?;
+    let unrendered_widgets = unrendered_widgets(project, &file_facts, &resolver);
 
     Ok(WidgetReport {
         analyzed_files: paths.len(),
@@ -281,15 +307,21 @@ fn sort_lifecycle_findings(findings: &mut FileWidgetFindings) {
         });
 }
 
-fn analyze_file(path: &Path) -> Result<FileWidgetFindings, WidgetAnalysisError> {
+fn analyze_file(path: &Path) -> Result<WidgetFileFacts, WidgetAnalysisError> {
     let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
         path: path.to_path_buf(),
         source,
     })?;
     let parsed = parse_tree(path, &source)?;
     let root = parsed.tree().root_node();
+    let mut classes = Vec::new();
+    collect_class_declarations(root, &mut classes);
 
-    Ok(findings_in_source(path, root, parsed.source()))
+    Ok(WidgetFileFacts {
+        findings: findings_for_classes(path, root, &classes, parsed.source()),
+        classes: inheritance::class_facts(path, &classes, parsed.source()),
+        reachability: unrendered::reachability_facts(path, root, &classes, parsed.source()),
+    })
 }
 
 fn parse_tree<'source>(
@@ -319,20 +351,38 @@ struct FileWidgetFindings {
     missing_context_mounted_after_await: Vec<MissingContextMountedAfterAwait>,
 }
 
+#[derive(Debug)]
+struct WidgetFileFacts {
+    findings: FileWidgetFindings,
+    classes: Vec<inheritance::ProjectClassFact>,
+    reachability: unrendered::FileReachabilityFacts,
+}
+
+#[cfg(test)]
 fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFindings {
     let mut classes = Vec::new();
     collect_class_declarations(root, &mut classes);
-    let states = state_classes_by_widget(&classes, source);
-    let forwarded_uses = widget_forwarded_param_uses(&classes, source);
+    findings_for_classes(path, root, &classes, source)
+}
+
+fn findings_for_classes(
+    path: &Path,
+    root: Node<'_>,
+    classes: &[Node<'_>],
+    source: &str,
+) -> FileWidgetFindings {
+    let states = state_classes_by_widget(classes, source);
+    let forwarded_uses = widget_forwarded_param_uses(classes, source);
+    let inherited_uses = inherited_param_uses(classes, source);
     let mut findings = FileWidgetFindings::default();
     let has_widget_class = classes
         .iter()
         .any(|class| widget_kind(*class, source).is_some());
     findings.top_level_functions = top_level_widget_functions(path, root, source, has_widget_class);
-    let lifecycle = lifecycle_findings(path, &classes, source);
+    let lifecycle = lifecycle_findings(path, classes, source);
     findings.missing_context_mounted_after_await = lifecycle.missing_context_mounted_after_await;
 
-    for class in classes {
+    for class in classes.iter().copied() {
         let Some(widget_kind) = widget_kind(class, source) else {
             continue;
         };
@@ -362,6 +412,14 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
         );
         for param in constructor_params(class, &widget_class, source) {
             if widget_body_uses_param(body, &param.field_name, source)
+                || constructor_initializers_use_param(
+                    class,
+                    &widget_class,
+                    &param.field_name,
+                    &param.name,
+                    source,
+                )
+                || inherited_uses.contains(&(widget_class.clone(), param.field_name.clone()))
                 || object_pattern_reads.contains(&param.field_name)
                 || states.get(&widget_class).is_some_and(|state_bodies| {
                     state_bodies.iter().any(|state_body| {
@@ -443,7 +501,7 @@ pub(super) fn state_widget_class(class: Node<'_>, source: &str) -> Option<String
     generic.split(',').next().map(simple_type_name)
 }
 
-fn superclass_base_name(class: Node<'_>, source: &str) -> Option<String> {
+pub(super) fn superclass_base_name(class: Node<'_>, source: &str) -> Option<String> {
     superclass_type_text(class, source).map(|text| {
         let compact = strip_whitespace(&text);
         simple_type_name(compact.split('<').next().unwrap_or(&compact))

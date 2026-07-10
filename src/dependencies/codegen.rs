@@ -29,8 +29,18 @@ pub(super) fn codegen_dependencies_for_file(file: &DartFile) -> BTreeSet<Codegen
         dependencies.insert(dev_dependency("build_runner"));
         dependencies.insert(dev_dependency("go_router_builder"));
     }
+    if signals.contains(&CodegenSignal::Envied) {
+        dependencies.insert(dev_dependency("build_runner"));
+        dependencies.insert(dev_dependency("envied_generator"));
+    }
 
     dependencies
+}
+
+pub(crate) fn file_uses_codegen_dependency(file: &DartFile, dependency: &str) -> bool {
+    codegen_dependencies_for_file(file)
+        .iter()
+        .any(|candidate| candidate.name == dependency)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -39,6 +49,7 @@ enum CodegenSignal {
     JsonSerializable,
     Riverpod,
     GoRouter,
+    Envied,
 }
 
 fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
@@ -69,6 +80,13 @@ fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
     }
     if imports.contains(&"package:json_annotation/json_annotation.dart")
         || parts.iter().any(|part| part.ends_with(".g.dart"))
+            && references.iter().any(|reference| {
+                matches!(
+                    *reference,
+                    "JsonSerializable" | "JsonKey" | "JsonEnum" | "JsonValue"
+                ) || reference.ends_with("FromJson")
+                    || reference.ends_with("ToJson")
+            })
         || references.iter().any(|reference| {
             matches!(
                 *reference,
@@ -98,6 +116,14 @@ fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
         })
     {
         signals.insert(CodegenSignal::GoRouter);
+    }
+    if imports.contains(&"package:envied/envied.dart")
+        && (parts.iter().any(|part| part.ends_with(".g.dart"))
+            || references
+                .iter()
+                .any(|reference| matches!(*reference, "Envied" | "EnviedField")))
+    {
+        signals.insert(CodegenSignal::Envied);
     }
 
     signals

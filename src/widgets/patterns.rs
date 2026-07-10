@@ -2058,38 +2058,45 @@ fn root_node(mut node: Node<'_>) -> Node<'_> {
     node
 }
 
-fn class_declares_member(class: Node<'_>, name: &str, source: &str) -> bool {
+pub(super) fn class_member_names(class: Node<'_>, source: &str) -> BTreeSet<String> {
     let Some(body) = class.child_by_field_name("body") else {
-        return false;
+        return BTreeSet::new();
     };
+    let mut names = BTreeSet::new();
     let mut cursor = body.walk();
-    body.named_children(&mut cursor)
-        .any(|child| match child.kind() {
-            "class_member" => class_member_declares_name(child, name, source),
-            "method_declaration" => member_signature_name(child, source).as_deref() == Some(name),
-            "declaration" => declaration_declares_member(child, name, source),
-            _ => false,
-        })
-}
-
-fn class_member_declares_name(member: Node<'_>, name: &str, source: &str) -> bool {
-    let mut cursor = member.walk();
-    member
-        .named_children(&mut cursor)
-        .any(|child| match child.kind() {
-            "method_declaration" => member_signature_name(child, source).as_deref() == Some(name),
-            "declaration" => declaration_declares_member(child, name, source),
-            _ => false,
-        })
-}
-
-fn declaration_declares_member(declaration: Node<'_>, name: &str, source: &str) -> bool {
-    if member_signature_name(declaration, source).as_deref() == Some(name) {
-        return true;
+    for child in body.named_children(&mut cursor) {
+        collect_class_member_names(child, source, &mut names);
     }
-    let mut names = Vec::new();
-    collect_member_field_names(declaration, source, &mut names);
-    names.iter().any(|candidate| candidate == name)
+    names
+}
+
+fn collect_class_member_names(node: Node<'_>, source: &str, names: &mut BTreeSet<String>) {
+    match node.kind() {
+        "class_member" => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_class_member_names(child, source, names);
+            }
+        }
+        "method_declaration" => {
+            if let Some(name) = member_signature_name(node, source) {
+                names.insert(name);
+            }
+        }
+        "declaration" => {
+            if let Some(name) = member_signature_name(node, source) {
+                names.insert(name);
+            }
+            let mut fields = Vec::new();
+            collect_member_field_names(node, source, &mut fields);
+            names.extend(fields);
+        }
+        _ => {}
+    }
+}
+
+fn class_declares_member(class: Node<'_>, name: &str, source: &str) -> bool {
+    class_member_names(class, source).contains(name)
 }
 
 fn member_signature_name(node: Node<'_>, source: &str) -> Option<String> {

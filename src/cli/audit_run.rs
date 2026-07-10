@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Arg, ArgMatches};
@@ -273,9 +272,8 @@ fn git_output<'a, I>(project_root: &Path, base: &str, args: I) -> Result<Vec<u8>
 where
     I: IntoIterator<Item = &'a str>,
 {
-    let output = Command::new("git")
+    let output = crate::git_command::for_repository(project_root)
         .args(args)
-        .current_dir(project_root)
         .output()
         .map_err(|source| crate::changed_scope::ChangedScopeError::Git { source })?;
     if output.status.success() {

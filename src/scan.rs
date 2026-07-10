@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use glob::Pattern;
+use ignore::WalkBuilder;
+use ignore::gitignore::GitignoreBuilder;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -11,7 +12,7 @@ use crate::graph::normalize_path;
 use crate::package_map::PackageMap;
 use crate::{
     DartFile, ExtractError, GraphError, GraphOptions, ModuleGraph, build_module_graph_with_options,
-    extract_dart_file,
+    extract_dart_file, git_command,
 };
 
 /// Parsed Dart files plus their resolved module graph.
@@ -45,29 +46,13 @@ pub enum ScanError {
         /// Underlying IO error.
         source: std::io::Error,
     },
-    /// A directory could not be read.
-    #[error("failed to read directory {path}: {source}")]
-    ReadDir {
+    /// A scan root could not be traversed.
+    #[error("failed to walk directory {path}: {source}")]
+    Walk {
         /// Directory path.
         path: PathBuf,
-        /// Underlying IO error.
-        source: std::io::Error,
-    },
-    /// A directory entry could not be read.
-    #[error("failed to read directory entry under {path}: {source}")]
-    ReadDirEntry {
-        /// Directory being scanned.
-        path: PathBuf,
-        /// Underlying IO error.
-        source: std::io::Error,
-    },
-    /// A file type could not be read.
-    #[error("failed to read file type for {path}: {source}")]
-    FileType {
-        /// Entry path.
-        path: PathBuf,
-        /// Underlying IO error.
-        source: std::io::Error,
+        /// Underlying ignore-aware walk error.
+        source: ignore::Error,
     },
     /// A pubspec could not be read while expanding local packages.
     #[error("failed to read pubspec {path}: {source}")]
@@ -150,7 +135,19 @@ pub fn scan_project_with_options(
 
     let mut paths = BTreeSet::new();
     for scan_root in &scan_roots {
+        if scan_roots
+            .iter()
+            .any(|other| other != scan_root && scan_root.starts_with(other))
+        {
+            continue;
+        }
+        let tracked = tracked_dart_files(&root, scan_root, &ignore_matcher);
+        if scan_root != &root && tracked.is_empty() && ignored_by_parent_gitignore(&root, scan_root)
+        {
+            continue;
+        }
         discover_dart_files(&root, scan_root, &ignore_matcher, &mut paths)?;
+        paths.extend(tracked);
     }
     let paths = paths.into_iter().collect::<Vec<_>>();
 
@@ -160,19 +157,53 @@ pub fn scan_project_with_options(
         .collect::<Result<Vec<_>, _>>()?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
-    let graph = build_module_graph_with_options(
+    let mut graph = build_module_graph_with_options(
         &root,
         &files,
         &GraphOptions {
             conditional_environment: options.conditional_environment.clone(),
         },
     )?;
+    graph.suppress_existing_unresolved_targets();
 
     Ok(ScannedProject {
         root,
         scan_roots: scan_roots.into_iter().collect(),
         files,
         graph,
+    })
+}
+
+fn ignored_by_parent_gitignore(root: &Path, scan_root: &Path) -> bool {
+    let Some(repository_root) = root
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists())
+    else {
+        return false;
+    };
+    if !scan_root.starts_with(repository_root) {
+        return false;
+    }
+    let Some(parent) = scan_root.parent() else {
+        return false;
+    };
+    let mut directories = parent
+        .ancestors()
+        .take_while(|ancestor| ancestor.starts_with(repository_root))
+        .collect::<Vec<_>>();
+    directories.reverse();
+
+    let mut builder = GitignoreBuilder::new(repository_root);
+    for directory in directories {
+        let path = directory.join(".gitignore");
+        if path.is_file() && builder.add(path).is_some() {
+            return false;
+        }
+    }
+    builder.build().ok().is_some_and(|gitignore| {
+        gitignore
+            .matched_path_or_any_parents(scan_root, true)
+            .is_ignore()
     })
 }
 
@@ -191,39 +222,83 @@ fn discover_dart_files(
     ignore_matcher: &IgnoreMatcher,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<(), ScanError> {
-    let entries = fs::read_dir(dir).map_err(|source| ScanError::ReadDir {
-        path: dir.to_path_buf(),
-        source,
-    })?;
+    let filter_root = root.to_path_buf();
+    let filter_matcher = ignore_matcher.clone();
+    let has_repository_ancestor = dir
+        .ancestors()
+        .any(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists());
+    let mut builder = WalkBuilder::new(dir);
+    builder
+        .standard_filters(false)
+        .git_ignore(true)
+        .parents(has_repository_ancestor)
+        .require_git(has_repository_ancestor)
+        .filter_entry(move |entry| {
+            entry.depth() == 0
+                || !(filter_matcher.matches(&filter_root, entry.path())
+                    || entry
+                        .file_type()
+                        .is_some_and(|file_type| file_type.is_dir())
+                        && should_skip_dir(entry.path()))
+        });
 
-    for entry in entries {
-        let entry = entry.map_err(|source| ScanError::ReadDirEntry {
+    for result in builder.build() {
+        let entry = result.map_err(|source| ScanError::Walk {
             path: dir.to_path_buf(),
             source,
         })?;
         let path = entry.path();
-        let file_type = entry.file_type().map_err(|source| ScanError::FileType {
-            path: path.clone(),
-            source,
-        })?;
-
-        if file_type.is_dir() {
-            if should_skip_dir(&path) {
-                continue;
-            }
-            if ignore_matcher.matches(root, &path) {
-                continue;
-            }
-            discover_dart_files(root, &path, ignore_matcher, paths)?;
-        } else if file_type.is_file()
-            && path.extension().is_some_and(|ext| ext == "dart")
-            && !ignore_matcher.matches(root, &path)
+        if entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_file())
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "dart")
         {
-            paths.insert(normalize_path(&path));
+            paths.insert(normalize_path(path));
         }
     }
 
     Ok(())
+}
+
+fn tracked_dart_files(
+    root: &Path,
+    scan_root: &Path,
+    ignore_matcher: &IgnoreMatcher,
+) -> BTreeSet<PathBuf> {
+    let Ok(output) = git_command::for_repository(scan_root)
+        .args(["ls-files", "--cached", "-z"])
+        .output()
+    else {
+        return BTreeSet::new();
+    };
+    if !output.status.success() {
+        return BTreeSet::new();
+    }
+
+    output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter_map(|path| std::str::from_utf8(path).ok())
+        .map(|path| normalize_path(&scan_root.join(path)))
+        .filter(|path| {
+            path.starts_with(scan_root)
+                && path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension == "dart")
+                && !ignore_matcher.matches(root, path)
+                && !has_skipped_directory(scan_root, path)
+        })
+        .collect()
+}
+
+fn has_skipped_directory(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root)
+        .ok()
+        .and_then(Path::parent)
+        .is_some_and(|parent| parent.ancestors().any(should_skip_dir))
 }
 
 fn should_skip_dir(path: &Path) -> bool {

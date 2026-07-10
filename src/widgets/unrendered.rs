@@ -1,47 +1,58 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
 use tree_sitter::Node;
 
 use crate::graph::normalize_against;
 use crate::{DartCombinatorKind, DependencyKind, ScannedProject, TopLevelDeclaration};
 
+#[cfg(test)]
+use super::parse_tree;
+use super::resolution::{ClassKey, DeclarationResolver};
 use super::{
-    UnrenderedWidgetClass, WidgetAnalysisError, collect_class_declarations, has_ancestor_kind,
-    parse_tree, simple_type_name, visit_named, widget_kind,
+    UnrenderedWidgetClass, WidgetFileFacts, has_ancestor_kind, inheritance::class_superclasses,
+    simple_type_name, visit_named, widget_kind,
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct FileReachabilityFacts {
-    widgets: Vec<UnrenderedWidgetClass>,
-    object_constructors: Vec<String>,
+pub(super) struct FileReachabilityFacts {
+    pub(super) path: PathBuf,
+    pub(super) class_names: BTreeSet<String>,
+    pub(super) widgets: Vec<UnrenderedWidgetClass>,
+    pub(super) object_constructors: Vec<String>,
+    pub(super) superclasses: BTreeMap<String, String>,
 }
 
 pub(super) fn unrendered_widgets(
     project: &ScannedProject,
-    paths: &[PathBuf],
-) -> Result<Vec<UnrenderedWidgetClass>, WidgetAnalysisError> {
-    let files = paths
-        .par_iter()
-        .map(|path| reachability_facts(path))
-        .collect::<Result<Vec<_>, _>>()?;
+    files: &[WidgetFileFacts],
+    resolver: &DeclarationResolver,
+) -> Vec<UnrenderedWidgetClass> {
+    let files = files
+        .iter()
+        .map(|file| &file.reachability)
+        .collect::<Vec<_>>();
     let exported = public_reexported_declarations(project);
     let mut candidates = files
         .iter()
         .flat_map(|file| file.widgets.iter().cloned())
         .filter(|widget| !exported.contains(&(widget.path.clone(), widget.widget_class.clone())))
         .collect::<Vec<_>>();
-    let candidate_names = candidates
+    let candidate_keys = candidates
         .iter()
-        .map(|widget| widget.widget_class.clone())
+        .map(|widget| ClassKey {
+            path: widget.path.clone(),
+            name: widget.widget_class.clone(),
+        })
         .collect::<BTreeSet<_>>();
-    let render_counts = render_counts(&files, &candidate_names);
+    let render_counts = render_counts(&files, &candidate_keys, resolver);
 
     candidates.retain_mut(|widget| {
         widget.render_reference_count = render_counts
-            .get(&widget.widget_class)
+            .get(&ClassKey {
+                path: widget.path.clone(),
+                name: widget.widget_class.clone(),
+            })
             .copied()
             .unwrap_or_default();
         widget.render_reference_count == 0
@@ -60,29 +71,37 @@ pub(super) fn unrendered_widgets(
                 &right.widget_class,
             ))
     });
-    Ok(candidates)
+    candidates
 }
 
-fn reachability_facts(path: &Path) -> Result<FileReachabilityFacts, WidgetAnalysisError> {
-    let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
+pub(super) fn reachability_facts(
+    path: &Path,
+    root: Node<'_>,
+    classes: &[Node<'_>],
+    source: &str,
+) -> FileReachabilityFacts {
+    FileReachabilityFacts {
         path: path.to_path_buf(),
-        source,
-    })?;
-    let parsed = parse_tree(path, &source)?;
-    let root = parsed.tree().root_node();
-
-    Ok(FileReachabilityFacts {
-        widgets: widget_classes(path, root, parsed.source()),
-        object_constructors: object_constructor_names(root, parsed.source()),
-    })
+        class_names: classes
+            .iter()
+            .filter_map(|class| {
+                class
+                    .child_by_field_name("name")?
+                    .utf8_text(source.as_bytes())
+                    .ok()
+                    .map(str::to_owned)
+            })
+            .collect(),
+        widgets: widget_classes(path, classes, source),
+        object_constructors: object_constructor_names(root, source),
+        superclasses: class_superclasses(classes, source),
+    }
 }
 
-fn widget_classes(path: &Path, root: Node<'_>, source: &str) -> Vec<UnrenderedWidgetClass> {
-    let mut classes = Vec::new();
-    collect_class_declarations(root, &mut classes);
+fn widget_classes(path: &Path, classes: &[Node<'_>], source: &str) -> Vec<UnrenderedWidgetClass> {
     classes
-        .into_iter()
-        .filter_map(|class| widget_class(path, class, source))
+        .iter()
+        .filter_map(|class| widget_class(path, *class, source))
         .collect()
 }
 
@@ -118,11 +137,13 @@ fn object_constructor_names(root: Node<'_>, source: &str) -> Vec<String> {
     visit_named(root, &mut |node| {
         if is_object_constructor(node) && !has_ancestor_kind(node, &["annotation"]) {
             if let Some(constructor) = constructor_type_name(node, source) {
-                constructors.extend(constructor_name_candidates(&constructor));
+                if !constructor_name_candidates(&constructor).is_empty() {
+                    constructors.push(constructor);
+                }
             }
         } else if is_arrow_body_constructor_identifier(node, source) {
             if let Ok(constructor) = node.utf8_text(source.as_bytes()) {
-                constructors.extend(constructor_name_candidates(constructor));
+                constructors.push(constructor.to_owned());
             }
         }
     });
@@ -273,18 +294,56 @@ fn constructor_name_candidates(constructor: &str) -> Vec<String> {
 }
 
 fn render_counts(
-    files: &[FileReachabilityFacts],
-    candidate_names: &BTreeSet<String>,
-) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::<String, usize>::new();
-    for name in files
-        .iter()
-        .flat_map(|file| file.object_constructors.iter())
-        .filter(|name| candidate_names.contains(*name))
-    {
-        *counts.entry(name.clone()).or_default() += 1;
+    files: &[&FileReachabilityFacts],
+    candidate_keys: &BTreeSet<ClassKey>,
+    resolver: &DeclarationResolver,
+) -> BTreeMap<ClassKey, usize> {
+    let superclasses = resolved_superclasses(files, resolver);
+    let mut counts = BTreeMap::<ClassKey, usize>::new();
+    for file in files {
+        for constructed in &file.object_constructors {
+            let mut pending = resolver
+                .resolve(&file.path, constructed)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let mut visited = BTreeSet::new();
+            while let Some(class) = pending.pop() {
+                if !visited.insert(class.clone()) {
+                    continue;
+                }
+                if candidate_keys.contains(&class) {
+                    *counts.entry(class.clone()).or_default() += 1;
+                }
+                pending.extend(
+                    superclasses
+                        .get(&class)
+                        .into_iter()
+                        .flat_map(|parents| parents.iter().cloned()),
+                );
+            }
+        }
     }
     counts
+}
+
+fn resolved_superclasses(
+    files: &[&FileReachabilityFacts],
+    resolver: &DeclarationResolver,
+) -> BTreeMap<ClassKey, BTreeSet<ClassKey>> {
+    let mut superclasses = BTreeMap::<ClassKey, BTreeSet<ClassKey>>::new();
+    for file in files {
+        for (class, parent) in &file.superclasses {
+            let class = ClassKey {
+                path: file.path.clone(),
+                name: class.clone(),
+            };
+            superclasses
+                .entry(class)
+                .or_default()
+                .extend(resolver.resolve(&file.path, parent));
+        }
+    }
+    superclasses
 }
 
 fn public_reexported_declarations(project: &ScannedProject) -> BTreeSet<(PathBuf, String)> {
@@ -437,7 +496,12 @@ void main() {
 
         assert_eq!(
             names,
-            vec!["LiveCard", "LegacyCard", "PrefixedCard", "DeadCard"]
+            vec![
+                "LiveCard",
+                "LegacyCard",
+                "ui.PrefixedCard",
+                "DeadCard.named"
+            ]
         );
         assert!(
             !names.iter().any(|name| name == "BareIifeCard"),

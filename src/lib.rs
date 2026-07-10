@@ -23,6 +23,7 @@ pub mod feature_flags;
 pub(crate) mod finding_identity;
 pub mod fix;
 pub(crate) mod generated;
+pub(crate) mod git_command;
 pub mod graph;
 pub mod health;
 pub mod hooks;

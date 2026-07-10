@@ -29,7 +29,10 @@ try {
   const result = spawnSync(
     "npx",
     ["--yes", "--package", tarball, "--", "dart-decimate", "--help"],
-    { encoding: "utf8", env: { ...process.env, DART_DECIMATE_SKIP_DOWNLOAD: "1" } },
+    {
+      encoding: "utf8",
+      env: { ...process.env, DART_DECIMATE_SKIP_DOWNLOAD: "1" },
+    },
   );
   if (result.stdout) {
     process.stdout.write(result.stdout);
@@ -45,7 +48,9 @@ try {
     process.exit(result.status || 1);
   }
   if (!result.stdout.includes("Usage: dart-decimate")) {
-    process.stderr.write("dart-decimate --help did not print the expected usage\n");
+    process.stderr.write(
+      "dart-decimate --help did not print the expected usage\n",
+    );
     process.exit(1);
   }
 } finally {
