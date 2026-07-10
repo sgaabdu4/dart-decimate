@@ -523,6 +523,155 @@ class CrossFileAvatar extends CrossFileBase {
 }
 
 #[test]
+fn widget_initializer_reads_track_the_destination_field() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "void main() { const DerivedView(count: 1); const ParenthesizedView(count: 1); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"class BuildContext {}
+class Widget {}
+class StatelessWidget extends Widget { const StatelessWidget(); }
+class SizedBox extends Widget { const SizedBox.square({double? dimension}); }
+
+class DerivedView extends StatelessWidget {
+  const DerivedView({required int count})
+      : count = count,
+        displayCount = count;
+  final int count;
+  final int displayCount;
+  Widget build(BuildContext context) => SizedBox.square(dimension: displayCount);
+}
+
+class ParenthesizedView extends StatelessWidget {
+  const ParenthesizedView({required int count}) : count = (count);
+  final int count;
+  Widget build(BuildContext context) => const SizedBox();
+}
+",
+    )?;
+
+    let json = check(&fixture)?;
+    assert_no_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "DerivedView.count",
+    );
+    assert_no_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "ParenthesizedView.count",
+    );
+    Ok(())
+}
+
+#[test]
+fn inherited_widget_reads_stop_at_the_nearest_member_owner()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "void main() { const LeafAvatar(size: 1); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"class BuildContext {}
+class Widget {}
+class StatelessWidget extends Widget { const StatelessWidget(); }
+class SizedBox extends Widget { const SizedBox.square({double? dimension}); }
+
+abstract class BaseAvatar extends StatelessWidget {
+  const BaseAvatar({this.size});
+  final double? size;
+}
+
+class IntermediateAvatar extends BaseAvatar {
+  const IntermediateAvatar({this.size});
+  final double? size;
+}
+
+class LeafAvatar extends IntermediateAvatar {
+  const LeafAvatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: super.size);
+}
+",
+    )?;
+
+    let json = check(&fixture)?;
+    assert_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "BaseAvatar.size",
+    );
+    Ok(())
+}
+
+#[test]
+fn imported_inherited_widget_reads_stop_at_the_nearest_member_owner()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'avatar.dart';\nvoid main() { const LeafAvatar(size: 1); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/framework.dart",
+        "class BuildContext {}\nclass Widget {}\nclass StatelessWidget extends Widget { const StatelessWidget(); }\nclass SizedBox extends Widget { const SizedBox.square({double? dimension}); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/base.dart",
+        r"import 'framework.dart';
+abstract class BaseAvatar extends StatelessWidget {
+  const BaseAvatar({this.size});
+  final double? size;
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/middle.dart",
+        r"import 'base.dart';
+class IntermediateAvatar extends BaseAvatar {
+  const IntermediateAvatar({this.size});
+  final double? size;
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/avatar.dart",
+        r"import 'framework.dart';
+import 'middle.dart';
+class LeafAvatar extends IntermediateAvatar {
+  const LeafAvatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: super.size);
+}
+",
+    )?;
+
+    let json = check(&fixture)?;
+    assert_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "BaseAvatar.size",
+    );
+    Ok(())
+}
+
+#[test]
 fn cross_file_inherited_field_preserves_constructor_param_identity()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -879,6 +1028,200 @@ Future<Process> unsafeMutableStart(String command, bool replace) {
             .collect::<Vec<_>>(),
         vec![Some(18), Some(22), Some(29), Some(38), Some(48)]
     );
+    Ok(())
+}
+
+#[test]
+fn process_runtime_exemptions_require_dart_io_identity_and_parsed_shell_flags()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+class Platform {
+  static const resolvedExecutable = 'not-dart';
+}
+
+Future<Process> shadowedPlatform() =>
+    Process.start(Platform.resolvedExecutable, const ['/path/to/snapshot']);
+
+Future<Process> commentedShell() {
+  final dartExe = Platform.resolvedExecutable;
+  return Process.start(
+    dartExe,
+    const ['/path/to/snapshot'],
+    runInShell /* comment */: true,
+  );
+}
+
+Future<ProcessResult> fixedRun() =>
+    Process.run('echo', const [], runInShell: false);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let process = candidate(
+        json["security_candidates"]
+            .as_array()
+            .unwrap_or_else(|| panic!("security_candidates array")),
+        "process-execution",
+    );
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(2));
+    Ok(())
+}
+
+#[test]
+fn process_runtime_exemption_rejects_shadowed_platform_parameters()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+Future<Process> shadowedPlatform(Platform Platform) =>
+    Process.start(Platform.resolvedExecutable, const ['/path/to/snapshot']);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let process = candidate(
+        json["security_candidates"]
+            .as_array()
+            .unwrap_or_else(|| panic!("security_candidates array")),
+        "process-execution",
+    );
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(1));
+    Ok(())
+}
+
+#[test]
+fn process_runtime_exemption_rejects_shadowed_platform_import_prefixes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+import 'fake_platform.dart' as Platform;
+
+Future<Process> shadowedPlatform() =>
+    Process.start(Platform.resolvedExecutable, const ['/path/to/snapshot']);
+",
+    )?;
+    write(
+        &fixture,
+        "lib/fake_platform.dart",
+        "class FakePlatform {}\n",
+    )?;
+
+    let json = security(&fixture)?;
+    let process = candidate(
+        json["security_candidates"]
+            .as_array()
+            .unwrap_or_else(|| panic!("security_candidates array")),
+        "process-execution",
+    );
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(1));
+    Ok(())
+}
+
+#[test]
+fn process_run_shell_flags_use_parsed_named_arguments() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+Future<ProcessResult> safeRun() =>
+    Process.run('echo', const [], runInShell /* comment */: false);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    assert!(
+        json["security_candidates"]
+            .as_array()
+            .is_none_or(Vec::is_empty),
+        "{json:#}"
+    );
+    Ok(())
+}
+
+#[test]
+fn process_runtime_bindings_are_order_independent() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+Future<Process> startAnalysisServer() =>
+    Process.start(dartExe, [snapshot]);
+
+final dartExe = Platform.resolvedExecutable;
+const snapshot = '/path/to/analysis_server.dart.snapshot';
+",
+    )?;
+
+    let json = security(&fixture)?;
+    assert!(
+        json["security_candidates"]
+            .as_array()
+            .is_none_or(Vec::is_empty),
+        "{json:#}"
+    );
+    Ok(())
+}
+
+#[test]
+fn imported_superclass_members_keep_process_runtime_lookup_unknown()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+import 'base.dart';
+
+final dartExe = Platform.resolvedExecutable;
+
+class Runner extends BaseRunner {
+  Runner(super.command);
+
+  Future<Process> start() =>
+      Process.start(dartExe, const ['/path/to/snapshot']);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/base.dart",
+        r"class BaseRunner {
+  BaseRunner(this.command);
+  final String command;
+  String get dartExe => command;
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let process = candidate(
+        json["security_candidates"]
+            .as_array()
+            .unwrap_or_else(|| panic!("security_candidates array")),
+        "process-execution",
+    );
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(1));
     Ok(())
 }
 

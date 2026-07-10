@@ -53,6 +53,7 @@ pub(super) fn constructor_params(
 pub(super) fn constructor_initializers_use_param(
     class: Node<'_>,
     widget_class: &str,
+    field_name: &str,
     param_name: &str,
     source: &str,
 ) -> bool {
@@ -69,11 +70,16 @@ pub(super) fn constructor_initializers_use_param(
         collect_nodes(declaration, "initializer_list_entry", &mut entries);
         entries
             .into_iter()
-            .any(|entry| initializer_entry_uses_param(entry, param_name, source))
+            .any(|entry| initializer_entry_uses_param(entry, field_name, param_name, source))
     })
 }
 
-fn initializer_entry_uses_param(entry: Node<'_>, param_name: &str, source: &str) -> bool {
+fn initializer_entry_uses_param(
+    entry: Node<'_>,
+    field_name: &str,
+    param_name: &str,
+    source: &str,
+) -> bool {
     let mut cursor = entry.walk();
     entry.named_children(&mut cursor).any(|initializer| {
         if initializer.kind() == "assertion" {
@@ -87,15 +93,29 @@ fn initializer_entry_uses_param(entry: Node<'_>, param_name: &str, source: &str)
             .children_by_field_name("value", &mut cursor)
             .any(|value| {
                 initializer_value_uses_param(value, param_name, source)
-                    && !initializer_is_direct_assignment(value, param_name, source)
+                    && !initializer_is_direct_assignment(
+                        initializer,
+                        field_name,
+                        param_name,
+                        source,
+                    )
             })
     })
 }
 
-fn initializer_is_direct_assignment(node: Node<'_>, param_name: &str, source: &str) -> bool {
-    node.utf8_text(source.as_bytes())
-        .ok()
-        .is_some_and(|value| value.trim() == param_name)
+fn initializer_is_direct_assignment(
+    initializer: Node<'_>,
+    field_name: &str,
+    param_name: &str,
+    source: &str,
+) -> bool {
+    field_text(initializer, "name", source).as_deref() == Some(field_name)
+        && initializer
+            .child_by_field_name("value")
+            .is_some_and(|value| {
+                value.kind() == "identifier"
+                    && value.utf8_text(source.as_bytes()).ok() == Some(param_name)
+            })
 }
 
 const CONSTRUCTOR_SIGNATURES: &[&str] =

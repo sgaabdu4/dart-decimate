@@ -4,6 +4,19 @@ use tree_sitter::Node;
 
 use super::patterns::{declaration_binds_name, pattern_binds_name};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum WidgetMemberReceiver {
+    Implicit,
+    This,
+    Super,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct WidgetMemberRead {
+    pub(super) name: String,
+    pub(super) receiver: WidgetMemberReceiver,
+}
+
 pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -> bool {
     let mut found = false;
     visit_named(body, &mut |node| {
@@ -17,30 +30,27 @@ pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -
     found
 }
 
-pub(super) fn widget_body_uses_inherited_param(body: Node<'_>, name: &str, source: &str) -> bool {
-    if widget_body_uses_param(body, name, source) {
-        return true;
-    }
-    let mut found = false;
-    visit_named(body, &mut |node| {
-        if !found && receiver_member_name(node, &["super"], source).as_deref() == Some(name) {
-            found = true;
-        }
-    });
-    found
-}
-
-pub(super) fn widget_body_param_reads(body: Node<'_>, source: &str) -> BTreeSet<String> {
+pub(super) fn widget_body_member_reads(body: Node<'_>, source: &str) -> BTreeSet<WidgetMemberRead> {
     let mut reads = BTreeSet::new();
     visit_named(body, &mut |node| {
-        if let Some(name) = inherited_member_name(node, source) {
-            reads.insert(name);
-        }
-        if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
+        if let Some(name) = receiver_member_name(node, &["super"], source) {
+            reads.insert(WidgetMemberRead {
+                name,
+                receiver: WidgetMemberReceiver::Super,
+            });
+        } else if let Some(name) = receiver_member_name(node, &["this"], source) {
+            reads.insert(WidgetMemberRead {
+                name,
+                receiver: WidgetMemberReceiver::This,
+            });
+        } else if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
             && let Ok(name) = node.utf8_text(source.as_bytes())
             && is_body_identifier_use(node, name, source)
         {
-            reads.insert(name.to_owned());
+            reads.insert(WidgetMemberRead {
+                name: name.to_owned(),
+                receiver: WidgetMemberReceiver::Implicit,
+            });
         }
     });
     reads
@@ -189,10 +199,6 @@ fn identifier_before_parameters(node: Node<'_>, source: &str) -> Option<String> 
 
 fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
     this_member_name(node, source).as_deref() == Some(name)
-}
-
-fn inherited_member_name(node: Node<'_>, source: &str) -> Option<String> {
-    receiver_member_name(node, &["this", "super"], source)
 }
 
 fn this_member_name(node: Node<'_>, source: &str) -> Option<String> {

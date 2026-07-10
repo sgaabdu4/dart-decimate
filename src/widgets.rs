@@ -412,7 +412,13 @@ fn findings_for_classes(
         );
         for param in constructor_params(class, &widget_class, source) {
             if widget_body_uses_param(body, &param.field_name, source)
-                || constructor_initializers_use_param(class, &widget_class, &param.name, source)
+                || constructor_initializers_use_param(
+                    class,
+                    &widget_class,
+                    &param.field_name,
+                    &param.name,
+                    source,
+                )
                 || inherited_uses.contains(&(widget_class.clone(), param.field_name.clone()))
                 || object_pattern_reads.contains(&param.field_name)
                 || states.get(&widget_class).is_some_and(|state_bodies| {
