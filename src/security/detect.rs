@@ -1,7 +1,10 @@
 use std::path::Path;
 
+use tree_sitter::Node;
+
 use super::{DetectedSecurityCandidate, SecurityCategory, SecurityConfidence, SecurityOccurrence};
 use crate::Location;
+use crate::dart_parser::parse_dart_source_lossy;
 use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
 
 pub(super) fn detect_in_source(path: &Path, source: &str) -> Vec<DetectedSecurityCandidate> {
@@ -220,6 +223,10 @@ fn detect_process_execution(
     source: &str,
     candidates: &mut Vec<DetectedSecurityCandidate>,
 ) {
+    let parsed = source
+        .contains("Process.start(")
+        .then(|| parse_dart_source_lossy(path, source))
+        .and_then(Result::ok);
     for pattern in [
         "Process.run(",
         "Process.start(",
@@ -228,15 +235,18 @@ fn detect_process_execution(
     ] {
         for index in match_indices(source, pattern) {
             let args = call_inside_after(source, index + pattern.len());
-            let run_in_shell = args
-                .as_deref()
-                .is_some_and(|call| named_bool_argument_is_true(call, "runInShell"));
-            let safe_dart_runtime_start = !run_in_shell
+            let run_in_shell_disabled = args.as_deref().is_some_and(|call| {
+                named_bool_argument_is_statically_false_or_absent(call, "runInShell")
+            });
+            let syntax = parsed
+                .as_ref()
+                .map(|parsed| (parsed.tree().root_node(), parsed.source()));
+            let safe_dart_runtime_start = run_in_shell_disabled
                 && pattern == "Process.start("
                 && args
                     .as_deref()
-                    .is_some_and(|call| resolved_dart_runtime_start(source, index, call));
-            let risky = run_in_shell
+                    .is_some_and(|call| resolved_dart_runtime_start(syntax, index, call));
+            let risky = !run_in_shell_disabled
                 || args.as_deref().is_some_and(|call| {
                     !safe_dart_runtime_start
                         && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
@@ -478,7 +488,10 @@ fn first_call_arg_is_fixed_literal(call: &str) -> bool {
     matches!(rest.as_bytes().first(), Some(b',' | b')'))
 }
 
-fn resolved_dart_runtime_start(source: &str, index: usize, call: &str) -> bool {
+fn resolved_dart_runtime_start(syntax: Option<(Node<'_>, &str)>, index: usize, call: &str) -> bool {
+    let Some((root, source)) = syntax else {
+        return false;
+    };
     let args = top_level_call_arguments(call);
     let Some(executable) = args.first().map(|arg| arg.trim()) else {
         return false;
@@ -487,9 +500,9 @@ fn resolved_dart_runtime_start(source: &str, index: usize, call: &str) -> bool {
         return false;
     };
     is_identifier(executable)
-        && last_assignment_value(source, index, executable)
+        && lexical_binding_value(root, source, index, executable)
             .is_some_and(|value| value == "Platform.resolvedExecutable")
-        && fixed_argument_list(source, index, arguments)
+        && fixed_argument_list(root, source, index, arguments)
 }
 
 fn top_level_call_arguments(call: &str) -> Vec<&str> {
@@ -521,15 +534,15 @@ fn top_level_call_arguments(call: &str) -> Vec<&str> {
     arguments
 }
 
-fn named_bool_argument_is_true(call: &str, name: &str) -> bool {
-    top_level_call_arguments(call).into_iter().any(|argument| {
-        argument
-            .split_once(':')
-            .is_some_and(|(candidate, value)| candidate.trim() == name && value.trim() == "true")
-    })
+fn named_bool_argument_is_statically_false_or_absent(call: &str, name: &str) -> bool {
+    top_level_call_arguments(call)
+        .into_iter()
+        .filter_map(|argument| argument.split_once(':'))
+        .filter(|(candidate, _)| candidate.trim() == name)
+        .all(|(_, value)| value.trim() == "false")
 }
 
-fn fixed_argument_list(source: &str, index: usize, arguments: &str) -> bool {
+fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &str) -> bool {
     let Some(inner) = arguments
         .strip_prefix('[')
         .and_then(|value| value.strip_suffix(']'))
@@ -541,7 +554,8 @@ fn fixed_argument_list(source: &str, index: usize, arguments: &str) -> bool {
         argument.is_empty()
             || fixed_string_literal(argument)
             || is_identifier(argument)
-                && last_assignment_value(source, index, argument).is_some_and(fixed_string_literal)
+                && lexical_binding_value(root, source, index, argument)
+                    .is_some_and(fixed_string_literal)
     })
 }
 
@@ -551,11 +565,246 @@ fn fixed_string_literal(value: &str) -> bool {
         && !value.contains('$')
 }
 
-fn last_assignment_value<'a>(source: &'a str, index: usize, name: &str) -> Option<&'a str> {
-    source[..index].split(';').rev().find_map(|statement| {
-        let (left, right) = statement.rsplit_once('=')?;
-        (trailing_identifier(left) == Some(name)).then(|| right.trim())
+fn lexical_binding_value<'source>(
+    root: Node<'_>,
+    source: &'source str,
+    index: usize,
+    name: &str,
+) -> Option<&'source str> {
+    let mut child = root.descendant_for_byte_range(index, index.saturating_add(1))?;
+    while let Some(parent) = child.parent() {
+        if parent.kind() == "class_body" {
+            return class_binding(parent, child, name, source).and_then(|binding| match binding {
+                LexicalBinding::Value(value) => Some(value),
+                LexicalBinding::Unknown => None,
+            });
+        }
+        if process_scope_parameters_bind_name(parent, name, source)
+            || process_scope_header_binds_name(parent, child, name, source)
+        {
+            return None;
+        }
+        let mut cursor = parent.walk();
+        let mut siblings = parent
+            .named_children(&mut cursor)
+            .take_while(|sibling| sibling.start_byte() < child.start_byte())
+            .collect::<Vec<_>>();
+        while let Some(sibling) = siblings.pop() {
+            if let Some(binding) = direct_binding(sibling, name, source, false) {
+                return match binding {
+                    LexicalBinding::Value(value) => Some(value),
+                    LexicalBinding::Unknown => None,
+                };
+            }
+        }
+        child = parent;
+    }
+    None
+}
+
+fn class_binding<'source>(
+    class_body: Node<'_>,
+    current_member: Node<'_>,
+    name: &str,
+    source: &'source str,
+) -> Option<LexicalBinding<'source>> {
+    let mut cursor = class_body.walk();
+    class_body
+        .named_children(&mut cursor)
+        .filter(|member| member.start_byte() != current_member.start_byte())
+        .find_map(|member| direct_binding(member, name, source, false))
+}
+
+enum LexicalBinding<'source> {
+    Value(&'source str),
+    Unknown,
+}
+
+fn direct_binding<'source>(
+    node: Node<'_>,
+    name: &str,
+    source: &'source str,
+    immutable: bool,
+) -> Option<LexicalBinding<'source>> {
+    let immutable = immutable || declaration_is_immutable(node);
+    if matches!(
+        node.kind(),
+        "formal_parameter" | "typed_identifier" | "variable_pattern"
+    ) {
+        let binding_name = node
+            .child_by_field_name("name")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        return (binding_name == name).then_some(LexicalBinding::Unknown);
+    }
+    if matches!(
+        node.kind(),
+        "initialized_identifier" | "initialized_variable_definition"
+    ) {
+        let binding_name = node
+            .child_by_field_name("name")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        if binding_name != name {
+            return None;
+        }
+        if !immutable {
+            return Some(LexicalBinding::Unknown);
+        }
+        return Some(
+            node.child_by_field_name("value")
+                .and_then(|value| value.utf8_text(source.as_bytes()).ok())
+                .map(str::trim)
+                .map_or(LexicalBinding::Unknown, LexicalBinding::Value),
+        );
+    }
+    if node.kind() == "assignment_expression" {
+        let left = node
+            .child_by_field_name("left")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        let operator = node
+            .child_by_field_name("operator")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        if left.trim() == name && operator == "=" {
+            return Some(LexicalBinding::Unknown);
+        }
+        return None;
+    }
+    if !matches!(
+        node.kind(),
+        "class_member"
+            | "declaration"
+            | "expression_statement"
+            | "initialized_identifier_list"
+            | "local_variable_declaration"
+            | "static_final_declaration_list"
+            | "top_level_variable_declaration"
+    ) {
+        return None;
+    }
+    let mut cursor = node.walk();
+    let mut children = node.named_children(&mut cursor).collect::<Vec<_>>();
+    while let Some(child) = children.pop() {
+        if let Some(binding) = direct_binding(child, name, source, immutable) {
+            return Some(binding);
+        }
+    }
+    None
+}
+
+fn declaration_is_immutable(node: Node<'_>) -> bool {
+    if node.kind() == "static_final_declaration_list" {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(|child| matches!(child.kind(), "const" | "final"))
+}
+
+fn process_scope_header_binds_name(
+    node: Node<'_>,
+    path_child: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    if node.kind() == "catch_clause" {
+        return ["exception", "stack_trace"].into_iter().any(|field| {
+            node.child_by_field_name(field).is_some_and(|binding| {
+                binding.start_byte() < path_child.start_byte()
+                    && binding.utf8_text(source.as_bytes()).ok() == Some(name)
+            })
+        });
+    }
+    node.kind() == "for_statement"
+        && node.child_by_field_name("init").is_some_and(|binding| {
+            binding.start_byte() < path_child.start_byte()
+                && binding.utf8_text(source.as_bytes()).ok() == Some(name)
+        })
+}
+
+fn process_scope_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    let parameter_lists = match node.kind() {
+        "function_expression" => parameter_field_lists(node),
+        "method_declaration" => node
+            .child_by_field_name("signature")
+            .map_or_else(Vec::new, collect_parameter_lists),
+        "declaration" | "local_function_declaration" => {
+            direct_named_child(node, "function_signature")
+                .map_or_else(Vec::new, collect_parameter_lists)
+        }
+        _ => Vec::new(),
+    };
+    parameter_lists
+        .into_iter()
+        .any(|parameters| parameter_list_binds_name(parameters, name, source))
+}
+
+fn parameter_field_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children_by_field_name("parameters", &mut cursor)
+        .filter_map(formal_parameter_list)
+        .collect()
+}
+
+fn collect_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    own_parameter_list(node).into_iter().collect()
+}
+
+fn own_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(own_parameter_list)
+}
+
+fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "formal_parameter_list")
+}
+
+fn parameter_list_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|candidate| {
+        if candidate.kind() == "formal_parameter" {
+            return formal_parameter_name(candidate, source).as_deref() == Some(name);
+        }
+        candidate.kind() == "optional_formal_parameters"
+            && parameter_list_binds_name(candidate, name, source)
     })
+}
+
+fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {
+    param
+        .child_by_field_name("name")
+        .or_else(|| last_identifier_child(param, source))
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
+}
+
+fn last_identifier_child<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|child| {
+            matches!(
+                child.kind(),
+                "identifier" | "identifier_dollar_escaped" | "type_identifier"
+            ) && child.utf8_text(source.as_bytes()).ok() != Some("key")
+        })
+        .last()
+}
+
+fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
 }
 
 fn is_identifier(value: &str) -> bool {

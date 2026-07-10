@@ -2,17 +2,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn package_used_in_tooling(package_root: &Path, dependency: &str) -> bool {
-    pubspec_tooling_section(package_root, dependency)
+    pubspec_has_top_level_key(package_root, dependency)
         || known_tooling_convention(package_root, dependency)
         || tooling_files(package_root).into_iter().any(|path| {
             fs::read_to_string(path)
                 .ok()
                 .is_some_and(|source| source_mentions_dependency(&source, dependency))
         })
-}
-
-fn pubspec_tooling_section(package_root: &Path, dependency: &str) -> bool {
-    pubspec_has_top_level_key(package_root, dependency)
 }
 
 fn pubspec_has_top_level_key(package_root: &Path, key: &str) -> bool {

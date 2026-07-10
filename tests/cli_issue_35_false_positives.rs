@@ -280,6 +280,86 @@ Future<Process> unsafeStart() {
     Ok(())
 }
 
+#[test]
+fn process_start_exemption_requires_lexical_fixed_values_and_disabled_shell()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+final dartExe = Platform.resolvedExecutable;
+const snapshot = '/path/to/analysis_server.dart.snapshot';
+const useShell = true;
+
+Future<Process> safeStart() {
+  final localDartExe = Platform.resolvedExecutable;
+  final localSnapshot = '/path/to/local.snapshot';
+  return Process.start(
+    localDartExe,
+    [localSnapshot],
+    runInShell: false,
+  );
+}
+
+Future<Process> unsafeShellStart() {
+  return Process.start(dartExe, [snapshot], runInShell: useShell);
+}
+
+Future<Process> unsafeShadowedStart(String dartExe) {
+  return Process.start(dartExe, [snapshot]);
+}
+
+Future<Process?> unsafeCatchShadow() async {
+  try {
+    return null;
+  } catch (dartExe) {
+    return Process.start(dartExe, [snapshot]);
+  }
+}
+
+class Runner {
+  final String dartExe;
+  Runner(this.dartExe);
+
+  Future<Process> unsafeClassShadow() {
+    return Process.start(dartExe, [snapshot]);
+  }
+}
+
+Future<Process> unsafeMutableStart(String command, bool replace) {
+  var mutableDartExe = Platform.resolvedExecutable;
+  final localSnapshot = '/path/to/mutable.snapshot';
+  if (replace) {
+    mutableDartExe = command;
+  }
+  return Process.start(mutableDartExe, [localSnapshot]);
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+    let occurrences = process["occurrences"]
+        .as_array()
+        .unwrap_or_else(|| panic!("process occurrences: {json:#}"));
+
+    assert_eq!(occurrences.len(), 5, "{json:#}");
+    assert_eq!(
+        occurrences
+            .iter()
+            .map(|occurrence| occurrence["line"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![Some(18), Some(22), Some(29), Some(38), Some(48)]
+    );
+    Ok(())
+}
+
 fn check(fixture: &TempDir) -> Result<Value, Box<dyn std::error::Error>> {
     run_json(["dart-decimate", "check", root(fixture), "--format", "json"])
 }

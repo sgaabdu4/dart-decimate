@@ -49,14 +49,15 @@ Run the complete verification stack locally:
 
 ```bash
 git diff --check
+npm ci --ignore-scripts
 npm run lint
 npm run version:bump:check -- origin/main
 npm run release:check
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-npm ci --ignore-scripts
 npx fallow audit --base origin/main --quiet
 cargo test --all-targets
+npm test
 npm run pack:check
 npm run test:postinstall:prebuilt
 npm run test:npx:prebuilt
