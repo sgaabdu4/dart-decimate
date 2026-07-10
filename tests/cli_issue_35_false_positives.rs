@@ -750,6 +750,77 @@ Future<void> shadowedLoop(List<String> commands) async {
 }
 
 #[test]
+fn combined_shell_flags_and_pattern_bindings_remain_process_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+final dartExe = Platform.resolvedExecutable;
+const snapshot = '/path/to/analysis_server.dart.snapshot';
+
+Future<ProcessResult> combinedShellRun(String command) {
+  return Process.run('/bin/bash', ['-lc', command]);
+}
+
+List<Future<Process>> collectionLoop(List<String> commands) => [
+  for (final dartExe in commands)
+    Process.start(dartExe, [snapshot]),
+];
+
+Future<void> destructuringLoop(List<List<String>> commands) async {
+  for (final [dartExe] in commands) {
+    await Process.start(dartExe, [snapshot]);
+  }
+}
+
+Future<Process> destructuringDeclaration(List<String> command) {
+  final [dartExe] = command;
+  return Process.start(dartExe, [snapshot]);
+}
+
+Future<Process?> ifCasePattern(Object command) async {
+  if (command case [String dartExe]) {
+    return Process.start(dartExe, [snapshot]);
+  }
+  return null;
+}
+
+Future<Process?> switchPattern(Object command) async {
+  switch (command) {
+    case [String dartExe]:
+      return Process.start(dartExe, [snapshot]);
+    default:
+      return null;
+  }
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+    let occurrences = process["occurrences"]
+        .as_array()
+        .unwrap_or_else(|| panic!("process occurrences: {json:#}"));
+
+    assert_eq!(occurrences.len(), 6, "{json:#}");
+    assert_eq!(
+        occurrences
+            .iter()
+            .map(|occurrence| occurrence["line"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![Some(7), Some(12), Some(17), Some(23), Some(28), Some(36)]
+    );
+    Ok(())
+}
+
+#[test]
 fn ash_shell_is_risky_while_const_raw_dart_arguments_are_fixed()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

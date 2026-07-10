@@ -14,8 +14,8 @@ pub(super) struct ClassKey {
 #[derive(Debug)]
 pub(super) struct DeclarationResolver {
     declarations: BTreeMap<PathBuf, BTreeSet<String>>,
-    imports: Vec<ResolvedDependency>,
-    exports: Vec<ResolvedDependency>,
+    imports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
+    exports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
     library_by_path: BTreeMap<PathBuf, PathBuf>,
     paths_by_library: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
 }
@@ -65,15 +65,19 @@ impl DeclarationResolver {
                 paths
             },
         );
-        let imports = dependencies
-            .iter()
-            .filter(|dependency| dependency.kind == DependencyKind::Import)
-            .cloned()
-            .collect();
-        let exports = dependencies
-            .into_iter()
-            .filter(|dependency| dependency.kind == DependencyKind::Export)
-            .collect();
+        let mut imports = BTreeMap::<PathBuf, Vec<ResolvedDependency>>::new();
+        let mut exports = BTreeMap::<PathBuf, Vec<ResolvedDependency>>::new();
+        for dependency in dependencies {
+            let index = match dependency.kind {
+                DependencyKind::Import => &mut imports,
+                DependencyKind::Export => &mut exports,
+                _ => continue,
+            };
+            index
+                .entry(dependency.from_path.clone())
+                .or_default()
+                .push(dependency);
+        }
         Self {
             declarations,
             imports,
@@ -90,25 +94,20 @@ impl DeclarationResolver {
             return BTreeSet::new();
         };
         let library = self.library_path(from);
-        let imports = self
-            .imports
-            .iter()
-            .filter(|dependency| dependency.from_path == library)
-            .collect::<Vec<_>>();
+        let imports = self.imports.get(&library).map_or(&[][..], Vec::as_slice);
 
         if let Some(name) = segments.get(1).filter(|name| type_like_name(name)) {
-            let prefixed_imports = imports
+            let has_prefixed_import = imports
                 .iter()
-                .filter(|dependency| dependency.visibility.prefix.as_deref() == Some(first))
-                .collect::<Vec<_>>();
-            if !prefixed_imports.is_empty() {
+                .any(|dependency| dependency.visibility.prefix.as_deref() == Some(first));
+            if has_prefixed_import {
                 if name.starts_with('_') {
                     return BTreeSet::new();
                 }
                 return self.imported_classes(
-                    prefixed_imports
-                        .into_iter()
-                        .copied()
+                    imports
+                        .iter()
+                        .filter(|dependency| dependency.visibility.prefix.as_deref() == Some(first))
                         .filter(|dependency| visible(name, &dependency.visibility)),
                     name,
                 );
@@ -124,7 +123,7 @@ impl DeclarationResolver {
         }
         self.imported_classes(
             imports
-                .into_iter()
+                .iter()
                 .filter(|dependency| dependency.visibility.prefix.is_none())
                 .filter(|dependency| visible(first, &dependency.visibility)),
             first,
@@ -177,8 +176,9 @@ impl DeclarationResolver {
         let mut classes = self.library_classes(&library, name);
         for dependency in self
             .exports
-            .iter()
-            .filter(|dependency| dependency.from_path == library)
+            .get(&library)
+            .into_iter()
+            .flatten()
             .filter(|dependency| visible(name, &dependency.visibility))
         {
             classes.extend(self.collect_exported_classes(&dependency.to_path, name, visited));

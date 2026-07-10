@@ -537,8 +537,16 @@ fn call_invokes_command_shell(call: &str) -> bool {
         "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => {
             matches!(flag.as_str(), "-c" | "-command" | "-encodedcommand")
         }
-        _ => flag == "-c" && command_interpreter_uses_c_flag(posix_executable),
+        _ => {
+            command_interpreter_uses_c_flag(posix_executable)
+                && posix_shell_flag_invokes_command(&flag)
+        }
     }
+}
+
+fn posix_shell_flag_invokes_command(flag: &str) -> bool {
+    flag.strip_prefix('-')
+        .is_some_and(|options| !options.starts_with('-') && options.contains('c'))
 }
 
 fn command_interpreter_uses_c_flag(executable: &str) -> bool {
