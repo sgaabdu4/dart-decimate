@@ -1,0 +1,317 @@
+use std::fs;
+
+use dart_decimate::cli::run_from;
+use serde_json::Value;
+use tempfile::TempDir;
+
+#[test]
+fn git_ignored_generated_files_do_not_emit_source_findings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "**/*.g.dart\n**/*.gen.dart\n")?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "lib/src/example_dto.g.dart",
+        "// GENERATED CODE - DO NOT MODIFY BY HAND\npart of 'example_dto.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/gen/assets.gen.dart",
+        "// GENERATED CODE - DO NOT MODIFY BY HAND\nimport 'package:vector_graphics/vector_graphics.dart';\n",
+    )?;
+
+    let json = check(&fixture)?;
+
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/part-of-violation",
+        "lib/src/example_dto.g.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/unlisted-dependency",
+        "lib/gen/assets.gen.dart",
+    );
+    Ok(())
+}
+
+#[test]
+fn runner_discovered_tests_are_reachability_roots() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\npatrol:\n  test_file_suffix: _patrol.dart\n",
+    )?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "integration_test/features/login_patrol.dart",
+        "import '../../integration_test_utilities/run_integration_test.dart';\nvoid main() => runIntegrationTest();\n",
+    )?;
+    write(
+        &fixture,
+        "integration_test_utilities/run_integration_test.dart",
+        "@isTest\nvoid runIntegrationTest() {}\n",
+    )?;
+    write(&fixture, "test/features/smoke.dart", "void main() {}\n")?;
+
+    let json = check(&fixture)?;
+
+    for path in [
+        "integration_test/features/login_patrol.dart",
+        "integration_test_utilities/run_integration_test.dart",
+        "test/features/smoke.dart",
+    ] {
+        assert_no_finding_path(&json, "dart-decimate/dead-file", path);
+    }
+    Ok(())
+}
+
+#[test]
+fn tooling_conventions_count_as_dev_dependency_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\n\
+dependencies:\n  envied: ^1.0.0\n\
+dev_dependencies:\n  build_runner: ^2.0.0\n  envied_generator: ^1.0.0\n  flutter_gen_runner: ^5.0.0\n  flutter_launcher_icons: ^0.14.0\n  test: ^1.0.0\n\
+flutter_gen:\n  integrations:\n    flutter_svg: true\n",
+    )?;
+    write(
+        &fixture,
+        "lib/env.dart",
+        "import 'package:envied/envied.dart';\npart 'env.g.dart';\n@Envied()\nabstract class Env {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/env.g.dart",
+        "// GENERATED CODE - DO NOT MODIFY BY HAND\npart of 'env.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "flutter_launcher_icons.yaml",
+        "flutter_launcher_icons:\n  android: true\n",
+    )?;
+    write(&fixture, "test/smoke.dart", "void main() {}\n")?;
+
+    let json = check(&fixture)?;
+
+    for dependency in [
+        "build_runner",
+        "envied_generator",
+        "flutter_gen_runner",
+        "flutter_launcher_icons",
+        "test",
+    ] {
+        assert_no_unused_dev_dependency(&json, dependency);
+    }
+    Ok(())
+}
+
+#[test]
+fn widget_initializer_and_inheritance_reads_count_as_usage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'widgets.dart';\nvoid main() {\n  TimerView(builder: (_, _) => const SizedBox());\n  TableView.builder(itemCount: 1);\n  const InitialsAvatar();\n  const Screen();\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/widgets.dart",
+        r"class BuildContext {}
+class Widget {}
+class StatelessWidget extends Widget { const StatelessWidget(); }
+class StatefulWidget extends Widget { const StatefulWidget(); }
+class State<T> {}
+class SizedBox extends Widget {
+  const SizedBox();
+  const SizedBox.square({double? dimension});
+}
+
+class TimerView extends StatefulWidget {
+  const TimerView({required this.builder});
+  final Widget Function(BuildContext context, Object state) builder;
+}
+
+class _TimerViewState extends State<TimerView> {
+  Widget build(BuildContext context) => widget.builder(context, Object());
+}
+
+class TableView extends StatelessWidget {
+  TableView.builder({this.header, required int itemCount})
+      : itemCount = itemCount + (header == null ? 0 : 1);
+  final Widget? header;
+  final int itemCount;
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+abstract class BaseAvatar extends StatelessWidget {
+  const BaseAvatar({this.size});
+  final double? size;
+}
+
+class InitialsAvatar extends BaseAvatar {
+  const InitialsAvatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: size ?? 40);
+}
+
+class BaseInput extends StatefulWidget {
+  const BaseInput();
+}
+
+class SearchInput extends BaseInput {
+  const SearchInput();
+}
+
+class Screen extends StatelessWidget {
+  const Screen();
+  Widget build(BuildContext context) => const SearchInput();
+}
+",
+    )?;
+
+    let json = check(&fixture)?;
+
+    for target in [
+        "TimerView.builder",
+        "TableView.header",
+        "TableView.itemCount",
+        "BaseAvatar.size",
+    ] {
+        assert_no_action_target(&json, "dart-decimate/unused-widget-param", target);
+    }
+    assert_no_action_target(&json, "dart-decimate/unrendered-widget", "BaseInput");
+    Ok(())
+}
+
+#[test]
+fn security_classification_keeps_only_real_review_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+const authorizationEndpoint = 'https://auth.example.invalid/oauth2/authorize';
+const tokenEndpoint = 'https://auth.example.invalid/oauth2/token';
+const firebaseOptions = FirebaseOptions(
+  apiKey: 'AIzaSyExamplePublicFirebaseApiKey',
+  appId: '1:000000000000:android:example',
+  messagingSenderId: '000000000000',
+  projectId: 'example-project',
+);
+
+Never fail() => throw const AuthException('User ID not found or invalid in token payload');
+
+Future<Process> startAnalysisServer() {
+  final dartExe = Platform.resolvedExecutable;
+  final snapshot = '/path/to/analysis_server.dart.snapshot';
+  return Process.start(dartExe, [snapshot]);
+}
+
+Future<Process> unsafeStart(String command, String argument) {
+  return Process.start(command, [argument], runInShell: true);
+}
+
+abstract class Env {
+  @EnviedField(
+    varName: 'STRIPE_SECRET_KEY',
+    defaultValue: 'sk_test_replace_with_your_secret',
+  )
+  static final String stripeSecretKey = _Env.stripeSecretKey;
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+
+    assert_eq!(candidates.len(), 2, "{json:#}");
+    let secret = candidate(candidates, "hardcoded-secret");
+    assert_eq!(secret["occurrences"].as_array().map(Vec::len), Some(1));
+    assert_eq!(secret["occurrences"][0]["line"], 27);
+    let process = candidate(candidates, "process-execution");
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(1));
+    assert_eq!(process["occurrences"][0]["line"], 21);
+    Ok(())
+}
+
+fn check(fixture: &TempDir) -> Result<Value, Box<dyn std::error::Error>> {
+    run_json(["dart-decimate", "check", root(fixture), "--format", "json"])
+}
+
+fn security(fixture: &TempDir) -> Result<Value, Box<dyn std::error::Error>> {
+    run_json([
+        "dart-decimate",
+        "security",
+        root(fixture),
+        "--format",
+        "json",
+    ])
+}
+
+fn run_json<const N: usize>(args: [&str; N]) -> Result<Value, Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+    let _code = run_from(args, &mut output)?;
+    Ok(serde_json::from_slice(&output)?)
+}
+
+fn candidate<'a>(candidates: &'a [Value], category: &str) -> &'a Value {
+    candidates
+        .iter()
+        .find(|candidate| candidate["category"] == category)
+        .unwrap_or_else(|| panic!("missing {category} candidate: {candidates:#?}"))
+}
+
+fn assert_no_finding_path(json: &Value, rule_id: &str, path: &str) {
+    assert!(
+        findings(json).all(|finding| finding["rule_id"] != rule_id || finding["path"] != path),
+        "unexpected {rule_id} for {path}: {json:#}"
+    );
+}
+
+fn assert_no_unused_dev_dependency(json: &Value, dependency: &str) {
+    assert!(
+        findings(json).all(|finding| {
+            finding["rule_id"] != "dart-decimate/unused-dev-dependency"
+                || finding["actions"][0]["target_dependency"] != dependency
+        }),
+        "unexpected unused dev dependency {dependency}: {json:#}"
+    );
+}
+
+fn assert_no_action_target(json: &Value, rule_id: &str, target: &str) {
+    assert!(
+        findings(json).all(|finding| {
+            finding["rule_id"] != rule_id || finding["actions"][0]["target_symbol"] != target
+        }),
+        "unexpected {rule_id} for {target}: {json:#}"
+    );
+}
+
+fn findings(json: &Value) -> impl Iterator<Item = &Value> {
+    json["findings"].as_array().into_iter().flatten()
+}
+
+fn root(fixture: &TempDir) -> &str {
+    fixture.path().to_str().unwrap_or(".")
+}
+
+fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {
+    let path = fixture.path().join(path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, source)
+}

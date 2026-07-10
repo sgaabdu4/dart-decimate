@@ -12,6 +12,7 @@ use crate::graph::normalize_against;
 use crate::{DeadCodeReport, Location, ScannedProject};
 
 mod forwarding;
+mod inheritance;
 mod lifecycle;
 mod params;
 mod patterns;
@@ -20,9 +21,10 @@ mod top_level;
 mod unrendered;
 
 use forwarding::{forwarded_param_used, widget_forwarded_param_uses};
+use inheritance::inherited_param_uses;
 pub use lifecycle::MissingContextMountedAfterAwait;
 use lifecycle::lifecycle_findings;
-use params::constructor_params;
+use params::{constructor_initializers_use_param, constructor_params};
 use patterns::object_pattern_field_reads_for_widget;
 use reads::{state_body_uses_param, widget_body_uses_param};
 use top_level::top_level_widget_functions;
@@ -324,6 +326,7 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
     collect_class_declarations(root, &mut classes);
     let states = state_classes_by_widget(&classes, source);
     let forwarded_uses = widget_forwarded_param_uses(&classes, source);
+    let inherited_uses = inherited_param_uses(&classes, source);
     let mut findings = FileWidgetFindings::default();
     let has_widget_class = classes
         .iter()
@@ -362,6 +365,8 @@ fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFi
         );
         for param in constructor_params(class, &widget_class, source) {
             if widget_body_uses_param(body, &param.field_name, source)
+                || constructor_initializers_use_param(class, &widget_class, &param.name, source)
+                || inherited_uses.contains(&(widget_class.clone(), param.field_name.clone()))
                 || object_pattern_reads.contains(&param.field_name)
                 || states.get(&widget_class).is_some_and(|state_bodies| {
                     state_bodies.iter().any(|state_body| {
@@ -443,7 +448,7 @@ pub(super) fn state_widget_class(class: Node<'_>, source: &str) -> Option<String
     generic.split(',').next().map(simple_type_name)
 }
 
-fn superclass_base_name(class: Node<'_>, source: &str) -> Option<String> {
+pub(super) fn superclass_base_name(class: Node<'_>, source: &str) -> Option<String> {
     superclass_type_text(class, source).map(|text| {
         let compact = strip_whitespace(&text);
         simple_type_name(compact.split('<').next().unwrap_or(&compact))

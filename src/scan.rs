@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use glob::Pattern;
+use ignore::WalkBuilder;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -45,29 +45,13 @@ pub enum ScanError {
         /// Underlying IO error.
         source: std::io::Error,
     },
-    /// A directory could not be read.
-    #[error("failed to read directory {path}: {source}")]
-    ReadDir {
+    /// A scan root could not be traversed.
+    #[error("failed to walk directory {path}: {source}")]
+    Walk {
         /// Directory path.
         path: PathBuf,
-        /// Underlying IO error.
-        source: std::io::Error,
-    },
-    /// A directory entry could not be read.
-    #[error("failed to read directory entry under {path}: {source}")]
-    ReadDirEntry {
-        /// Directory being scanned.
-        path: PathBuf,
-        /// Underlying IO error.
-        source: std::io::Error,
-    },
-    /// A file type could not be read.
-    #[error("failed to read file type for {path}: {source}")]
-    FileType {
-        /// Entry path.
-        path: PathBuf,
-        /// Underlying IO error.
-        source: std::io::Error,
+        /// Underlying ignore-aware walk error.
+        source: ignore::Error,
     },
     /// A pubspec could not be read while expanding local packages.
     #[error("failed to read pubspec {path}: {source}")]
@@ -191,35 +175,36 @@ fn discover_dart_files(
     ignore_matcher: &IgnoreMatcher,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<(), ScanError> {
-    let entries = fs::read_dir(dir).map_err(|source| ScanError::ReadDir {
-        path: dir.to_path_buf(),
-        source,
-    })?;
+    let filter_root = root.to_path_buf();
+    let filter_matcher = ignore_matcher.clone();
+    let mut builder = WalkBuilder::new(dir);
+    builder
+        .standard_filters(false)
+        .git_ignore(true)
+        .require_git(false)
+        .filter_entry(move |entry| {
+            entry.depth() == 0
+                || !(filter_matcher.matches(&filter_root, entry.path())
+                    || entry
+                        .file_type()
+                        .is_some_and(|file_type| file_type.is_dir())
+                        && should_skip_dir(entry.path()))
+        });
 
-    for entry in entries {
-        let entry = entry.map_err(|source| ScanError::ReadDirEntry {
+    for result in builder.build() {
+        let entry = result.map_err(|source| ScanError::Walk {
             path: dir.to_path_buf(),
             source,
         })?;
         let path = entry.path();
-        let file_type = entry.file_type().map_err(|source| ScanError::FileType {
-            path: path.clone(),
-            source,
-        })?;
-
-        if file_type.is_dir() {
-            if should_skip_dir(&path) {
-                continue;
-            }
-            if ignore_matcher.matches(root, &path) {
-                continue;
-            }
-            discover_dart_files(root, &path, ignore_matcher, paths)?;
-        } else if file_type.is_file()
-            && path.extension().is_some_and(|ext| ext == "dart")
-            && !ignore_matcher.matches(root, &path)
+        if entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_file())
+            && path
+                .extension()
+                .is_some_and(|extension| extension == "dart")
         {
-            paths.insert(normalize_path(&path));
+            paths.insert(normalize_path(path));
         }
     }
 

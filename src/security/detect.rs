@@ -48,7 +48,9 @@ fn detect_hardcoded_secrets(
             ));
             continue;
         }
-        if is_placeholder(&literal.value) {
+        let stripe_secret = stripe_secret_prefix(&literal.value)
+            || stripe_secret_binding_context(source, literal.index);
+        if is_placeholder(&literal.value) && !stripe_secret {
             continue;
         }
         let line = line_at(source, literal.index);
@@ -227,9 +229,14 @@ fn detect_process_execution(
         for index in match_indices(source, pattern) {
             let window = following_window(source, index, 3);
             let args = call_inside_after(source, index + pattern.len());
+            let safe_dart_runtime_start = pattern == "Process.start("
+                && args
+                    .as_deref()
+                    .is_some_and(|call| resolved_dart_runtime_start(source, index, call));
             let risky = window.contains("runInShell: true")
                 || args.as_deref().is_some_and(|call| {
-                    !first_call_arg_is_fixed_literal(call) || has_dynamic_text(call)
+                    !safe_dart_runtime_start
+                        && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
                 });
             if risky {
                 candidates.push(detected(
@@ -468,6 +475,88 @@ fn first_call_arg_is_fixed_literal(call: &str) -> bool {
     matches!(rest.as_bytes().first(), Some(b',' | b')'))
 }
 
+fn resolved_dart_runtime_start(source: &str, index: usize, call: &str) -> bool {
+    let args = top_level_call_arguments(call);
+    let Some(executable) = args.first().map(|arg| arg.trim()) else {
+        return false;
+    };
+    let Some(arguments) = args.get(1).map(|arg| arg.trim()) else {
+        return false;
+    };
+    is_identifier(executable)
+        && last_assignment_value(source, index, executable)
+            .is_some_and(|value| value == "Platform.resolvedExecutable")
+        && fixed_argument_list(source, index, arguments)
+}
+
+fn top_level_call_arguments(call: &str) -> Vec<&str> {
+    let mut arguments = Vec::new();
+    let mut start = 0usize;
+    let mut index = 0usize;
+    let mut depth = 0usize;
+    let bytes = call.as_bytes();
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                let Some((_, _, end)) = read_string(call, index) else {
+                    return Vec::new();
+                };
+                index = end;
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                arguments.push(&call[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    arguments.push(&call[start..]);
+    arguments
+}
+
+fn fixed_argument_list(source: &str, index: usize, arguments: &str) -> bool {
+    let Some(inner) = arguments
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+    top_level_call_arguments(inner).into_iter().all(|argument| {
+        let argument = argument.trim();
+        argument.is_empty()
+            || fixed_string_literal(argument)
+            || is_identifier(argument)
+                && last_assignment_value(source, index, argument).is_some_and(fixed_string_literal)
+    })
+}
+
+fn fixed_string_literal(value: &str) -> bool {
+    matches!(value.as_bytes().first(), Some(b'\'' | b'"'))
+        && read_string(value, 0).is_some_and(|(_, _, end)| end == value.len())
+        && !value.contains('$')
+}
+
+fn last_assignment_value<'a>(source: &'a str, index: usize, name: &str) -> Option<&'a str> {
+    source[..index].split(';').rev().find_map(|statement| {
+        let (left, right) = statement.rsplit_once('=')?;
+        (trailing_identifier(left) == Some(name)).then(|| right.trim())
+    })
+}
+
+fn is_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && characters.all(|character| {
+            character == '_' || character == '$' || character.is_ascii_alphanumeric()
+        })
+}
+
 fn sql_call_is_parameterized(call: &str) -> bool {
     call.contains('?') && (call.contains('[') || call.contains("whereArgs"))
 }
@@ -584,6 +673,20 @@ fn secret_binding_identifier(identifier: &str) -> bool {
     ]
     .iter()
     .any(|suffix| lower == *suffix || lower.ends_with(suffix))
+}
+
+fn stripe_secret_binding_context(source: &str, index: usize) -> bool {
+    literal_binding_identifier(source, index).is_some_and(|identifier| {
+        identifier
+            .chars()
+            .filter(|character| *character != '_')
+            .collect::<String>()
+            .eq_ignore_ascii_case("stripeSecretKey")
+    })
+}
+
+fn stripe_secret_prefix(value: &str) -> bool {
+    value.starts_with("sk_test_") || value.starts_with("sk_live_")
 }
 
 fn named_argument_context(source: &str, index: usize, name: &str) -> bool {

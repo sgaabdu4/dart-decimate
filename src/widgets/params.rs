@@ -49,6 +49,41 @@ pub(super) fn constructor_params(
     params.into_values().collect()
 }
 
+pub(super) fn constructor_initializers_use_param(
+    class: Node<'_>,
+    widget_class: &str,
+    param_name: &str,
+    source: &str,
+) -> bool {
+    let mut declarations = Vec::new();
+    collect_nodes_in(class, &["declaration"], &mut declarations);
+    declarations.into_iter().any(|declaration| {
+        let Some(signature) = constructor_signature(declaration) else {
+            return false;
+        };
+        if constructor_owner(signature, source).as_deref() != Some(widget_class) {
+            return false;
+        }
+        let mut initializers = Vec::new();
+        collect_nodes(declaration, "field_initializer", &mut initializers);
+        initializers.into_iter().any(|initializer| {
+            let mut cursor = initializer.walk();
+            initializer
+                .children_by_field_name("value", &mut cursor)
+                .any(|value| {
+                    initializer_value_uses_param(value, param_name, source)
+                        && !initializer_is_direct_assignment(value, param_name, source)
+                })
+        })
+    })
+}
+
+fn initializer_is_direct_assignment(node: Node<'_>, param_name: &str, source: &str) -> bool {
+    node.utf8_text(source.as_bytes())
+        .ok()
+        .is_some_and(|value| value.trim() == param_name)
+}
+
 const CONSTRUCTOR_SIGNATURES: &[&str] =
     &["constructor_signature", "constant_constructor_signature"];
 

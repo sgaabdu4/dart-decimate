@@ -246,9 +246,9 @@ Current implemented parity:
   helper imports, while residual cycles, route-registry-to-registry imports,
   exports, shadowed route names, prefixed non-route API usage, re-exported
   non-route APIs, and interpolated non-route API references remain errors
-- generated Dart filtering for companion files, Flutter l10n outputs, and
-  FlutterFire options, including dead-file protection and generated-only cycle
-  suppression
+- Git-ignore-aware Dart discovery plus generated Dart filtering for companion
+  files, Flutter l10n outputs, and FlutterFire options, including dead-file
+  protection and generated-only cycle suppression
 - simple directory boundary rules, built-in `layered`, `hexagonal`,
   `feature-sliced`, and `bulletproof` boundary presets, opt-in boundary
   coverage checks for unzoned Dart library files with `allowUnmatched`
@@ -295,11 +295,12 @@ Current implemented parity:
   with parameter-name normalization and nested route path joining
 - `dart-decimate/unrendered-widget` findings for Flutter widget classes with no
   reachable production object construction, counting constructor calls inside
-  builder callbacks while ignoring type-only references, generated/test/dead
-  files, and explicit package export chains
+  builder callbacks and subclass construction while ignoring type-only
+  references, generated/test/dead files, and explicit package export chains
 - Flutter widget hygiene findings for private widget classes, top-level widget
   helper boundaries, and unused widget constructor parameters, including normal
-  reads, forwarding helpers, and widget-class object-pattern destructuring
+  reads, transformed constructor initializer reads, inherited field reads,
+  forwarding helpers, and widget-class object-pattern destructuring
 - separate `dart-decimate/re-export-cycle` findings for barrel export loops
 - read-only file, symbol, dependency, clone, and Fallow-compatible `trace`
   symbol-trace JSON envelopes for deletion review, using `kind` discriminators
@@ -344,7 +345,7 @@ Current implemented parity:
 - conservative non-Dart tooling usage for dependency traces and unused-dev
   checks from Dart/Flutter config files such as `build.yaml`,
   `analysis_options.yaml`, Flutter launcher/splash config, workflow YAML, and
-  tool scripts
+  tool scripts, plus Envied, FlutterGen, and Dart test-runner conventions
 - generated Dart imports into known generator internals, such as
   `package:slang/generated.dart`, do not create unlisted-dependency findings
 - lockfile-backed `dependency_overrides` hygiene for overrides absent from the
@@ -413,8 +414,11 @@ Current implemented parity:
   evidence, benign password-route/copy filtering unless copy is bound to a
   secret-like name or contains concrete token-like material, and non-autofixable
   `dart-decimate/security-*` findings; Firebase client API keys are
-  warning-level by default and can be promoted by exact rule config; security
-  gates exit `8` when new review-required candidates are present
+  warning-level by default, Stripe `sk_test_`/`sk_live_` placeholders remain
+  secret review candidates, and fixed Dart-runtime `Process.start` calls with
+  fixed list arguments are not treated as shell injection; exact rule config
+  can promote warnings and security gates exit `8` when new review-required
+  candidates are present
 - `dart-decimate check` and `dart-decimate audit` include feature flag and security
   candidate findings in the same report envelope, with focused commands still
   available for targeted inventories
@@ -441,6 +445,8 @@ Current implemented parity:
   production dead-file findings are intentionally not auto-fixable;
   `.dart-decimaterc` supports `production = true` and `[cli].production`, with
   `--no-production` as an explicit CLI override
+- non-production entry inference includes nested `test/`, `integration_test/`,
+  and `test_driver/` files with `main()`, plus configured Patrol test suffixes
 - Fallow-style `--workspace` report scoping for local pub package names,
   package-root globs, comma lists, and `!` excludes, keeping full-graph analysis
   while filtering JSON findings and scoped detail arrays; `list --workspace`

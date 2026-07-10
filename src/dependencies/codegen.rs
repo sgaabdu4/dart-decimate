@@ -29,6 +29,10 @@ pub(super) fn codegen_dependencies_for_file(file: &DartFile) -> BTreeSet<Codegen
         dependencies.insert(dev_dependency("build_runner"));
         dependencies.insert(dev_dependency("go_router_builder"));
     }
+    if signals.contains(&CodegenSignal::Envied) {
+        dependencies.insert(dev_dependency("build_runner"));
+        dependencies.insert(dev_dependency("envied_generator"));
+    }
 
     dependencies
 }
@@ -39,6 +43,7 @@ enum CodegenSignal {
     JsonSerializable,
     Riverpod,
     GoRouter,
+    Envied,
 }
 
 fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
@@ -98,6 +103,13 @@ fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
         })
     {
         signals.insert(CodegenSignal::GoRouter);
+    }
+    if imports.contains(&"package:envied/envied.dart")
+        || references
+            .iter()
+            .any(|reference| matches!(*reference, "Envied" | "EnviedField"))
+    {
+        signals.insert(CodegenSignal::Envied);
     }
 
     signals
