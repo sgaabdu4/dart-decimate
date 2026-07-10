@@ -387,9 +387,7 @@ fn is_null_aware_collection_marker(bytes: &[u8], cursor: usize) -> bool {
         return false;
     };
     matches!(previous, b'[' | b'{' | b',' | b':')
-        || (previous == b'.'
-            && cursor >= 3
-            && bytes.get(cursor - 3..cursor) == Some(&[b'.', b'.', b'.'][..]))
+        || (previous == b'.' && cursor >= 3 && bytes.get(cursor - 3..cursor) == Some(b"..."))
 }
 
 fn apply_text_replacements(source: &mut String, replacements: Vec<(usize, usize, String)>) -> bool {
