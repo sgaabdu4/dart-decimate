@@ -439,6 +439,9 @@ Current implemented parity:
   that derive changed Dart files from Git, include untracked files, hard-error
   on invalid refs with similar-ref suggestions, and keep full-graph analysis
   while filtering JSON findings and scoped detail arrays
+- Git-backed analysis isolates explicit project roots from repository-local
+  `GIT_*` variables inherited from hooks, so ambient hook state cannot redirect
+  changed-scope, audit, decision-surface, or security-gate commands
 - Fallow-style `--production` reachability mode for `check`, `audit`,
   `dead-code`, `trace-file`, `trace-symbol`, `list`, `workspaces`, and `fix`,
   using only production Dart entry heuristics while keeping full graph parsing;

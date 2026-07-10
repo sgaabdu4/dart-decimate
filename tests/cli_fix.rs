@@ -1,6 +1,7 @@
+mod common;
+
 use std::collections::BTreeSet;
 use std::fs;
-use std::process::Command;
 
 use dart_decimate::cli::run_from;
 use dart_decimate::output::{Finding, FindingAction, FindingKind, Severity};
@@ -551,7 +552,7 @@ fn git<const N: usize>(
     fixture: &TempDir,
     args: [&str; N],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("git")
+    let output = common::isolated_git_command()
         .args(args)
         .current_dir(fixture.path())
         .output()?;
