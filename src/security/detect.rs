@@ -266,7 +266,8 @@ fn detect_process_execution(
                 && args
                     .as_deref()
                     .is_some_and(|call| resolved_dart_runtime_start(syntax, index, call));
-            let risky = !run_in_shell_disabled
+            let risky = args.as_deref().is_some_and(call_invokes_command_shell)
+                || !run_in_shell_disabled
                 || args.as_deref().is_some_and(|call| {
                     !safe_dart_runtime_start
                         && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
@@ -506,6 +507,46 @@ fn first_call_arg_is_fixed_literal(call: &str) -> bool {
     };
     let rest = trimmed[end..].trim_start();
     matches!(rest.as_bytes().first(), Some(b',' | b')'))
+}
+
+fn call_invokes_command_shell(call: &str) -> bool {
+    let arguments = top_level_call_arguments(call);
+    let Some(executable) = arguments
+        .first()
+        .and_then(|value| fixed_literal_value(value))
+    else {
+        return false;
+    };
+    let executable = executable
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(&executable)
+        .to_ascii_lowercase();
+    let Some(flag) = arguments
+        .get(1)
+        .and_then(|value| value.trim().strip_prefix('['))
+        .and_then(|value| value.strip_suffix(']'))
+        .and_then(|value| top_level_call_arguments(value).into_iter().next())
+        .and_then(fixed_literal_value)
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return false;
+    };
+    match executable.as_str() {
+        "sh" | "bash" | "dash" | "fish" | "ksh" | "zsh" => flag == "-c",
+        "cmd" | "cmd.exe" => matches!(flag.as_str(), "/c" | "/k"),
+        "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => {
+            matches!(flag.as_str(), "-c" | "-command" | "-encodedcommand")
+        }
+        _ => false,
+    }
+}
+
+fn fixed_literal_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    read_string(value, 0)
+        .filter(|(_, _, end)| *end == value.len() && !value.contains('$'))
+        .map(|(literal, _, _)| literal)
 }
 
 fn resolved_dart_runtime_start(syntax: Option<(Node<'_>, &str)>, index: usize, call: &str) -> bool {
@@ -914,20 +955,32 @@ fn firebase_secret_name_context(source: &str, index: usize) -> bool {
 }
 
 fn literal_secret_binding_context(source: &str, index: usize) -> bool {
-    literal_binding_identifier(source, index).is_some_and(secret_binding_identifier)
+    literal_binding_name(source, index).is_some_and(|name| secret_binding_identifier(&name))
 }
 
-fn literal_binding_identifier(source: &str, index: usize) -> Option<&str> {
+fn literal_binding_name(source: &str, index: usize) -> Option<String> {
     let context = literal_context(source, index)?;
     for separator in ['=', ':'] {
         let Some((candidate, rest)) = context.rsplit_once(separator) else {
             continue;
         };
         if rest.trim().is_empty() {
-            return trailing_identifier(candidate);
+            return trailing_identifier(candidate)
+                .map(str::to_owned)
+                .or_else(|| trailing_string_literal(candidate));
         }
     }
     None
+}
+
+fn trailing_string_literal(text: &str) -> Option<String> {
+    let trimmed = text.trim_end();
+    trimmed
+        .char_indices()
+        .filter(|(_, character)| matches!(character, '\'' | '"'))
+        .filter_map(|(index, _)| read_string(trimmed, index))
+        .find(|(_, _, end)| *end == trimmed.len())
+        .map(|(value, _, _)| value)
 }
 
 fn secret_binding_identifier(identifier: &str) -> bool {
@@ -956,7 +1009,7 @@ fn secret_binding_identifier(identifier: &str) -> bool {
 }
 
 fn stripe_secret_binding_context(source: &str, index: usize) -> bool {
-    literal_binding_identifier(source, index).is_some_and(|identifier| {
+    literal_binding_name(source, index).is_some_and(|identifier| {
         identifier
             .chars()
             .filter(|character| *character != '_')
@@ -978,18 +1031,34 @@ fn stripe_secret_name(value: &str) -> bool {
 }
 
 fn oauth_endpoint_metadata_context(source: &str, index: usize, value: &str) -> bool {
-    let Some(identifier) = literal_binding_identifier(source, index) else {
+    if oauth_endpoint_name(value) && literal_is_map_key(source, index) {
+        return true;
+    }
+    let Some(identifier) = literal_binding_name(source, index) else {
         return false;
     };
-    let identifier = identifier
+    oauth_endpoint_name(&identifier)
+        && matches_url_scheme(value)
+        && !literal_has_secret_like_url_parameter(value)
+}
+
+fn oauth_endpoint_name(value: &str) -> bool {
+    let normalized = value
         .chars()
-        .filter(|character| *character != '_')
+        .filter(|character| !matches!(character, '_' | '-'))
         .collect::<String>();
     matches!(
-        identifier.to_ascii_lowercase().as_str(),
+        normalized.to_ascii_lowercase().as_str(),
         "authorizationendpoint" | "tokenendpoint"
-    ) && matches_url_scheme(value)
-        && !literal_has_secret_like_url_parameter(value)
+    )
+}
+
+fn literal_is_map_key(source: &str, index: usize) -> bool {
+    read_string(source, index).is_some_and(|(_, _, end)| {
+        source
+            .get(end..)
+            .is_some_and(|rest| rest.trim_start().starts_with(':'))
+    })
 }
 
 fn matches_url_scheme(value: &str) -> bool {

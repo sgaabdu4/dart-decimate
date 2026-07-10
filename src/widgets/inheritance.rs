@@ -1,67 +1,53 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use tree_sitter::Node;
 
 use super::params::constructor_params;
-use super::reads::widget_body_uses_param;
-use super::{
-    WidgetAnalysisError, collect_class_declarations, parse_tree, simple_type_name,
-    superclass_base_name, widget_kind,
-};
-use crate::ScannedProject;
-use crate::graph::normalize_against;
+use super::reads::{widget_body_param_reads, widget_body_uses_param};
+use super::resolution::{ClassKey, DeclarationResolver};
+use super::{WidgetFileFacts, simple_type_name, superclass_type_text, widget_kind};
 
 #[derive(Debug)]
-struct ProjectClassFact {
-    path: PathBuf,
-    name: String,
-    superclass: Option<String>,
-    widget_params: BTreeSet<String>,
+pub(super) struct ProjectClassFact {
+    pub(super) path: PathBuf,
+    pub(super) name: String,
+    pub(super) superclass: Option<String>,
+    pub(super) widget_params: BTreeSet<String>,
+    body_param_reads: BTreeSet<String>,
 }
 
 pub(super) fn inherited_param_uses_across_files(
-    project: &ScannedProject,
-    paths: &[PathBuf],
-) -> Result<BTreeSet<(PathBuf, String, String)>, WidgetAnalysisError> {
-    let mut facts = Vec::new();
-    for path in paths {
-        facts.extend(class_facts(path)?);
-    }
-    let dependencies = project
-        .graph
-        .dependencies()
-        .into_iter()
-        .map(|dependency| {
-            (
-                normalize_against(&project.root, &dependency.from_path),
-                normalize_against(&project.root, &dependency.to_path),
-            )
-        })
-        .collect::<BTreeSet<_>>();
+    files: &[WidgetFileFacts],
+    resolver: &DeclarationResolver,
+) -> BTreeSet<(PathBuf, String, String)> {
+    let facts = files
+        .iter()
+        .flat_map(|file| file.classes.iter())
+        .collect::<Vec<_>>();
+    let facts_by_key = facts
+        .iter()
+        .map(|fact| (fact.class_key(), *fact))
+        .collect::<BTreeMap<_, _>>();
     let mut uses = BTreeSet::new();
-    for path in paths {
-        collect_file_inherited_uses(path, &facts, &dependencies, &mut uses)?;
+    for file in files {
+        collect_file_inherited_uses(file, &facts_by_key, resolver, &mut uses);
     }
-    Ok(uses)
+    uses
 }
 
-fn class_facts(path: &Path) -> Result<Vec<ProjectClassFact>, WidgetAnalysisError> {
-    let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let parsed = parse_tree(path, &source)?;
-    let mut classes = Vec::new();
-    collect_class_declarations(parsed.tree().root_node(), &mut classes);
-    Ok(classes
-        .into_iter()
+pub(super) fn class_facts(
+    path: &Path,
+    classes: &[Node<'_>],
+    source: &str,
+) -> Vec<ProjectClassFact> {
+    classes
+        .iter()
         .filter_map(|class| {
-            let name = class_name(class, parsed.source())?;
-            let widget_params = widget_kind(class, parsed.source())
+            let name = class_name(*class, source)?;
+            let widget_params = widget_kind(*class, source)
                 .map(|_| {
-                    constructor_params(class, &name, parsed.source())
+                    constructor_params(*class, &name, source)
                         .into_iter()
                         .map(|param| param.field_name)
                         .collect()
@@ -70,66 +56,54 @@ fn class_facts(path: &Path) -> Result<Vec<ProjectClassFact>, WidgetAnalysisError
             Some(ProjectClassFact {
                 path: path.to_path_buf(),
                 name,
-                superclass: superclass_base_name(class, parsed.source()),
+                superclass: superclass_type_text(*class, source),
                 widget_params,
+                body_param_reads: class
+                    .child_by_field_name("body")
+                    .map_or_else(BTreeSet::new, |body| widget_body_param_reads(body, source)),
             })
         })
-        .collect())
+        .collect()
 }
 
 fn collect_file_inherited_uses(
-    path: &Path,
-    facts: &[ProjectClassFact],
-    dependencies: &BTreeSet<(PathBuf, PathBuf)>,
+    file: &WidgetFileFacts,
+    facts: &BTreeMap<ClassKey, &ProjectClassFact>,
+    resolver: &DeclarationResolver,
     uses: &mut BTreeSet<(PathBuf, String, String)>,
-) -> Result<(), WidgetAnalysisError> {
-    let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let parsed = parse_tree(path, &source)?;
-    let mut classes = Vec::new();
-    collect_class_declarations(parsed.tree().root_node(), &mut classes);
-    for class in classes {
-        let Some(body) = class.child_by_field_name("body") else {
-            continue;
-        };
-        let mut current_path = path;
-        let mut parent = superclass_base_name(class, parsed.source());
+) {
+    for class in &file.classes {
+        let mut current_path = class.path.as_path();
+        let mut parent = class.superclass.as_deref();
         let mut visited = BTreeSet::new();
-        while let Some(parent_name) = parent.as_deref() {
-            let Some(ancestor) = resolve_parent(current_path, parent_name, facts, dependencies)
-            else {
+        while let Some(parent_name) = parent {
+            let Some(ancestor_key) = resolver.resolve(current_path, parent_name) else {
                 break;
             };
-            if !visited.insert((ancestor.path.clone(), ancestor.name.clone())) {
+            if !visited.insert(ancestor_key.clone()) {
                 break;
             }
+            let Some(ancestor) = facts.get(&ancestor_key) else {
+                break;
+            };
             for param in &ancestor.widget_params {
-                if widget_body_uses_param(body, param, parsed.source()) {
+                if class.body_param_reads.contains(param) {
                     uses.insert((ancestor.path.clone(), ancestor.name.clone(), param.clone()));
                 }
             }
             current_path = &ancestor.path;
-            parent.clone_from(&ancestor.superclass);
+            parent = ancestor.superclass.as_deref();
         }
     }
-    Ok(())
 }
 
-fn resolve_parent<'a>(
-    from: &Path,
-    name: &str,
-    facts: &'a [ProjectClassFact],
-    dependencies: &BTreeSet<(PathBuf, PathBuf)>,
-) -> Option<&'a ProjectClassFact> {
-    let mut candidates = facts.iter().filter(|fact| {
-        fact.name == name
-            && (fact.path == from
-                || dependencies.contains(&(from.to_path_buf(), fact.path.clone())))
-    });
-    let candidate = candidates.next()?;
-    candidates.next().is_none().then_some(candidate)
+impl ProjectClassFact {
+    fn class_key(&self) -> ClassKey {
+        ClassKey {
+            path: self.path.clone(),
+            name: self.name.clone(),
+        }
+    }
 }
 
 pub(super) fn class_superclasses(classes: &[Node<'_>], source: &str) -> BTreeMap<String, String> {
@@ -138,7 +112,7 @@ pub(super) fn class_superclasses(classes: &[Node<'_>], source: &str) -> BTreeMap
         .filter_map(|class| {
             Some((
                 class_name(*class, source)?,
-                superclass_base_name(*class, source)?,
+                superclass_type_text(*class, source)?,
             ))
         })
         .collect()

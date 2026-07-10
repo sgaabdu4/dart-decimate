@@ -1,41 +1,37 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
 use tree_sitter::Node;
 
 use crate::graph::normalize_against;
 use crate::{DartCombinatorKind, DependencyKind, ScannedProject, TopLevelDeclaration};
 
+#[cfg(test)]
+use super::parse_tree;
+use super::resolution::{ClassKey, DeclarationResolver};
 use super::{
-    UnrenderedWidgetClass, WidgetAnalysisError, collect_class_declarations, has_ancestor_kind,
-    inheritance::class_superclasses, parse_tree, simple_type_name, visit_named, widget_kind,
+    UnrenderedWidgetClass, WidgetFileFacts, has_ancestor_kind, inheritance::class_superclasses,
+    simple_type_name, visit_named, widget_kind,
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct FileReachabilityFacts {
-    path: PathBuf,
-    class_names: BTreeSet<String>,
-    widgets: Vec<UnrenderedWidgetClass>,
-    object_constructors: Vec<String>,
-    superclasses: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct ClassKey {
-    path: PathBuf,
-    name: String,
+pub(super) struct FileReachabilityFacts {
+    pub(super) path: PathBuf,
+    pub(super) class_names: BTreeSet<String>,
+    pub(super) widgets: Vec<UnrenderedWidgetClass>,
+    pub(super) object_constructors: Vec<String>,
+    pub(super) superclasses: BTreeMap<String, String>,
 }
 
 pub(super) fn unrendered_widgets(
     project: &ScannedProject,
-    paths: &[PathBuf],
-) -> Result<Vec<UnrenderedWidgetClass>, WidgetAnalysisError> {
-    let files = paths
-        .par_iter()
-        .map(|path| reachability_facts(path))
-        .collect::<Result<Vec<_>, _>>()?;
+    files: &[WidgetFileFacts],
+    resolver: &DeclarationResolver,
+) -> Vec<UnrenderedWidgetClass> {
+    let files = files
+        .iter()
+        .map(|file| &file.reachability)
+        .collect::<Vec<_>>();
     let exported = public_reexported_declarations(project);
     let mut candidates = files
         .iter()
@@ -49,7 +45,7 @@ pub(super) fn unrendered_widgets(
             name: widget.widget_class.clone(),
         })
         .collect::<BTreeSet<_>>();
-    let render_counts = render_counts(project, &files, &candidate_keys);
+    let render_counts = render_counts(&files, &candidate_keys, resolver);
 
     candidates.retain_mut(|widget| {
         widget.render_reference_count = render_counts
@@ -75,35 +71,31 @@ pub(super) fn unrendered_widgets(
                 &right.widget_class,
             ))
     });
-    Ok(candidates)
+    candidates
 }
 
-fn reachability_facts(path: &Path) -> Result<FileReachabilityFacts, WidgetAnalysisError> {
-    let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let parsed = parse_tree(path, &source)?;
-    let root = parsed.tree().root_node();
-    let mut classes = Vec::new();
-    collect_class_declarations(root, &mut classes);
-
-    Ok(FileReachabilityFacts {
+pub(super) fn reachability_facts(
+    path: &Path,
+    root: Node<'_>,
+    classes: &[Node<'_>],
+    source: &str,
+) -> FileReachabilityFacts {
+    FileReachabilityFacts {
         path: path.to_path_buf(),
         class_names: classes
             .iter()
             .filter_map(|class| {
                 class
                     .child_by_field_name("name")?
-                    .utf8_text(parsed.source().as_bytes())
+                    .utf8_text(source.as_bytes())
                     .ok()
                     .map(str::to_owned)
             })
             .collect(),
-        widgets: widget_classes(path, &classes, parsed.source()),
-        object_constructors: object_constructor_names(root, parsed.source()),
-        superclasses: class_superclasses(&classes, parsed.source()),
-    })
+        widgets: widget_classes(path, classes, source),
+        object_constructors: object_constructor_names(root, source),
+        superclasses: class_superclasses(classes, source),
+    }
 }
 
 fn widget_classes(path: &Path, classes: &[Node<'_>], source: &str) -> Vec<UnrenderedWidgetClass> {
@@ -145,11 +137,13 @@ fn object_constructor_names(root: Node<'_>, source: &str) -> Vec<String> {
     visit_named(root, &mut |node| {
         if is_object_constructor(node) && !has_ancestor_kind(node, &["annotation"]) {
             if let Some(constructor) = constructor_type_name(node, source) {
-                constructors.extend(constructor_name_candidates(&constructor));
+                if !constructor_name_candidates(&constructor).is_empty() {
+                    constructors.push(constructor);
+                }
             }
         } else if is_arrow_body_constructor_identifier(node, source) {
             if let Ok(constructor) = node.utf8_text(source.as_bytes()) {
-                constructors.extend(constructor_name_candidates(constructor));
+                constructors.push(constructor.to_owned());
             }
         }
     });
@@ -300,37 +294,15 @@ fn constructor_name_candidates(constructor: &str) -> Vec<String> {
 }
 
 fn render_counts(
-    project: &ScannedProject,
-    files: &[FileReachabilityFacts],
+    files: &[&FileReachabilityFacts],
     candidate_keys: &BTreeSet<ClassKey>,
+    resolver: &DeclarationResolver,
 ) -> BTreeMap<ClassKey, usize> {
-    let declarations = files
-        .iter()
-        .flat_map(|file| {
-            file.class_names.iter().map(|name| ClassKey {
-                path: file.path.clone(),
-                name: name.clone(),
-            })
-        })
-        .collect::<Vec<_>>();
-    let dependencies = project
-        .graph
-        .dependencies()
-        .into_iter()
-        .map(|dependency| {
-            (
-                normalize_against(&project.root, &dependency.from_path),
-                normalize_against(&project.root, &dependency.to_path),
-            )
-        })
-        .collect::<BTreeSet<_>>();
-    let superclasses = resolved_superclasses(files, &declarations, &dependencies);
+    let superclasses = resolved_superclasses(files, resolver);
     let mut counts = BTreeMap::<ClassKey, usize>::new();
     for file in files {
         for constructed in &file.object_constructors {
-            let Some(constructed) =
-                resolve_class(&file.path, constructed, &declarations, &dependencies)
-            else {
+            let Some(constructed) = resolver.resolve(&file.path, constructed) else {
                 continue;
             };
             let mut current = Some(constructed);
@@ -339,10 +311,10 @@ fn render_counts(
                 if !visited.insert(class.clone()) {
                     break;
                 }
-                if candidate_keys.contains(class) {
+                if candidate_keys.contains(&class) {
                     *counts.entry(class.clone()).or_default() += 1;
                 }
-                current = superclasses.get(class);
+                current = superclasses.get(&class).cloned();
             }
         }
     }
@@ -350,45 +322,25 @@ fn render_counts(
 }
 
 fn resolved_superclasses(
-    files: &[FileReachabilityFacts],
-    declarations: &[ClassKey],
-    dependencies: &BTreeSet<(PathBuf, PathBuf)>,
+    files: &[&FileReachabilityFacts],
+    resolver: &DeclarationResolver,
 ) -> BTreeMap<ClassKey, ClassKey> {
-    let mut resolved = BTreeMap::new();
+    let mut superclasses = BTreeMap::new();
     for file in files {
         for (class, parent) in &file.superclasses {
-            let Some(parent) = resolve_class(&file.path, parent, declarations, dependencies) else {
+            let Some(parent) = resolver.resolve(&file.path, parent) else {
                 continue;
             };
-            resolved.insert(
+            superclasses.insert(
                 ClassKey {
                     path: file.path.clone(),
                     name: class.clone(),
                 },
-                parent.clone(),
+                parent,
             );
         }
     }
-    resolved
-}
-
-fn resolve_class<'a>(
-    from: &Path,
-    name: &str,
-    declarations: &'a [ClassKey],
-    dependencies: &BTreeSet<(PathBuf, PathBuf)>,
-) -> Option<&'a ClassKey> {
-    let mut local = declarations
-        .iter()
-        .filter(|class| class.name == name && class.path == from);
-    if let Some(candidate) = local.next() {
-        return local.next().is_none().then_some(candidate);
-    }
-    let mut imported = declarations.iter().filter(|class| {
-        class.name == name && dependencies.contains(&(from.to_path_buf(), class.path.clone()))
-    });
-    let candidate = imported.next()?;
-    imported.next().is_none().then_some(candidate)
+    superclasses
 }
 
 fn public_reexported_declarations(project: &ScannedProject) -> BTreeSet<(PathBuf, String)> {
@@ -541,7 +493,12 @@ void main() {
 
         assert_eq!(
             names,
-            vec!["LiveCard", "LegacyCard", "PrefixedCard", "DeadCard"]
+            vec![
+                "LiveCard",
+                "LegacyCard",
+                "ui.PrefixedCard",
+                "DeadCard.named"
+            ]
         );
         assert!(
             !names.iter().any(|name| name == "BareIifeCard"),

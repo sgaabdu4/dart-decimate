@@ -94,12 +94,22 @@ fn runner_discovered_tests_are_reachability_roots() -> Result<(), Box<dyn std::e
 #[test]
 fn patrol_suffix_is_scoped_to_its_package() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
-    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\npatrol:\n  test_file_suffix: _patrol.dart\n",
+    )?;
     write(&fixture, "lib/main.dart", "void main() {}\n")?;
     write(
         &fixture,
-        "integration_test/features/foreign_patrol.dart",
-        "class ForeignPatrolHelper {}\n",
+        "integration_test/features/root_patrol.dart",
+        "class RootPatrolTest {}\n",
+    )?;
+    write(&fixture, "packages/plain/pubspec.yaml", "name: plain\n")?;
+    write(
+        &fixture,
+        "packages/plain/integration_test/features/plain_patrol.dart",
+        "class PlainPatrolHelper {}\n",
     )?;
     write(
         &fixture,
@@ -113,16 +123,84 @@ fn patrol_suffix_is_scoped_to_its_package() -> Result<(), Box<dyn std::error::Er
     )?;
 
     let json = check(&fixture)?;
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/dead-file",
+        "integration_test/features/root_patrol.dart",
+    );
     assert_finding_path(
         &json,
         "dart-decimate/dead-file",
-        "integration_test/features/foreign_patrol.dart",
+        "packages/plain/integration_test/features/plain_patrol.dart",
     );
     assert_no_finding_path(
         &json,
         "dart-decimate/dead-file",
         "packages/shared/integration_test/features/shared_patrol.dart",
     );
+    Ok(())
+}
+
+#[test]
+fn imported_widget_declarations_resolve_through_prefixes_exports_and_parts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/avatar.dart';\nimport 'src/a.dart' as a;\nimport 'src/b.dart' as b;\nimport 'src/input_barrel.dart' as visible;\nvoid main() { const Avatar(); a.SearchInput(); visible.SearchInput(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/framework.dart",
+        "class Widget {}\nclass StatelessWidget extends Widget { const StatelessWidget(); }\nclass StatefulWidget extends Widget { const StatefulWidget(); }\nclass BuildContext {}\nclass SizedBox extends Widget { const SizedBox.square({double? dimension}); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/avatar_library.dart",
+        "import 'framework.dart';\npart 'avatar_base.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/avatar_base.dart",
+        "part of 'avatar_library.dart';\nabstract class AvatarBase extends StatelessWidget { const AvatarBase({this.size}); final double? size; }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/avatar_barrel.dart",
+        "export 'avatar_library.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/avatar.dart",
+        "import 'framework.dart';\nimport 'avatar_barrel.dart' as shared;\nclass Avatar extends shared.AvatarBase { const Avatar({super.size}); Widget build(BuildContext context) => SizedBox.square(dimension: size); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/a.dart",
+        "import 'framework.dart';\nclass BaseInput extends StatefulWidget {}\nclass SearchInput extends BaseInput {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/b.dart",
+        "import 'framework.dart';\nclass BaseInput extends StatefulWidget {}\nclass SearchInput extends BaseInput {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/input_barrel.dart",
+        "export 'a.dart' show SearchInput;\nexport 'b.dart' hide SearchInput;\n",
+    )?;
+
+    let json = check(&fixture)?;
+
+    assert_no_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "AvatarBase.size",
+    );
+    assert_no_finding_path(&json, "dart-decimate/unrendered-widget", "lib/src/a.dart");
+    assert_finding_path(&json, "dart-decimate/unrendered-widget", "lib/src/b.dart");
     Ok(())
 }
 
@@ -521,6 +599,79 @@ Future<Process> unsafeMutableStart(String command, bool replace) {
             .map(|occurrence| occurrence["line"].as_u64())
             .collect::<Vec<_>>(),
         vec![Some(18), Some(22), Some(29), Some(38), Some(48)]
+    );
+    Ok(())
+}
+
+#[test]
+fn fixed_shells_and_for_in_shadowing_remain_process_candidates()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+final dartExe = Platform.resolvedExecutable;
+const snapshot = '/path/to/analysis_server.dart.snapshot';
+
+Future<Process> shellStart(String command) {
+  return Process.start('sh', ['-c', command]);
+}
+
+Future<ProcessResult> shellRun(String command) {
+  return Process.run('/bin/bash', ['-c', command]);
+}
+
+Future<void> shadowedLoop(List<String> commands) async {
+  for (final dartExe in commands) {
+    await Process.start(dartExe, [snapshot]);
+  }
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+    let occurrences = process["occurrences"]
+        .as_array()
+        .unwrap_or_else(|| panic!("process occurrences: {json:#}"));
+
+    assert_eq!(occurrences.len(), 3, "{json:#}");
+    assert_eq!(
+        occurrences
+            .iter()
+            .map(|occurrence| occurrence["line"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![Some(7), Some(11), Some(16)]
+    );
+    Ok(())
+}
+
+#[test]
+fn quoted_oauth_map_keys_are_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"const oauthMetadata = <String, String>{
+  'authorizationEndpoint': 'https://login.acme.com/oauth2/authorize',
+  'tokenEndpoint': 'https://login.acme.com/oauth2/token',
+};
+",
+    )?;
+
+    let json = security(&fixture)?;
+    assert!(
+        json["security_candidates"]
+            .as_array()
+            .is_none_or(Vec::is_empty),
+        "{json:#}"
     );
     Ok(())
 }

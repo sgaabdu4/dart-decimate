@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use tree_sitter::Node;
 
 use super::patterns::{declaration_binds_name, pattern_binds_name};
@@ -13,6 +15,22 @@ pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -
         }
     });
     found
+}
+
+pub(super) fn widget_body_param_reads(body: Node<'_>, source: &str) -> BTreeSet<String> {
+    let mut reads = BTreeSet::new();
+    visit_named(body, &mut |node| {
+        if let Some(name) = this_member_name(node, source) {
+            reads.insert(name);
+        }
+        if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
+            && let Ok(name) = node.utf8_text(source.as_bytes())
+            && is_body_identifier_use(node, name, source)
+        {
+            reads.insert(name.to_owned());
+        }
+    });
+    reads
 }
 
 fn is_body_identifier_use(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -157,22 +175,26 @@ fn identifier_before_parameters(node: Node<'_>, source: &str) -> Option<String> 
 }
 
 fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
+    this_member_name(node, source).as_deref() == Some(name)
+}
+
+fn this_member_name(node: Node<'_>, source: &str) -> Option<String> {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
     ) {
-        return false;
+        return None;
     }
-    let Some(property) = node.child_by_field_name("property") else {
-        return false;
-    };
-    if property.utf8_text(source.as_bytes()).ok() != Some(name) {
-        return false;
-    }
-    let Some(object) = node.child_by_field_name("object") else {
-        return false;
-    };
-    object.utf8_text(source.as_bytes()).ok() == Some("this")
+    let property = node.child_by_field_name("property")?;
+    let object = node.child_by_field_name("object")?;
+    (object.utf8_text(source.as_bytes()).ok() == Some("this"))
+        .then(|| {
+            property
+                .utf8_text(source.as_bytes())
+                .ok()
+                .map(str::to_owned)
+        })
+        .flatten()
 }
 
 pub(super) fn direct_identifier_shadowed_before(

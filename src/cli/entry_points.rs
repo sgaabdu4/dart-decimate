@@ -46,15 +46,19 @@ fn default_entry_points(project: &ScannedProject, mode: EntryPointMode) -> Vec<P
         .files
         .iter()
         .filter(|file| {
-            patrol_suffixes.iter().any(|(root, suffix)| {
-                is_default_entry_point(
-                    root,
-                    &file.path,
-                    file_has_main(file),
-                    suffix.as_deref(),
-                    mode,
-                )
-            })
+            patrol_suffixes
+                .iter()
+                .filter(|(root, _)| file.path.starts_with(root))
+                .max_by_key(|(root, _)| root.components().count())
+                .is_some_and(|(root, suffix)| {
+                    is_default_entry_point(
+                        root,
+                        &file.path,
+                        file_has_main(file),
+                        suffix.as_deref(),
+                        mode,
+                    )
+                })
         })
         .map(|file| file.path.clone())
         .collect::<Vec<_>>();

@@ -17,6 +17,7 @@ mod lifecycle;
 mod params;
 mod patterns;
 mod reads;
+mod resolution;
 mod top_level;
 mod unrendered;
 
@@ -27,6 +28,7 @@ use lifecycle::lifecycle_findings;
 use params::{constructor_initializers_use_param, constructor_params};
 use patterns::object_pattern_field_reads_for_widget;
 use reads::{state_body_uses_param, widget_body_uses_param};
+use resolution::{ClassKey, DeclarationResolver};
 use top_level::top_level_widget_functions;
 use unrendered::unrendered_widgets;
 
@@ -154,12 +156,26 @@ pub fn analyze_widgets(
     dead_code: Option<&DeadCodeReport>,
 ) -> Result<WidgetReport, WidgetAnalysisError> {
     let paths = widget_analysis_paths(project, dead_code);
-    let file_findings = paths
+    let mut file_facts = paths
         .par_iter()
         .map(|path| analyze_file(path))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut findings = merge_file_widget_findings(file_findings);
-    let inherited_uses = inherited_param_uses_across_files(project, &paths)?;
+    let resolver = DeclarationResolver::new(
+        project,
+        file_facts.iter().flat_map(|file| {
+            file.reachability.class_names.iter().map(|name| ClassKey {
+                path: file.reachability.path.clone(),
+                name: name.clone(),
+            })
+        }),
+    );
+    let mut findings = merge_file_widget_findings(
+        file_facts
+            .iter_mut()
+            .map(|file| std::mem::take(&mut file.findings))
+            .collect(),
+    );
+    let inherited_uses = inherited_param_uses_across_files(&file_facts, &resolver);
     findings.unused_params.retain(|finding| {
         !inherited_uses.contains(&(
             finding.path.clone(),
@@ -168,7 +184,7 @@ pub fn analyze_widgets(
         ))
     });
     sort_file_widget_findings(&mut findings);
-    let unrendered_widgets = unrendered_widgets(project, &paths)?;
+    let unrendered_widgets = unrendered_widgets(project, &file_facts, &resolver);
 
     Ok(WidgetReport {
         analyzed_files: paths.len(),
@@ -291,15 +307,21 @@ fn sort_lifecycle_findings(findings: &mut FileWidgetFindings) {
         });
 }
 
-fn analyze_file(path: &Path) -> Result<FileWidgetFindings, WidgetAnalysisError> {
+fn analyze_file(path: &Path) -> Result<WidgetFileFacts, WidgetAnalysisError> {
     let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
         path: path.to_path_buf(),
         source,
     })?;
     let parsed = parse_tree(path, &source)?;
     let root = parsed.tree().root_node();
+    let mut classes = Vec::new();
+    collect_class_declarations(root, &mut classes);
 
-    Ok(findings_in_source(path, root, parsed.source()))
+    Ok(WidgetFileFacts {
+        findings: findings_for_classes(path, root, &classes, parsed.source()),
+        classes: inheritance::class_facts(path, &classes, parsed.source()),
+        reachability: unrendered::reachability_facts(path, root, &classes, parsed.source()),
+    })
 }
 
 fn parse_tree<'source>(
@@ -329,21 +351,38 @@ struct FileWidgetFindings {
     missing_context_mounted_after_await: Vec<MissingContextMountedAfterAwait>,
 }
 
+#[derive(Debug)]
+struct WidgetFileFacts {
+    findings: FileWidgetFindings,
+    classes: Vec<inheritance::ProjectClassFact>,
+    reachability: unrendered::FileReachabilityFacts,
+}
+
+#[cfg(test)]
 fn findings_in_source(path: &Path, root: Node<'_>, source: &str) -> FileWidgetFindings {
     let mut classes = Vec::new();
     collect_class_declarations(root, &mut classes);
-    let states = state_classes_by_widget(&classes, source);
-    let forwarded_uses = widget_forwarded_param_uses(&classes, source);
-    let inherited_uses = inherited_param_uses(&classes, source);
+    findings_for_classes(path, root, &classes, source)
+}
+
+fn findings_for_classes(
+    path: &Path,
+    root: Node<'_>,
+    classes: &[Node<'_>],
+    source: &str,
+) -> FileWidgetFindings {
+    let states = state_classes_by_widget(classes, source);
+    let forwarded_uses = widget_forwarded_param_uses(classes, source);
+    let inherited_uses = inherited_param_uses(classes, source);
     let mut findings = FileWidgetFindings::default();
     let has_widget_class = classes
         .iter()
         .any(|class| widget_kind(*class, source).is_some());
     findings.top_level_functions = top_level_widget_functions(path, root, source, has_widget_class);
-    let lifecycle = lifecycle_findings(path, &classes, source);
+    let lifecycle = lifecycle_findings(path, classes, source);
     findings.missing_context_mounted_after_await = lifecycle.missing_context_mounted_after_await;
 
-    for class in classes {
+    for class in classes.iter().copied() {
         let Some(widget_kind) = widget_kind(class, source) else {
             continue;
         };
