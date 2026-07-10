@@ -13,7 +13,7 @@ pub(super) struct ProjectClassFact {
     pub(super) path: PathBuf,
     pub(super) name: String,
     pub(super) superclass: Option<String>,
-    pub(super) widget_params: BTreeSet<String>,
+    pub(super) widget_params: BTreeSet<(String, String)>,
     body_param_reads: BTreeSet<String>,
 }
 
@@ -49,7 +49,7 @@ pub(super) fn class_facts(
                 .map(|_| {
                     constructor_params(*class, &name, source)
                         .into_iter()
-                        .map(|param| param.field_name)
+                        .map(|param| (param.field_name, param.name))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -87,9 +87,13 @@ fn collect_file_inherited_uses(
                 let Some(ancestor) = facts.get(&ancestor_key) else {
                     continue;
                 };
-                for param in &ancestor.widget_params {
-                    if class.body_param_reads.contains(param) {
-                        uses.insert((ancestor.path.clone(), ancestor.name.clone(), param.clone()));
+                for (field_name, param_name) in &ancestor.widget_params {
+                    if class.body_param_reads.contains(field_name) {
+                        uses.insert((
+                            ancestor.path.clone(),
+                            ancestor.name.clone(),
+                            param_name.clone(),
+                        ));
                     }
                 }
                 if let Some(parent) = &ancestor.superclass {

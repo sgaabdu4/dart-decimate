@@ -91,6 +91,12 @@ pub struct DartFile {
     pub routes: Vec<DartRouteDeclaration>,
 }
 
+pub(crate) fn has_top_level_function(file: &DartFile, name: &str) -> bool {
+    file.declarations.iter().any(|declaration| {
+        declaration.name == name && declaration.kind == DeclarationKind::Function
+    })
+}
+
 /// A Dart `library` directive.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DartLibrary {

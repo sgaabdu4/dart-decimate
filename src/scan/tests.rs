@@ -265,6 +265,34 @@ fn non_repository_scan_uses_root_gitignore_without_parent_rules()
 }
 
 #[test]
+fn ignored_external_package_root_is_not_scanned() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".git/HEAD", "ref: refs/heads/main\n")?;
+    write(&fixture, ".gitignore", "shared/\n")?;
+    write(
+        &fixture,
+        "app/pubspec.yaml",
+        "name: app\ndependencies:\n  shared:\n    path: ../shared\n",
+    )?;
+    write(&fixture, "app/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "shared/pubspec.yaml", "name: shared\n")?;
+    write(
+        &fixture,
+        "shared/lib/generated.dart",
+        "class Generated {}\n",
+    )?;
+
+    let project = scan_project(fixture.path().join("app"))?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(
+        project.files[0].path,
+        fixture.path().join("app/lib/main.dart")
+    );
+    Ok(())
+}
+
+#[test]
 fn scans_all_conditional_import_targets() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

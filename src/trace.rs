@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dependencies::{
-    DeclaredPackageDependency, LocalPubPackage, declared_package_dependencies, local_pub_packages,
+    DeclaredPackageDependency, LocalPubPackage, declared_package_dependencies,
+    file_uses_codegen_dependency, local_pub_packages,
 };
 use crate::dependency_scripts::package_used_in_tooling;
 use crate::graph::normalize_against;
@@ -338,7 +339,11 @@ pub fn trace_dependency(
     let total_import_count = importing_files.len();
     let used_in_scripts = packages
         .iter()
-        .any(|package| package_used_in_tooling(&package.root, dependency));
+        .any(|package| package_used_in_tooling(&package.root, dependency))
+        || project
+            .files
+            .iter()
+            .any(|file| file_uses_codegen_dependency(file, dependency));
     let is_used = total_import_count > 0 || used_in_scripts;
 
     Ok(DependencyTraceReport {

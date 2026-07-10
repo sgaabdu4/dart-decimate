@@ -98,9 +98,7 @@ fn is_default_entry_point(
 }
 
 fn file_has_main(file: &crate::DartFile) -> bool {
-    file.declarations
-        .iter()
-        .any(|declaration| declaration.name == "main")
+    crate::extract::has_top_level_function(file, "main")
 }
 
 fn patrol_test_suffix(root: &Path) -> Option<String> {

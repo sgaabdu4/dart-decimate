@@ -254,7 +254,7 @@ fn tooling_conventions_count_as_dev_dependency_usage() -> Result<(), Box<dyn std
         "name: app\n\
 dependencies:\n  envied: ^1.0.0\n\
 dev_dependencies:\n  build_runner: ^2.0.0\n  envied_generator: ^1.0.0\n  flutter_gen_runner: ^5.0.0\n  flutter_launcher_icons: ^0.14.0\n  test: ^1.0.0\n\
-flutter_gen:\n  integrations:\n    flutter_svg: true\n",
+flutter_gen: {}\n",
     )?;
     write(
         &fixture,
@@ -284,6 +284,11 @@ flutter_gen:\n  integrations:\n    flutter_svg: true\n",
     ] {
         assert_no_unused_dev_dependency(&json, dependency);
     }
+    for dependency in ["build_runner", "envied_generator"] {
+        let trace = trace_dependency(&fixture, dependency)?;
+        assert_eq!(trace["is_used"], true, "{trace:#}");
+        assert_eq!(trace["used_in_scripts"], true, "{trace:#}");
+    }
     Ok(())
 }
 
@@ -306,6 +311,11 @@ fn envied_import_without_generator_usage_keeps_dev_dependencies_unused()
 
     assert_unused_dev_dependency(&json, "build_runner");
     assert_unused_dev_dependency(&json, "envied_generator");
+    for dependency in ["build_runner", "envied_generator"] {
+        let trace = trace_dependency(&fixture, dependency)?;
+        assert_eq!(trace["is_used"], false, "{trace:#}");
+        assert_eq!(trace["used_in_scripts"], false, "{trace:#}");
+    }
     Ok(())
 }
 
@@ -326,6 +336,10 @@ fn test_dependency_requires_a_runner_discoverable_file() -> Result<(), Box<dyn s
     let helper_only = check(&fixture)?;
     assert_unused_dev_dependency(&helper_only, "test");
 
+    write(&fixture, "test/scenarios/smoke.dart", "const main = 1;\n")?;
+    let non_runnable = check(&fixture)?;
+    assert_unused_dev_dependency(&non_runnable, "test");
+
     write(
         &fixture,
         "test/scenarios/smoke.dart",
@@ -333,6 +347,20 @@ fn test_dependency_requires_a_runner_discoverable_file() -> Result<(), Box<dyn s
     )?;
     let runnable = check(&fixture)?;
     assert_no_unused_dev_dependency(&runnable, "test");
+    Ok(())
+}
+
+#[test]
+fn non_function_main_does_not_make_a_nested_test_helper_an_entry_point()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "test/helpers/value.dart", "const main = 1;\n")?;
+
+    let json = check(&fixture)?;
+
+    assert_finding_path(&json, "dart-decimate/dead-file", "test/helpers/value.dart");
     Ok(())
 }
 
@@ -443,6 +471,53 @@ class CrossFileAvatar extends CrossFileBase {
         assert_no_action_target(&json, "dart-decimate/unused-widget-param", target);
     }
     assert_no_action_target(&json, "dart-decimate/unrendered-widget", "BaseInput");
+    Ok(())
+}
+
+#[test]
+fn cross_file_inherited_field_preserves_constructor_param_identity()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'avatar.dart';\nvoid main() { const RenamedAvatar(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/framework.dart",
+        "class Widget {}\nclass StatelessWidget extends Widget { const StatelessWidget(); }\nclass BuildContext {}\nclass SizedBox extends Widget { const SizedBox.square({double? dimension}); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/base.dart",
+        r"import 'framework.dart';
+abstract class RenamedBase extends StatelessWidget {
+  const RenamedBase({double? size}) : avatarSize = size;
+  final double? avatarSize;
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/avatar.dart",
+        r"import 'base.dart';
+import 'framework.dart';
+class RenamedAvatar extends RenamedBase {
+  const RenamedAvatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: avatarSize ?? 40);
+}
+",
+    )?;
+
+    let json = check(&fixture)?;
+
+    assert_no_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "RenamedBase.size",
+    );
     Ok(())
 }
 
@@ -821,6 +896,105 @@ Future<Process?> switchPattern(Object command) async {
 }
 
 #[test]
+fn leading_shell_options_remain_process_candidates() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+Future<ProcessResult> bashRun(String command) {
+  return Process.run('/bin/bash', ['--noprofile', '-c', command]);
+}
+
+Future<ProcessResult> powershellRun(String command) {
+  return Process.run('pwsh', ['-NoProfile', '-Command', command]);
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(2));
+    Ok(())
+}
+
+#[test]
+fn direct_and_outer_fixed_dart_runtimes_are_exempt() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+final dartExe = Platform.resolvedExecutable;
+
+Future<Process> directStart() {
+  return Process.start(Platform.resolvedExecutable, const ['/path/to/analysis_server.dart.snapshot']);
+}
+
+class Runner {
+  Future<Process> outerStart() => Process.start(dartExe, const ['/path/to/analysis_server.dart.snapshot']);
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    assert!(
+        json["security_candidates"]
+            .as_array()
+            .is_none_or(Vec::is_empty),
+        "{json:#}"
+    );
+    Ok(())
+}
+
+#[test]
+fn constructor_parameters_shadow_fixed_class_fields() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+const snapshot = '/path/to/analysis_server.dart.snapshot';
+
+class Runner {
+  static final String dartExe = Platform.resolvedExecutable;
+  final Future<Process>? process;
+
+  Runner(String dartExe) : process = Process.start(dartExe, const [snapshot]);
+
+  Runner.body(String dartExe) : process = null {
+    Process.start(dartExe, const [snapshot]);
+  }
+
+  factory Runner.from(String dartExe) {
+    Process.start(dartExe, const [snapshot]);
+    return Runner.body(dartExe);
+  }
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(3));
+    Ok(())
+}
+
+#[test]
 fn ash_shell_is_risky_while_const_raw_dart_arguments_are_fixed()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
@@ -911,6 +1085,30 @@ const tokenEndpoint = 'https://client:concrete-secret@login.acme.com/oauth2/toke
     Ok(())
 }
 
+#[test]
+fn oauth_endpoint_codes_remain_hardcoded_secrets() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"const oauthMetadata = OAuthMetadata(
+  tokenEndpoint: 'https://login.acme.com/oauth2/token?code=concrete-authorization-code',
+  authorizationEndpoint: 'https://login.acme.com/oauth2/authorize#code_verifier=concrete-code-verifier',
+);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let secret = candidate(candidates, "hardcoded-secret");
+
+    assert_eq!(secret["occurrences"].as_array().map(Vec::len), Some(2));
+    Ok(())
+}
+
 fn check(fixture: &TempDir) -> Result<Value, Box<dyn std::error::Error>> {
     run_json(["dart-decimate", "check", root(fixture), "--format", "json"])
 }
@@ -922,6 +1120,21 @@ fn security(fixture: &TempDir) -> Result<Value, Box<dyn std::error::Error>> {
         root(fixture),
         "--format",
         "json",
+    ])
+}
+
+fn trace_dependency(
+    fixture: &TempDir,
+    dependency: &str,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    run_json([
+        "dart-decimate",
+        "trace-dependency",
+        root(fixture),
+        "--format",
+        "json",
+        "--dependency",
+        dependency,
     ])
 }
 

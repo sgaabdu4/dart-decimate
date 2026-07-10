@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "postinstall": "node npm/scripts/postinstall.js",
-    "test": "node --test tests/js/*.test.mjs",
+    "test": "node --test tests/js/npm-wrapper.test.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "lint": "npm run version:check && npm run migration:check && npm run lint:js && npm run format:check",
     "lint:js": "oxlint .",

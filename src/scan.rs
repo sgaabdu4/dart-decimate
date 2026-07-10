@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use glob::Pattern;
 use ignore::WalkBuilder;
+use ignore::gitignore::GitignoreBuilder;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -134,6 +135,9 @@ pub fn scan_project_with_options(
 
     let mut paths = BTreeSet::new();
     for scan_root in &scan_roots {
+        if scan_root != &root && ignored_by_parent_gitignore(&root, scan_root) {
+            continue;
+        }
         if scan_roots
             .iter()
             .any(|other| other != scan_root && scan_root.starts_with(other))
@@ -163,6 +167,39 @@ pub fn scan_project_with_options(
         scan_roots: scan_roots.into_iter().collect(),
         files,
         graph,
+    })
+}
+
+fn ignored_by_parent_gitignore(root: &Path, scan_root: &Path) -> bool {
+    let Some(repository_root) = root
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists())
+    else {
+        return false;
+    };
+    if !scan_root.starts_with(repository_root) {
+        return false;
+    }
+    let Some(parent) = scan_root.parent() else {
+        return false;
+    };
+    let mut directories = parent
+        .ancestors()
+        .take_while(|ancestor| ancestor.starts_with(repository_root))
+        .collect::<Vec<_>>();
+    directories.reverse();
+
+    let mut builder = GitignoreBuilder::new(repository_root);
+    for directory in directories {
+        let path = directory.join(".gitignore");
+        if path.is_file() && builder.add(path).is_some() {
+            return false;
+        }
+    }
+    builder.build().ok().is_some_and(|gitignore| {
+        gitignore
+            .matched_path_or_any_parents(scan_root, true)
+            .is_ignore()
     })
 }
 

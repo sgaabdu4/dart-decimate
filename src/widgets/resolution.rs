@@ -238,7 +238,7 @@ fn visible_through_combinators(name: &str, combinators: &[DartCombinator]) -> bo
     for combinator in combinators {
         match combinator.kind {
             DartCombinatorKind::Show => {
-                is_visible = combinator.names.iter().any(|shown| shown == name);
+                is_visible &= combinator.names.iter().any(|shown| shown == name);
             }
             DartCombinatorKind::Hide => {
                 if combinator.names.iter().any(|hidden| hidden == name) {
@@ -253,4 +253,29 @@ fn visible_through_combinators(name: &str, combinators: &[DartCombinator]) -> bo
 fn exactly_one(mut classes: BTreeSet<ClassKey>) -> Option<ClassKey> {
     let class = classes.pop_first()?;
     classes.is_empty().then_some(class)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Location;
+
+    #[test]
+    fn combinators_cannot_revive_a_hidden_declaration() {
+        let combinators = [
+            combinator(DartCombinatorKind::Show, &["SearchInput"]),
+            combinator(DartCombinatorKind::Hide, &["SearchInput"]),
+            combinator(DartCombinatorKind::Show, &["SearchInput"]),
+        ];
+
+        assert!(!visible_through_combinators("SearchInput", &combinators));
+    }
+
+    fn combinator(kind: DartCombinatorKind, names: &[&str]) -> DartCombinator {
+        DartCombinator {
+            kind,
+            names: names.iter().map(|name| (*name).to_owned()).collect(),
+            location: Location { line: 1, column: 0 },
+        }
+    }
 }

@@ -37,6 +37,12 @@ pub(super) fn codegen_dependencies_for_file(file: &DartFile) -> BTreeSet<Codegen
     dependencies
 }
 
+pub(crate) fn file_uses_codegen_dependency(file: &DartFile, dependency: &str) -> bool {
+    codegen_dependencies_for_file(file)
+        .iter()
+        .any(|candidate| candidate.name == dependency)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum CodegenSignal {
     Freezed,

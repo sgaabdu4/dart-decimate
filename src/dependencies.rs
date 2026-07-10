@@ -11,6 +11,7 @@ use crate::{DependencyKind, Location};
 
 mod analyze;
 mod codegen;
+pub(crate) use codegen::file_uses_codegen_dependency;
 mod discovery;
 mod overrides;
 mod private_src_imports;

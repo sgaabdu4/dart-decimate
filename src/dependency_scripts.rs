@@ -13,12 +13,10 @@ pub(crate) fn package_used_in_tooling(package_root: &Path, dependency: &str) -> 
 
 fn pubspec_has_top_level_key(package_root: &Path, key: &str) -> bool {
     let path = package_root.join("pubspec.yaml");
-    fs::read_to_string(path).ok().is_some_and(|source| {
-        source.lines().any(|line| {
-            let trimmed = line.trim_end();
-            !trimmed.starts_with(' ') && !trimmed.starts_with('\t') && trimmed == format!("{key}:")
-        })
-    })
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|source| serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&source).ok())
+        .is_some_and(|pubspec| pubspec.get(key).is_some())
 }
 
 fn known_tooling_convention(package_root: &Path, dependency: &str) -> bool {
@@ -53,11 +51,9 @@ fn is_runnable_test_file(path: &Path) -> bool {
     {
         return true;
     }
-    crate::extract_dart_file(path).ok().is_some_and(|file| {
-        file.declarations
-            .iter()
-            .any(|declaration| declaration.name == "main")
-    })
+    crate::extract_dart_file(path)
+        .ok()
+        .is_some_and(|file| crate::extract::has_top_level_function(&file, "main"))
 }
 
 fn tooling_files(package_root: &Path) -> Vec<PathBuf> {
