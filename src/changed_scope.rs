@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use thiserror::Error;
 
+use crate::git_command;
 use crate::graph::normalize_against;
 use crate::scan::ScannedProject;
 
@@ -56,9 +56,8 @@ impl RefSuggestions {
 /// Returns [`ChangedScopeError`] if `git diff` cannot be executed or the base
 /// revision is invalid for this repository.
 pub fn changed_files(root: &Path, base: &str) -> Result<Vec<PathBuf>, ChangedScopeError> {
-    let output = Command::new("git")
+    let output = git_command::for_repository(root)
         .args(["diff", "--name-only", "--diff-filter=ACMRTUXB", base, "--"])
-        .current_dir(root)
         .output()
         .map_err(|source| ChangedScopeError::Git { source })?;
 
@@ -66,9 +65,8 @@ pub fn changed_files(root: &Path, base: &str) -> Result<Vec<PathBuf>, ChangedSco
         return Err(git_diff_error(root, base, &output.stderr));
     }
 
-    let untracked = Command::new("git")
+    let untracked = git_command::for_repository(root)
         .args(["ls-files", "--others", "--exclude-standard"])
-        .current_dir(root)
         .output()
         .map_err(|source| ChangedScopeError::Git { source })?;
 
@@ -146,14 +144,13 @@ fn git_diff_error(root: &Path, base: &str, stderr: &[u8]) -> ChangedScopeError {
 }
 
 fn similar_refs(root: &Path, base: &str) -> Vec<String> {
-    let Ok(output) = Command::new("git")
+    let Ok(output) = git_command::for_repository(root)
         .args([
             "for-each-ref",
             "--format=%(refname:short)",
             "refs/heads",
             "refs/remotes",
         ])
-        .current_dir(root)
         .output()
     else {
         return Vec::new();

@@ -52,7 +52,9 @@ try {
   }
   const response = JSON.parse(result.stdout.trim());
   if (response.result?.protocolVersion !== "2025-11-25") {
-    process.stderr.write("dart-decimate-mcp did not negotiate MCP 2025-11-25\n");
+    process.stderr.write(
+      "dart-decimate-mcp did not negotiate MCP 2025-11-25\n",
+    );
     process.exit(1);
   }
 } finally {

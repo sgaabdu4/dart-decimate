@@ -191,6 +191,7 @@ dev_dependencies:\n  build_runner: ^2.0.0\n",
     assert_eq!(trace_code, 0);
     assert_eq!(trace_json["total_import_count"], 0);
     assert_eq!(trace_json["used_in_scripts"], true);
+    assert_eq!(trace_json["used_in_codegen"], false);
     assert_eq!(trace_json["is_used"], true);
 
     Ok(())

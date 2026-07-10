@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.13"
+    "dart-decimate": "^0.0.14"
   }
 }
 ```
@@ -208,9 +208,11 @@ Default entry points are evaluated across the root and discovered local package
 roots. They include public `lib/` Dart files outside `lib/src/`, `lib/main.dart`,
 direct `bin/` scripts, and, outside production mode, direct `test/`,
 `integration_test/`, `test_driver/`, `tool/`, `scripts/`, and `pigeon/`
-scripts. Generated Dart companions, Flutter l10n outputs, and FlutterFire
-options are protected from dead-file cleanup; generated-only cycles are also
-suppressed.
+scripts. Nested `test/`, `integration_test/`, and `test_driver/` files with
+`main()` are also roots, including files matching Patrol's configured
+`test_file_suffix`. Git-ignored Dart files are excluded from source analysis.
+Generated Dart companions, Flutter l10n outputs, and FlutterFire options are
+protected from dead-file cleanup; generated-only cycles are also suppressed.
 
 Unused-symbol checks count references from non-raw Dart string interpolation;
 raw strings and escaped dollars stay literal.
@@ -337,7 +339,9 @@ imports and owner-local path dependencies local. Workspace members and copied
 nested packages with the same package name are resolved by owner. Non-Dart
 tooling references in Flutter config files, including launcher and splash
 config, workflow files, Makefiles, and `tool/` scripts can count as dependency
-usage. Known generator-internal imports from generated Dart, such as
+usage. Envied annotations count `envied_generator`/`build_runner`, FlutterGen
+configuration counts `flutter_gen_runner`, and Dart tests count the `test`
+runner. Known generator-internal imports from generated Dart, such as
 `package:slang/generated.dart`, are not reported as unlisted dependencies.
 
 Useful commands:
@@ -361,10 +365,11 @@ Dart Decimate finds:
 - widget classes that are never constructed
 - missing `context.mounted` guards after awaited widget work
 
-`unused-widget-param` counts normal field reads, forwarding helpers, and Dart
-object patterns that destructure the widget class itself. `unrendered-widget`
-counts widgets constructed through builder callbacks, while type-only references
-do not count as rendering.
+`unused-widget-param` counts normal field reads, transformed constructor
+initializer reads, inherited field reads, forwarding helpers, and Dart object
+patterns that destructure the widget class itself. `unrendered-widget` counts
+widgets constructed through builder callbacks and subclass construction, while
+type-only references do not count as rendering.
 
 ### 8. Security Candidates
 
@@ -386,7 +391,12 @@ generates client config. To make them fail a gate, set
 `"dart-decimate/security-firebase-api-key" = "error"` in `[rules]`. Common
 authentication copy such as password reset and password requirement text is
 filtered before reporting hardcoded-secret candidates unless it is bound to a
-secret-like name or contains a concrete token-like segment.
+secret-like name or contains a concrete token-like segment. OAuth authorization
+and token endpoint URLs are excluded from secret candidates as public metadata,
+while cleartext endpoint transport remains an insecure-transport candidate. Stripe secret-key names
+and `sk_test_`/`sk_live_` values remain review candidates even when they look
+like placeholders. A fixed `Process.start` of `Platform.resolvedExecutable`
+with fixed list arguments is not classified as shell command injection.
 
 Useful commands:
 
@@ -651,28 +661,13 @@ dart-decimate license status --format json
 
 ## Development
 
-```bash
-git diff --check
-npm run lint
-npm run version:bump:check -- origin/main
-npm run release:check
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-npm ci --ignore-scripts
-npx fallow audit --base origin/main --quiet
-cargo test --all-targets
-npm run pack:check
-npm run test:postinstall:prebuilt
-npm run test:npx:prebuilt
-npm run test:npx:local
-npm run test:npx:mcp:local
-```
+See [docs/ci.md](docs/ci.md) for the local verification commands and CI gates.
 
 This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.13`.
+Current version: `0.0.14`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

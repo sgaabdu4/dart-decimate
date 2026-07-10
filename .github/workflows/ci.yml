@@ -59,6 +59,7 @@ jobs:
 
       - name: Check npm package
         run: |
+          npm test
           npm run pack:check
           npm run test:postinstall:prebuilt
           npm run test:npx:prebuilt

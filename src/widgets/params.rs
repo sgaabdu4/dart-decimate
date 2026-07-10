@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use tree_sitter::Node;
 
+use super::reads::direct_identifier_shadowed_before;
 use crate::Location;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +48,74 @@ pub(super) fn constructor_params(
         }
     }
     params.into_values().collect()
+}
+
+pub(super) fn constructor_initializers_use_param(
+    class: Node<'_>,
+    widget_class: &str,
+    field_name: &str,
+    param_name: &str,
+    source: &str,
+) -> bool {
+    let mut declarations = Vec::new();
+    collect_nodes_in(class, &["declaration"], &mut declarations);
+    declarations.into_iter().any(|declaration| {
+        let Some(signature) = constructor_signature(declaration) else {
+            return false;
+        };
+        if constructor_owner(signature, source).as_deref() != Some(widget_class) {
+            return false;
+        }
+        let mut entries = Vec::new();
+        collect_nodes(declaration, "initializer_list_entry", &mut entries);
+        entries
+            .into_iter()
+            .any(|entry| initializer_entry_uses_param(entry, field_name, param_name, source))
+    })
+}
+
+fn initializer_entry_uses_param(
+    entry: Node<'_>,
+    field_name: &str,
+    param_name: &str,
+    source: &str,
+) -> bool {
+    let mut cursor = entry.walk();
+    entry.named_children(&mut cursor).any(|initializer| {
+        if initializer.kind() == "assertion" {
+            return initializer_value_uses_param(initializer, param_name, source);
+        }
+        if initializer.kind() != "field_initializer" {
+            return false;
+        }
+        let mut cursor = initializer.walk();
+        initializer
+            .children_by_field_name("value", &mut cursor)
+            .any(|value| {
+                initializer_value_uses_param(value, param_name, source)
+                    && !initializer_is_direct_assignment(
+                        initializer,
+                        field_name,
+                        param_name,
+                        source,
+                    )
+            })
+    })
+}
+
+fn initializer_is_direct_assignment(
+    initializer: Node<'_>,
+    field_name: &str,
+    param_name: &str,
+    source: &str,
+) -> bool {
+    field_text(initializer, "name", source).as_deref() == Some(field_name)
+        && initializer
+            .child_by_field_name("value")
+            .is_some_and(|value| {
+                value.kind() == "identifier"
+                    && value.utf8_text(source.as_bytes()).ok() == Some(param_name)
+            })
 }
 
 const CONSTRUCTOR_SIGNATURES: &[&str] =
@@ -165,18 +234,29 @@ fn initialized_field_from_param(
 }
 
 fn initializer_value_uses_param(node: Node<'_>, name: &str, source: &str) -> bool {
+    let boundary = node.parent().unwrap_or(node);
+    initializer_node_uses_param(boundary, node, name, source)
+}
+
+fn initializer_node_uses_param(
+    boundary: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
     if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
         && node.utf8_text(source.as_bytes()).ok() == Some(name)
         && node.parent().is_none_or(|parent| {
             !field_contains_node(parent, "name", node)
                 && !field_contains_node(parent, "property", node)
         })
+        && !direct_identifier_shadowed_before(boundary, node, name, source)
     {
         return true;
     }
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .any(|child| initializer_value_uses_param(child, name, source))
+        .any(|child| initializer_node_uses_param(boundary, child, name, source))
 }
 
 fn collect_nodes_in<'tree>(node: Node<'tree>, kinds: &[&str], nodes: &mut Vec<Node<'tree>>) {

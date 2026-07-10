@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dependencies::{
-    DeclaredPackageDependency, LocalPubPackage, declared_package_dependencies, local_pub_packages,
+    DeclaredPackageDependency, LocalPubPackage, declared_package_dependencies,
+    file_uses_codegen_dependency, local_pub_packages,
 };
 use crate::dependency_scripts::package_used_in_tooling;
 use crate::graph::normalize_against;
@@ -93,7 +94,7 @@ pub struct DependencyTraceReport {
     pub command: String,
     /// Dependency package being traced.
     pub dependency: String,
-    /// Whether the dependency was found as either a declaration or Dart usage.
+    /// Whether the dependency was found as either a declaration or usage evidence.
     pub found: bool,
     /// Whether the dependency is declared in at least one local pubspec.
     pub declared: bool,
@@ -107,7 +108,10 @@ pub struct DependencyTraceReport {
     pub total_import_count: usize,
     /// Whether non-Dart tooling files reference the package.
     pub used_in_scripts: bool,
-    /// Whether Dart source references the package in import/export directives.
+    /// Whether Dart source uses the package through a recognized code generator.
+    #[serde(default)]
+    pub used_in_codegen: bool,
+    /// Whether Dart or tooling evidence references the package.
     pub is_used: bool,
     /// Short trace interpretation.
     pub reason: String,
@@ -339,7 +343,11 @@ pub fn trace_dependency(
     let used_in_scripts = packages
         .iter()
         .any(|package| package_used_in_tooling(&package.root, dependency));
-    let is_used = total_import_count > 0 || used_in_scripts;
+    let used_in_codegen = project
+        .files
+        .iter()
+        .any(|file| file_uses_codegen_dependency(file, dependency));
+    let is_used = total_import_count > 0 || used_in_scripts || used_in_codegen;
 
     Ok(DependencyTraceReport {
         schema_version: TRACE_SCHEMA_VERSION.to_owned(),
@@ -354,8 +362,9 @@ pub fn trace_dependency(
         type_only_importers: Vec::new(),
         total_import_count,
         used_in_scripts,
+        used_in_codegen,
         is_used,
-        reason: dependency_reason(declared, is_used),
+        reason: dependency_reason(declared, is_used, used_in_codegen),
     })
 }
 
@@ -640,14 +649,14 @@ fn symbol_reason(
     "symbol has no reachable direct references".to_owned()
 }
 
-fn dependency_reason(declared: bool, is_used: bool) -> String {
-    match (declared, is_used) {
-        (true, true) => "dependency is declared and referenced by Dart import/export directives",
-        (true, false) => "dependency is declared but no Dart import/export directives reference it",
-        (false, true) => {
-            "dependency is referenced by Dart source but not declared in a local pubspec"
-        }
-        (false, false) => "dependency is neither declared nor referenced by Dart source",
+fn dependency_reason(declared: bool, is_used: bool, used_in_codegen: bool) -> String {
+    match (declared, is_used, used_in_codegen) {
+        (true, true, true) => "dependency is declared and has code-generation usage",
+        (true, true, false) => "dependency is declared and has usage evidence",
+        (true, false, _) => "dependency is declared but has no usage evidence",
+        (false, true, true) => "dependency has code-generation usage but is not declared",
+        (false, true, false) => "dependency has usage evidence but is not declared",
+        (false, false, _) => "dependency is neither declared nor supported by usage evidence",
     }
     .to_owned()
 }

@@ -45,6 +45,26 @@ attempts for rebase, review, test, document, lint, and CI work, with determinist
 `DART_DECIMATE_BASE_REF` or `origin/main`, fetches a missing remote base, and
 runs the same lint/test stack before allowing a push.
 
+Run the complete verification stack locally:
+
+```bash
+git diff --check
+npm ci --ignore-scripts
+npm run lint
+npm run version:bump:check -- origin/main
+npm run release:check
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+npx fallow audit --base origin/main --quiet
+cargo test --all-targets
+npm test
+npm run pack:check
+npm run test:postinstall:prebuilt
+npm run test:npx:prebuilt
+npm run test:npx:local
+npm run test:npx:mcp:local
+```
+
 Generate CI templates:
 
 ```bash

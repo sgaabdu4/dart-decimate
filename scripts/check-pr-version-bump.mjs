@@ -144,17 +144,24 @@ function requireBumped(label, current, base, failures) {
 }
 
 const baseRef =
-  process.argv[2] ?? (process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : "");
+  process.argv[2] ??
+  (process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : "");
 if (!baseRef) {
   exitWithError("usage: check-pr-version-bump.mjs <base-ref>");
 }
 
-const currentCargoVersion = readCargoVersion(fs.readFileSync("Cargo.toml", "utf8"), "Cargo.toml");
+const currentCargoVersion = readCargoVersion(
+  fs.readFileSync("Cargo.toml", "utf8"),
+  "Cargo.toml",
+);
 const currentPackageVersion = readPackageVersion(
   fs.readFileSync("package.json", "utf8"),
   "package.json",
 );
-const baseCargoVersion = readCargoVersion(readBaseFile(baseRef, "Cargo.toml"), "base Cargo.toml");
+const baseCargoVersion = readCargoVersion(
+  readBaseFile(baseRef, "Cargo.toml"),
+  "base Cargo.toml",
+);
 const basePackageVersion = readPackageVersion(
   readBaseFile(baseRef, "package.json"),
   "base package.json",
@@ -167,7 +174,12 @@ if (currentCargoVersion !== currentPackageVersion) {
   );
 }
 requireBumped("Cargo.toml", currentCargoVersion, baseCargoVersion, failures);
-requireBumped("package.json", currentPackageVersion, basePackageVersion, failures);
+requireBumped(
+  "package.json",
+  currentPackageVersion,
+  basePackageVersion,
+  failures,
+);
 
 if (failures.length > 0) {
   for (const failure of failures) {

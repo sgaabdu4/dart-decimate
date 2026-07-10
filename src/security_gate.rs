@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use petgraph::visit::EdgeRef;
 use thiserror::Error;
 
 use crate::changed_scope::RefSuggestions;
+use crate::git_command;
 use crate::graph::normalize_against;
 use crate::output::{FindingKind, JsonReport, JsonSecurityOccurrence, Severity, Verdict};
 use crate::{ModuleGraph, find_dead_code};
@@ -122,9 +122,8 @@ pub(crate) fn changed_lines_from_git(
     root: &Path,
     base: &str,
 ) -> Result<ChangedLineScope, SecurityGateError> {
-    let output = Command::new("git")
+    let output = git_command::for_repository(root)
         .args(["diff", "--unified=0", "--diff-filter=ACMRTUXB", base, "--"])
-        .current_dir(root)
         .output()
         .map_err(|source| SecurityGateError::Git { source })?;
 
@@ -262,9 +261,8 @@ fn add_untracked_lines(
     base: &str,
     scope: &mut ChangedLineScope,
 ) -> Result<(), SecurityGateError> {
-    let output = Command::new("git")
+    let output = git_command::for_repository(root)
         .args(["ls-files", "--others", "--exclude-standard"])
-        .current_dir(root)
         .output()
         .map_err(|source| SecurityGateError::Git { source })?;
 

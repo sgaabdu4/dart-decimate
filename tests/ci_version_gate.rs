@@ -1,6 +1,7 @@
+mod common;
+
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 fn missing(needle: &str) -> std::io::Error {
     std::io::Error::other(format!("missing {needle}"))
@@ -38,7 +39,10 @@ fn write_versions(
 }
 
 fn run_git(root: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("git").args(args).current_dir(root).output()?;
+    let output = common::isolated_git_command()
+        .args(args)
+        .current_dir(root)
+        .output()?;
     if output.status.success() {
         return Ok(());
     }
@@ -53,7 +57,7 @@ fn run_git(root: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>>
 
 fn run_pr_bump_script(root: &Path) -> Result<std::process::Output, Box<dyn std::error::Error>> {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-pr-version-bump.mjs");
-    Ok(Command::new("node")
+    Ok(common::isolated_command("node")
         .arg(script)
         .arg("origin/main")
         .current_dir(root)

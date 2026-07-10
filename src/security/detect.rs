@@ -1,7 +1,11 @@
+use std::collections::BTreeSet;
 use std::path::Path;
+
+use tree_sitter::Node;
 
 use super::{DetectedSecurityCandidate, SecurityCategory, SecurityConfidence, SecurityOccurrence};
 use crate::Location;
+use crate::dart_parser::parse_dart_source_lossy;
 use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
 
 pub(super) fn detect_in_source(path: &Path, source: &str) -> Vec<DetectedSecurityCandidate> {
@@ -48,7 +52,13 @@ fn detect_hardcoded_secrets(
             ));
             continue;
         }
-        if is_placeholder(&literal.value) {
+        if oauth_endpoint_metadata_context(source, literal.index, &literal.value) {
+            continue;
+        }
+        let stripe_secret = stripe_secret_prefix(&literal.value)
+            || stripe_secret_name(&literal.value)
+            || stripe_secret_binding_context(source, literal.index);
+        if is_placeholder(&literal.value) && !stripe_secret {
             continue;
         }
         let line = line_at(source, literal.index);
@@ -64,6 +74,22 @@ fn detect_hardcoded_secrets(
         } else {
             literal_secret_binding_context(source, literal.index)
         };
+        if stripe_secret && !is_module_uri_directive_line(line) {
+            candidates.push(detected(
+                path,
+                source,
+                literal.index,
+                SecurityCategory::HardcodedSecret,
+                "secret-literal",
+                if secret_value {
+                    SecurityConfidence::High
+                } else {
+                    SecurityConfidence::Medium
+                },
+                "stripe-secret-signal",
+            ));
+            continue;
+        }
         if is_module_uri_directive_line(line)
             || firebase_api_key_context(source, literal.index)
             || (!secret_value && benign_secret_named_literal(&literal.value, secret_binding_name))
@@ -131,7 +157,9 @@ fn detect_insecure_transport(
             continue;
         }
         let line = line_at(source, literal.index);
-        if has_network_context(line) {
+        if has_network_context(line)
+            || oauth_endpoint_url_context(source, literal.index, &literal.value)
+        {
             candidates.push(detected(
                 path,
                 source,
@@ -218,6 +246,19 @@ fn detect_process_execution(
     source: &str,
     candidates: &mut Vec<DetectedSecurityCandidate>,
 ) {
+    let parsed = [
+        "Process.run(",
+        "Process.start(",
+        "processManager.run(",
+        "processManager.start(",
+    ]
+    .iter()
+    .any(|pattern| source.contains(pattern))
+    .then(|| parse_dart_source_lossy(path, source))
+    .and_then(Result::ok);
+    let syntax = parsed
+        .as_ref()
+        .map(|parsed| (parsed.tree().root_node(), parsed.source()));
     for pattern in [
         "Process.run(",
         "Process.start(",
@@ -225,11 +266,23 @@ fn detect_process_execution(
         "processManager.start(",
     ] {
         for index in match_indices(source, pattern) {
-            let window = following_window(source, index, 3);
             let args = call_inside_after(source, index + pattern.len());
-            let risky = window.contains("runInShell: true")
+            let run_in_shell_disabled = syntax.as_ref().is_some_and(|(root, parsed_source)| {
+                parsed_run_in_shell_is_disabled(*root, parsed_source, index)
+            });
+            let safe_dart_runtime_start = run_in_shell_disabled
+                && pattern == "Process.start("
+                && args
+                    .as_deref()
+                    .is_some_and(|call| resolved_dart_runtime_start(syntax, index, call));
+            let risky = args.as_deref().is_some_and(|call| {
+                syntax.as_ref().is_some_and(|(root, parsed_source)| {
+                    call_invokes_command_shell(*root, parsed_source, index, call)
+                })
+            }) || !run_in_shell_disabled
                 || args.as_deref().is_some_and(|call| {
-                    !first_call_arg_is_fixed_literal(call) || has_dynamic_text(call)
+                    !safe_dart_runtime_start
+                        && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
                 });
             if risky {
                 candidates.push(detected(
@@ -468,6 +521,1084 @@ fn first_call_arg_is_fixed_literal(call: &str) -> bool {
     matches!(rest.as_bytes().first(), Some(b',' | b')'))
 }
 
+fn call_invokes_command_shell(root: Node<'_>, source: &str, index: usize, call: &str) -> bool {
+    let arguments = top_level_call_arguments(call);
+    let Some(executable) = arguments
+        .first()
+        .and_then(|value| resolved_fixed_literal_value(root, source, index, value))
+    else {
+        return false;
+    };
+    let executable = executable
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(&executable)
+        .to_ascii_lowercase();
+    let Some(shell_arguments) = arguments
+        .get(1)
+        .and_then(|value| resolved_list_arguments(root, source, index, value))
+    else {
+        return false;
+    };
+    let posix_executable = executable.strip_suffix(".exe").unwrap_or(&executable);
+    if !matches!(
+        executable.as_str(),
+        "cmd" | "cmd.exe" | "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
+    ) && !command_interpreter_uses_c_flag(posix_executable)
+    {
+        return false;
+    }
+    for argument in shell_arguments {
+        let Some(flag) = resolved_fixed_literal_value(root, source, index, &argument)
+            .map(|value| value.to_ascii_lowercase())
+        else {
+            return true;
+        };
+        let (invokes_command, is_option) = match executable.as_str() {
+            "cmd" | "cmd.exe" => (
+                matches!(flag.as_str(), "/c" | "/k"),
+                flag.starts_with('/') || flag.starts_with('-'),
+            ),
+            "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => (
+                matches!(flag.as_str(), "-c" | "-command" | "-encodedcommand"),
+                flag.starts_with('-') || flag.starts_with('/'),
+            ),
+            _ if command_interpreter_uses_c_flag(posix_executable) => (
+                posix_shell_flag_invokes_command(&flag),
+                flag.starts_with('-'),
+            ),
+            _ => return false,
+        };
+        if invokes_command {
+            return true;
+        }
+        if !is_option {
+            return false;
+        }
+    }
+    false
+}
+
+fn posix_shell_flag_invokes_command(flag: &str) -> bool {
+    flag.strip_prefix('-')
+        .is_some_and(|options| !options.starts_with('-') && options.contains('c'))
+}
+
+fn command_interpreter_uses_c_flag(executable: &str) -> bool {
+    matches!(
+        executable,
+        "sh" | "ash"
+            | "bash"
+            | "csh"
+            | "dash"
+            | "elvish"
+            | "fish"
+            | "ksh"
+            | "mksh"
+            | "nu"
+            | "osh"
+            | "pdksh"
+            | "rc"
+            | "tcsh"
+            | "xonsh"
+            | "yash"
+            | "ysh"
+            | "zsh"
+    )
+}
+
+fn fixed_literal_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    let raw = value
+        .as_bytes()
+        .get(0..2)
+        .is_some_and(|prefix| matches!(prefix, [b'r' | b'R', b'\'' | b'"']));
+    let quote_index = usize::from(raw);
+    read_string(value, quote_index)
+        .filter(|(literal, _, end)| *end == value.len() && (raw || !literal.contains('$')))
+        .map(|(literal, _, _)| literal)
+}
+
+fn resolved_dart_runtime_start(syntax: Option<(Node<'_>, &str)>, index: usize, call: &str) -> bool {
+    let Some((root, source)) = syntax else {
+        return false;
+    };
+    let args = top_level_call_arguments(call);
+    let Some(executable) = args.first().map(|arg| arg.trim()) else {
+        return false;
+    };
+    let Some(arguments) = args.get(1).map(|arg| arg.trim()) else {
+        return false;
+    };
+    (is_dart_io_platform_reference(root, source, index, executable)
+        || is_identifier(executable)
+            && lexical_binding_value(root, source, index, executable).is_some_and(|value| {
+                value == "Platform.resolvedExecutable"
+                    && is_dart_io_platform_reference(root, source, index, value)
+            }))
+        && fixed_argument_list(root, source, index, arguments)
+}
+
+fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, value: &str) -> bool {
+    if library_scope_has_parts(root) {
+        return false;
+    }
+    let qualifier = if value == "Platform.resolvedExecutable" {
+        ""
+    } else if let Some(qualifier) = value.strip_suffix(".Platform.resolvedExecutable") {
+        qualifier
+    } else {
+        return false;
+    };
+    let prefix = (!qualifier.is_empty()).then_some(qualifier);
+    if prefix.is_some_and(|prefix| !is_identifier(prefix)) {
+        return false;
+    }
+    if prefix.is_none()
+        && (top_level_declares_name(root, "Platform", source)
+            || lexical_name_shadowed(root, source, index, "Platform")
+            || import_prefix_declares_name(root, source, "Platform")
+            || imported_library_may_expose_name(root, source, "Platform"))
+    {
+        return false;
+    }
+    if prefix.is_some_and(|prefix| {
+        top_level_declares_name(root, prefix, source)
+            || lexical_name_shadowed(root, source, index, prefix)
+    }) {
+        return false;
+    }
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" {
+            return;
+        }
+        let Some(specification) = first_named_descendant(node, "import_specification") else {
+            return;
+        };
+        let Some(uri) = specification
+            .child_by_field_name("uri")
+            .and_then(|uri| uri.utf8_text(source.as_bytes()).ok())
+            .and_then(fixed_literal_value)
+        else {
+            return;
+        };
+        if uri != "dart:io" {
+            return;
+        }
+        let alias = specification
+            .child_by_field_name("alias")
+            .and_then(|alias| alias.utf8_text(source.as_bytes()).ok());
+        if alias != prefix {
+            return;
+        }
+        if import_exposes_name(node, "Platform", source) {
+            found = true;
+        }
+    });
+    found
+}
+
+fn import_exposes_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    let mut visible = true;
+    let mut combinators = Vec::new();
+    collect_named_descendants(node, "combinator", &mut combinators);
+    for combinator in combinators {
+        let Ok(text) = combinator.utf8_text(source.as_bytes()) else {
+            return false;
+        };
+        let text = text.trim_start();
+        let mut identifiers = Vec::new();
+        collect_named_descendants(combinator, "identifier", &mut identifiers);
+        let contains_name = identifiers
+            .into_iter()
+            .any(|identifier| identifier.utf8_text(source.as_bytes()).ok() == Some(name));
+        if text.starts_with("show") {
+            visible = contains_name;
+        } else if text.starts_with("hide") && contains_name {
+            visible = false;
+        }
+    }
+    visible
+}
+
+fn lexical_name_shadowed(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
+    let Some(mut child) = root.descendant_for_byte_range(index, index.saturating_add(1)) else {
+        return true;
+    };
+    while let Some(parent) = child.parent() {
+        if process_scope_parameters_bind_name(parent, name, source)
+            || process_scope_header_binds_name(parent, child, name, source)
+        {
+            return true;
+        }
+        let mut cursor = parent.walk();
+        if parent
+            .named_children(&mut cursor)
+            .take_while(|sibling| sibling.start_byte() < child.start_byte())
+            .any(|sibling| direct_binding(sibling, name, source, false).is_some())
+        {
+            return true;
+        }
+        child = parent;
+    }
+    false
+}
+
+fn top_level_declares_name(root: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = root.walk();
+    root.named_children(&mut cursor).any(|child| {
+        if direct_binding(child, name, source, false).is_some() {
+            return true;
+        }
+        top_level_declaration_name(child, source).as_deref() == Some(name)
+    })
+}
+
+fn top_level_declaration_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "class_declaration"
+            | "enum_declaration"
+            | "extension_declaration"
+            | "extension_type_declaration"
+            | "external_function_declaration"
+            | "external_getter_declaration"
+            | "external_setter_declaration"
+            | "function_declaration"
+            | "getter_declaration"
+            | "mixin_declaration"
+            | "setter_declaration"
+            | "type_alias"
+    ) {
+        return None;
+    }
+    if matches!(
+        node.kind(),
+        "external_function_declaration"
+            | "external_getter_declaration"
+            | "external_setter_declaration"
+            | "function_declaration"
+            | "getter_declaration"
+            | "setter_declaration"
+    ) {
+        return member_signature_name(node, source);
+    }
+    node.child_by_field_name("name")
+        .or_else(|| {
+            if node.kind() == "type_alias" {
+                first_named_descendant(node, "identifier")
+                    .or_else(|| first_named_descendant(node, "type_identifier"))
+            } else {
+                None
+            }
+        })
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
+}
+
+fn imported_library_may_expose_name(root: Node<'_>, source: &str, name: &str) -> bool {
+    let mut may_expose = false;
+    visit_named(root, &mut |node| {
+        if may_expose || node.kind() != "library_import" {
+            return;
+        }
+        let Some(specification) = first_named_descendant(node, "import_specification") else {
+            return;
+        };
+        if specification.child_by_field_name("alias").is_some() {
+            return;
+        }
+        let uri = specification
+            .child_by_field_name("uri")
+            .and_then(|uri| uri.utf8_text(source.as_bytes()).ok())
+            .and_then(fixed_literal_value);
+        if uri.as_deref() != Some("dart:io") && import_exposes_name(node, name, source) {
+            may_expose = true;
+        }
+    });
+    may_expose
+}
+
+fn library_scope_has_parts(root: Node<'_>) -> bool {
+    let mut has_parts = false;
+    visit_named(root, &mut |node| {
+        if matches!(node.kind(), "part_directive" | "part_of_directive") {
+            has_parts = true;
+        }
+    });
+    has_parts
+}
+
+fn import_prefix_declares_name(root: Node<'_>, source: &str, name: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" {
+            return;
+        }
+        let Some(specification) = first_named_descendant(node, "import_specification") else {
+            return;
+        };
+        if specification
+            .child_by_field_name("alias")
+            .and_then(|alias| alias.utf8_text(source.as_bytes()).ok())
+            == Some(name)
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn visit_named(node: Node<'_>, visit: &mut impl FnMut(Node<'_>)) {
+    visit(node);
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        visit_named(child, visit);
+    }
+}
+
+fn collect_named_descendants<'tree>(node: Node<'tree>, kind: &str, nodes: &mut Vec<Node<'tree>>) {
+    if node.kind() == kind {
+        nodes.push(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_named_descendants(child, kind, nodes);
+    }
+}
+
+fn first_named_descendant<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    if node.kind() == kind {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| first_named_descendant(child, kind))
+}
+
+fn top_level_call_arguments(call: &str) -> Vec<&str> {
+    let mut arguments = Vec::new();
+    let mut start = 0usize;
+    let mut index = 0usize;
+    let mut depth = 0usize;
+    let bytes = call.as_bytes();
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                let Some((_, _, end)) = read_string(call, index) else {
+                    return Vec::new();
+                };
+                index = end;
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                arguments.push(&call[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    arguments.push(&call[start..]);
+    arguments
+}
+
+fn parsed_run_in_shell_is_disabled(root: Node<'_>, source: &str, index: usize) -> bool {
+    let Some(call) = call_expression_at(root, index) else {
+        return false;
+    };
+    let Some(arguments) = call.child_by_field_name("arguments") else {
+        return false;
+    };
+    let mut cursor = arguments.walk();
+    for argument in arguments.named_children(&mut cursor) {
+        if argument.kind() != "named_argument"
+            || named_argument_label(argument, source).as_deref() != Some("runInShell")
+        {
+            continue;
+        }
+        return named_argument_value(argument)
+            .and_then(|value| value.utf8_text(source.as_bytes()).ok())
+            .is_some_and(|value| value.trim() == "false");
+    }
+    true
+}
+
+fn call_expression_at(root: Node<'_>, index: usize) -> Option<Node<'_>> {
+    let mut node = root.descendant_for_byte_range(index, index.saturating_add(1))?;
+    loop {
+        if node.kind() == "call_expression" && node.start_byte() <= index && node.end_byte() > index
+        {
+            return Some(node);
+        }
+        node = node.parent()?;
+    }
+}
+
+fn named_argument_label(node: Node<'_>, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "label")
+        .and_then(|label| label.utf8_text(source.as_bytes()).ok())
+        .map(str::trim)
+        .and_then(|label| label.strip_suffix(':'))
+        .map(str::to_owned)
+}
+
+fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() != "label")
+}
+
+fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &str) -> bool {
+    let Some(elements) = resolved_list_arguments(root, source, index, arguments) else {
+        return false;
+    };
+    elements.into_iter().all(|argument| {
+        let argument = argument.trim();
+        argument.is_empty()
+            || fixed_string_literal(argument)
+            || is_identifier(argument)
+                && lexical_binding_value(root, source, index, argument)
+                    .is_some_and(fixed_string_literal)
+    })
+}
+
+fn list_literal_contents(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let value = value.strip_prefix("const").map_or(value, str::trim_start);
+    let start = value.find('[')?;
+    if !value[..start].trim().is_empty() && !value[..start].trim().ends_with('>') {
+        return None;
+    }
+    value[start + 1..].strip_suffix(']')
+}
+
+fn resolved_fixed_literal_value(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+) -> Option<String> {
+    let mut visited = BTreeSet::new();
+    resolved_fixed_literal_value_inner(root, source, index, value, &mut visited)
+}
+
+fn resolved_fixed_literal_value_inner(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    visited: &mut BTreeSet<String>,
+) -> Option<String> {
+    if let Some(literal) = fixed_literal_value(value) {
+        return Some(literal);
+    }
+    let name = value.trim();
+    if !is_identifier(name) || !visited.insert(name.to_owned()) {
+        return None;
+    }
+    let binding = lexical_binding_value(root, source, index, name)?;
+    resolved_fixed_literal_value_inner(root, source, index, binding, visited)
+}
+
+fn resolved_list_arguments(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+) -> Option<Vec<String>> {
+    let mut visited = BTreeSet::new();
+    resolved_list_arguments_inner(root, source, index, value, &mut visited)
+}
+
+fn resolved_list_arguments_inner(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    visited: &mut BTreeSet<String>,
+) -> Option<Vec<String>> {
+    let value = value.trim();
+    if let Some(inner) = list_literal_contents(value) {
+        return Some(
+            top_level_call_arguments(inner)
+                .into_iter()
+                .map(str::trim)
+                .map(str::to_owned)
+                .collect(),
+        );
+    }
+    if !is_identifier(value) || !visited.insert(value.to_owned()) {
+        return None;
+    }
+    let binding = lexical_binding_value(root, source, index, value)?;
+    resolved_list_arguments_inner(root, source, index, binding, visited)
+}
+
+fn fixed_string_literal(value: &str) -> bool {
+    fixed_literal_value(value).is_some()
+}
+
+fn lexical_binding_value<'source>(
+    root: Node<'_>,
+    source: &'source str,
+    index: usize,
+    name: &str,
+) -> Option<&'source str> {
+    let mut child = root.descendant_for_byte_range(index, index.saturating_add(1))?;
+    while let Some(parent) = child.parent() {
+        if parent.kind() == "class_body" {
+            if let Some(binding) = class_binding(parent, child, name, source) {
+                return match binding {
+                    LexicalBinding::Value(value) => Some(value),
+                    LexicalBinding::Unknown => None,
+                };
+            }
+        }
+        if process_scope_parameters_bind_name(parent, name, source)
+            || process_scope_header_binds_name(parent, child, name, source)
+        {
+            return None;
+        }
+        if parent.parent().is_none() {
+            return top_level_binding(parent, name, source);
+        }
+        let mut cursor = parent.walk();
+        let mut siblings = parent
+            .named_children(&mut cursor)
+            .take_while(|sibling| sibling.start_byte() < child.start_byte())
+            .collect::<Vec<_>>();
+        while let Some(sibling) = siblings.pop() {
+            if let Some(binding) = direct_binding(sibling, name, source, false) {
+                return match binding {
+                    LexicalBinding::Value(value) => Some(value),
+                    LexicalBinding::Unknown => None,
+                };
+            }
+        }
+        child = parent;
+    }
+    None
+}
+
+fn top_level_binding<'source>(
+    root: Node<'_>,
+    name: &str,
+    source: &'source str,
+) -> Option<&'source str> {
+    let mut cursor = root.walk();
+    let mut binding = None;
+    for child in root.named_children(&mut cursor) {
+        let Some(candidate) = direct_binding(child, name, source, false) else {
+            continue;
+        };
+        if binding.is_some() {
+            return None;
+        }
+        binding = Some(candidate);
+    }
+    match binding {
+        Some(LexicalBinding::Value(value)) => Some(value),
+        Some(LexicalBinding::Unknown) | None => None,
+    }
+}
+
+fn class_binding<'source>(
+    class_body: Node<'_>,
+    current_member: Node<'_>,
+    name: &str,
+    source: &'source str,
+) -> Option<LexicalBinding<'source>> {
+    let mut cursor = class_body.walk();
+    let direct = class_body
+        .named_children(&mut cursor)
+        .filter(|member| member.start_byte() != current_member.start_byte())
+        .find_map(|member| class_member_binding(member, name, source));
+    if direct.is_some() {
+        return direct;
+    }
+    let class = class_body.parent()?;
+    let mut visited = BTreeSet::new();
+    let root = root_node(class);
+    inherited_class_binding(root, class, name, source, &mut visited).or_else(|| {
+        let mut visited = BTreeSet::new();
+        class_hierarchy_is_unresolved(root, class, source, &mut visited)
+            .then_some(LexicalBinding::Unknown)
+    })
+}
+
+fn class_member_binding<'source>(
+    member: Node<'_>,
+    name: &str,
+    source: &'source str,
+) -> Option<LexicalBinding<'source>> {
+    direct_binding(member, name, source, false).or_else(|| {
+        class_member_declares_name(member, name, source).then_some(LexicalBinding::Unknown)
+    })
+}
+
+fn class_member_declares_name(member: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = member.walk();
+    member
+        .named_children(&mut cursor)
+        .filter(|child| matches!(child.kind(), "declaration" | "method_declaration"))
+        .any(|child| member_signature_name(child, source).as_deref() == Some(name))
+}
+
+fn member_signature_name(node: Node<'_>, source: &str) -> Option<String> {
+    if matches!(
+        node.kind(),
+        "function_signature" | "getter_signature" | "setter_signature"
+    ) {
+        return node
+            .child_by_field_name("name")?
+            .utf8_text(source.as_bytes())
+            .ok()
+            .map(str::to_owned);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| member_signature_name(child, source))
+}
+
+fn inherited_class_binding<'source>(
+    root: Node<'_>,
+    class: Node<'_>,
+    name: &str,
+    source: &'source str,
+    visited: &mut BTreeSet<String>,
+) -> Option<LexicalBinding<'source>> {
+    for mixin_name in class_mixin_names(class, source).into_iter().rev() {
+        if !visited.insert(mixin_name.clone()) {
+            continue;
+        }
+        let mixin = find_class_like_declaration(root, &mixin_name, source)?;
+        let body = mixin.child_by_field_name("body")?;
+        let mut cursor = body.walk();
+        if let Some(binding) = body
+            .named_children(&mut cursor)
+            .find_map(|member| class_member_binding(member, name, source))
+        {
+            return Some(binding);
+        }
+        if let Some(binding) = inherited_class_binding(root, mixin, name, source, visited) {
+            return Some(binding);
+        }
+    }
+    let parent_name = class_superclass_name(class, source)?;
+    if !visited.insert(parent_name.clone()) {
+        return None;
+    }
+    let parent = find_class_like_declaration(root, &parent_name, source)?;
+    let body = parent.child_by_field_name("body")?;
+    let mut cursor = body.walk();
+    if let Some(binding) = body
+        .named_children(&mut cursor)
+        .find_map(|member| class_member_binding(member, name, source))
+    {
+        return Some(binding);
+    }
+    inherited_class_binding(root, parent, name, source, visited)
+}
+
+fn class_hierarchy_is_unresolved(
+    root: Node<'_>,
+    class: Node<'_>,
+    source: &str,
+    visited: &mut BTreeSet<String>,
+) -> bool {
+    for mixin_name in class_mixin_names(class, source) {
+        if !visited.insert(mixin_name.clone()) {
+            return true;
+        }
+        let Some(mixin) = find_class_like_declaration(root, &mixin_name, source) else {
+            return true;
+        };
+        if class_hierarchy_is_unresolved(root, mixin, source, visited) {
+            return true;
+        }
+    }
+    let Some(parent_name) = class_superclass_name(class, source) else {
+        return false;
+    };
+    if !visited.insert(parent_name.clone()) {
+        return true;
+    }
+    if parent_name == "Object" {
+        return false;
+    }
+    let Some(parent) = find_class_like_declaration(root, &parent_name, source) else {
+        return true;
+    };
+    class_hierarchy_is_unresolved(root, parent, source, visited)
+}
+
+fn class_mixin_names(class: Node<'_>, source: &str) -> Vec<String> {
+    let Some(superclass) = class.child_by_field_name("superclass") else {
+        return Vec::new();
+    };
+    let mixins = if superclass.kind() == "mixins" {
+        Some(superclass)
+    } else {
+        let mut cursor = superclass.walk();
+        superclass
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "mixins")
+    };
+    let Some(mixins) = mixins else {
+        return Vec::new();
+    };
+    let mut cursor = mixins.walk();
+    mixins
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "type")
+        .filter_map(|child| child.utf8_text(source.as_bytes()).ok())
+        .map(|name| name.split('<').next().unwrap_or(name).trim().to_owned())
+        .collect()
+}
+
+fn class_superclass_name(class: Node<'_>, source: &str) -> Option<String> {
+    let superclass = class.child_by_field_name("superclass")?;
+    let name = superclass
+        .child_by_field_name("type")?
+        .utf8_text(source.as_bytes())
+        .ok()?;
+    let name = name.split('<').next()?.trim();
+    Some(name.to_owned())
+}
+
+fn find_class_like_declaration<'tree>(
+    node: Node<'tree>,
+    name: &str,
+    source: &str,
+) -> Option<Node<'tree>> {
+    if matches!(node.kind(), "class_declaration" | "mixin_declaration")
+        && node
+            .child_by_field_name("name")
+            .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+            == Some(name)
+    {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| find_class_like_declaration(child, name, source))
+}
+
+fn root_node(mut node: Node<'_>) -> Node<'_> {
+    while let Some(parent) = node.parent() {
+        node = parent;
+    }
+    node
+}
+
+enum LexicalBinding<'source> {
+    Value(&'source str),
+    Unknown,
+}
+
+fn direct_binding<'source>(
+    node: Node<'_>,
+    name: &str,
+    source: &'source str,
+    immutable: bool,
+) -> Option<LexicalBinding<'source>> {
+    let immutable = immutable || declaration_is_immutable(node);
+    if node.kind() == "pattern_variable_declaration" {
+        let mut cursor = node.walk();
+        let pattern = node.named_children(&mut cursor).next()?;
+        return pattern_identifier_binds_name(pattern, name, source)
+            .then_some(LexicalBinding::Unknown);
+    }
+    if matches!(
+        node.kind(),
+        "formal_parameter" | "typed_identifier" | "variable_pattern"
+    ) {
+        let binding_name = node
+            .child_by_field_name("name")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        return (binding_name == name).then_some(LexicalBinding::Unknown);
+    }
+    if matches!(
+        node.kind(),
+        "initialized_identifier" | "initialized_variable_definition" | "static_final_declaration"
+    ) {
+        let binding_name = node
+            .child_by_field_name("name")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        if binding_name != name {
+            return None;
+        }
+        if !immutable {
+            return Some(LexicalBinding::Unknown);
+        }
+        return Some(
+            node.child_by_field_name("value")
+                .and_then(|value| value.utf8_text(source.as_bytes()).ok())
+                .map(str::trim)
+                .map_or(LexicalBinding::Unknown, LexicalBinding::Value),
+        );
+    }
+    if node.kind() == "assignment_expression" {
+        let left = node
+            .child_by_field_name("left")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        let operator = node
+            .child_by_field_name("operator")?
+            .utf8_text(source.as_bytes())
+            .ok()?;
+        if left.trim() == name && operator == "=" {
+            return Some(LexicalBinding::Unknown);
+        }
+        return None;
+    }
+    if !matches!(
+        node.kind(),
+        "class_member"
+            | "declaration"
+            | "expression_statement"
+            | "initialized_identifier_list"
+            | "local_variable_declaration"
+            | "static_final_declaration_list"
+            | "top_level_variable_declaration"
+    ) {
+        return None;
+    }
+    let mut cursor = node.walk();
+    let mut children = node.named_children(&mut cursor).collect::<Vec<_>>();
+    while let Some(child) = children.pop() {
+        if let Some(binding) = direct_binding(child, name, source, immutable) {
+            return Some(binding);
+        }
+    }
+    None
+}
+
+fn declaration_is_immutable(node: Node<'_>) -> bool {
+    if node.kind() == "static_final_declaration_list" {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(|child| matches!(child.kind(), "const" | "final"))
+}
+
+fn process_scope_header_binds_name(
+    node: Node<'_>,
+    path_child: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    if node.kind() == "catch_clause" {
+        return catch_clause_binds_name(node, name, source);
+    }
+    if node.kind() == "try_statement" {
+        let mut cursor = node.walk();
+        let preceding = node
+            .named_children(&mut cursor)
+            .take_while(|child| child.start_byte() < path_child.start_byte())
+            .collect::<Vec<_>>();
+        return preceding
+            .last()
+            .filter(|child| child.kind() == "catch_clause")
+            .is_some_and(|clause| catch_clause_binds_name(*clause, name, source));
+    }
+    match node.kind() {
+        "for_element" | "for_statement" => {
+            let Some(body) = node.child_by_field_name("body") else {
+                return false;
+            };
+            if !node_contains(body, path_child) {
+                return false;
+            }
+            if node
+                .child_by_field_name("name")
+                .is_some_and(|binding| binding.utf8_text(source.as_bytes()).ok() == Some(name))
+            {
+                return true;
+            }
+            let mut cursor = node.walk();
+            if node
+                .children_by_field_name("init", &mut cursor)
+                .any(|binding| direct_binding(binding, name, source, false).is_some())
+            {
+                return true;
+            }
+            let Some(value) = node.child_by_field_name("value") else {
+                return false;
+            };
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor)
+                .take_while(|child| child.end_byte() <= value.start_byte())
+                .any(|pattern| pattern_identifier_binds_name(pattern, name, source))
+        }
+        "if_element" | "if_statement" => node
+            .child_by_field_name("consequence")
+            .filter(|consequence| node_contains(*consequence, path_child))
+            .is_some_and(|consequence| {
+                patterns_before_bind_name(node, consequence.start_byte(), name, source)
+            }),
+        "switch_expression_case" | "switch_statement_case" => {
+            patterns_before_bind_name(node, path_child.start_byte(), name, source)
+        }
+        _ => false,
+    }
+}
+
+fn catch_clause_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    ["exception", "stack_trace"].into_iter().any(|field| {
+        node.child_by_field_name(field)
+            .and_then(|binding| binding.utf8_text(source.as_bytes()).ok())
+            == Some(name)
+    })
+}
+
+fn node_contains(parent: Node<'_>, child: Node<'_>) -> bool {
+    parent.start_byte() <= child.start_byte() && child.end_byte() <= parent.end_byte()
+}
+
+fn patterns_before_bind_name(node: Node<'_>, end: usize, name: &str, source: &str) -> bool {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .take_while(|child| child.end_byte() <= end)
+        .any(|child| variable_pattern_binds_name(child, name, source))
+}
+
+fn variable_pattern_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if node.kind() == "variable_pattern"
+        && node
+            .child_by_field_name("name")
+            .and_then(|binding| binding.utf8_text(source.as_bytes()).ok())
+            == Some(name)
+    {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| variable_pattern_binds_name(child, name, source))
+}
+
+fn pattern_identifier_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
+        && node.utf8_text(source.as_bytes()).ok() == Some(name)
+    {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| pattern_identifier_binds_name(child, name, source))
+}
+
+fn process_scope_parameters_bind_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    let parameter_lists = match node.kind() {
+        "function_expression" => parameter_field_lists(node),
+        "method_declaration" => node
+            .child_by_field_name("signature")
+            .map_or_else(Vec::new, collect_parameter_lists),
+        "declaration" | "function_declaration" | "local_function_declaration" => {
+            direct_parameterized_signature(node).map_or_else(Vec::new, collect_parameter_lists)
+        }
+        _ => Vec::new(),
+    };
+    parameter_lists
+        .into_iter()
+        .any(|parameters| parameter_list_binds_name(parameters, name, source))
+}
+
+fn parameter_field_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children_by_field_name("parameters", &mut cursor)
+        .filter_map(formal_parameter_list)
+        .collect()
+}
+
+fn collect_parameter_lists(node: Node<'_>) -> Vec<Node<'_>> {
+    own_parameter_list(node).into_iter().collect()
+}
+
+fn own_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(own_parameter_list)
+}
+
+fn formal_parameter_list(node: Node<'_>) -> Option<Node<'_>> {
+    if node.kind() == "formal_parameter_list" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == "formal_parameter_list")
+}
+
+fn parameter_list_binds_name(parameters: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|candidate| {
+        if candidate.kind() == "formal_parameter" {
+            return formal_parameter_name(candidate, source).as_deref() == Some(name);
+        }
+        candidate.kind() == "optional_formal_parameters"
+            && parameter_list_binds_name(candidate, name, source)
+    })
+}
+
+fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {
+    param
+        .child_by_field_name("name")
+        .or_else(|| last_identifier_child(param, source))
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
+}
+
+fn last_identifier_child<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .filter(|child| {
+            matches!(
+                child.kind(),
+                "identifier" | "identifier_dollar_escaped" | "type_identifier"
+            ) && child.utf8_text(source.as_bytes()).ok() != Some("key")
+        })
+        .last()
+}
+
+fn direct_parameterized_signature(node: Node<'_>) -> Option<Node<'_>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).find(|child| {
+        matches!(
+            child.kind(),
+            "constant_constructor_signature"
+                | "constructor_signature"
+                | "factory_constructor_signature"
+                | "function_signature"
+                | "operator_signature"
+                | "redirecting_factory_constructor_signature"
+                | "setter_signature"
+        )
+    })
+}
+
+fn is_identifier(value: &str) -> bool {
+    let mut characters = value.chars();
+    characters
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && characters.all(|character| {
+            character == '_' || character == '$' || character.is_ascii_alphanumeric()
+        })
+}
+
 fn sql_call_is_parameterized(call: &str) -> bool {
     call.contains('?') && (call.contains('[') || call.contains("whereArgs"))
 }
@@ -545,20 +1676,32 @@ fn firebase_secret_name_context(source: &str, index: usize) -> bool {
 }
 
 fn literal_secret_binding_context(source: &str, index: usize) -> bool {
-    literal_binding_identifier(source, index).is_some_and(secret_binding_identifier)
+    literal_binding_name(source, index).is_some_and(|name| secret_binding_identifier(&name))
 }
 
-fn literal_binding_identifier(source: &str, index: usize) -> Option<&str> {
+fn literal_binding_name(source: &str, index: usize) -> Option<String> {
     let context = literal_context(source, index)?;
     for separator in ['=', ':'] {
         let Some((candidate, rest)) = context.rsplit_once(separator) else {
             continue;
         };
         if rest.trim().is_empty() {
-            return trailing_identifier(candidate);
+            return trailing_identifier(candidate)
+                .map(str::to_owned)
+                .or_else(|| trailing_string_literal(candidate));
         }
     }
     None
+}
+
+fn trailing_string_literal(text: &str) -> Option<String> {
+    let trimmed = text.trim_end();
+    trimmed
+        .char_indices()
+        .filter(|(_, character)| matches!(character, '\'' | '"'))
+        .filter_map(|(index, _)| read_string(trimmed, index))
+        .find(|(_, _, end)| *end == trimmed.len())
+        .map(|(value, _, _)| value)
 }
 
 fn secret_binding_identifier(identifier: &str) -> bool {
@@ -584,6 +1727,69 @@ fn secret_binding_identifier(identifier: &str) -> bool {
     ]
     .iter()
     .any(|suffix| lower == *suffix || lower.ends_with(suffix))
+}
+
+fn stripe_secret_binding_context(source: &str, index: usize) -> bool {
+    literal_binding_name(source, index).is_some_and(|identifier| {
+        identifier
+            .chars()
+            .filter(|character| *character != '_')
+            .collect::<String>()
+            .eq_ignore_ascii_case("stripeSecretKey")
+    })
+}
+
+fn stripe_secret_prefix(value: &str) -> bool {
+    value.starts_with("sk_test_") || value.starts_with("sk_live_")
+}
+
+fn stripe_secret_name(value: &str) -> bool {
+    value
+        .chars()
+        .filter(|character| !matches!(character, '_' | '-'))
+        .collect::<String>()
+        .eq_ignore_ascii_case("stripeSecretKey")
+}
+
+fn oauth_endpoint_metadata_context(source: &str, index: usize, value: &str) -> bool {
+    if oauth_endpoint_name(value) && literal_is_map_key(source, index) {
+        return true;
+    }
+    let Some(identifier) = literal_binding_name(source, index) else {
+        return false;
+    };
+    oauth_endpoint_name(&identifier)
+        && matches_url_scheme(value)
+        && !literal_has_embedded_url_credentials(value)
+}
+
+fn oauth_endpoint_name(value: &str) -> bool {
+    let normalized = value
+        .chars()
+        .filter(|character| !matches!(character, '_' | '-'))
+        .collect::<String>();
+    matches!(
+        normalized.to_ascii_lowercase().as_str(),
+        "authorizationendpoint" | "tokenendpoint"
+    )
+}
+
+fn literal_is_map_key(source: &str, index: usize) -> bool {
+    read_string(source, index).is_some_and(|(_, _, end)| {
+        source
+            .get(end..)
+            .is_some_and(|rest| rest.trim_start().starts_with(':'))
+    })
+}
+
+fn matches_url_scheme(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}
+
+fn oauth_endpoint_url_context(source: &str, index: usize, value: &str) -> bool {
+    matches_url_scheme(value)
+        && literal_binding_name(source, index).is_some_and(|name| oauth_endpoint_name(&name))
 }
 
 fn named_argument_context(source: &str, index: usize, name: &str) -> bool {
@@ -1080,7 +2286,7 @@ fn benign_secret_named_literal(value: &str, secret_binding_name: bool) -> bool {
         || literal_looks_like_validation_copy(value)
         || literal_looks_like_operational_copy(value);
     (route_or_reset_url
-        && !literal_has_secret_like_url_parameter(value)
+        && !literal_has_embedded_url_credentials(value)
         && !literal_has_secret_like_reset_path_segment(value))
         || (benign_copy && !secret_binding_name && !literal_has_concrete_token_like_segment(value))
 }
@@ -1123,13 +2329,39 @@ fn literal_has_secret_like_url_parameter(value: &str) -> bool {
     })
 }
 
+fn literal_has_embedded_url_credentials(value: &str) -> bool {
+    literal_has_url_userinfo(value) || literal_has_secret_like_url_parameter(value)
+}
+
+fn literal_has_url_userinfo(value: &str) -> bool {
+    let trimmed = value.trim();
+    let Some(authority_start) = trimmed.find("://").map(|index| index + 3) else {
+        return false;
+    };
+    let authority_end = trimmed[authority_start..]
+        .find(['/', '?', '#'])
+        .map_or(trimmed.len(), |index| authority_start + index);
+    trimmed[authority_start..authority_end]
+        .split_once('@')
+        .is_some_and(|(userinfo, host)| !userinfo.is_empty() && !host.is_empty())
+}
+
 fn segment_has_secret_like_url_parameter(segment: &str) -> bool {
     segment.split('&').any(|parameter| {
         let Some((name, value)) = parameter.split_once('=') else {
             return false;
         };
-        has_secret_like_name(name) && concrete_url_parameter_value(value)
+        url_parameter_name_is_credential(name) && concrete_url_parameter_value(value)
     })
+}
+
+fn url_parameter_name_is_credential(name: &str) -> bool {
+    let normalized = name
+        .chars()
+        .filter(|character| !matches!(character, '_' | '-'))
+        .collect::<String>()
+        .to_ascii_lowercase();
+    has_secret_like_name(name) || matches!(normalized.as_str(), "code" | "codeverifier")
 }
 
 fn concrete_url_parameter_value(value: &str) -> bool {
@@ -1482,4 +2714,37 @@ fn location_for_index(source: &str, index: usize) -> Location {
         .rfind('\n')
         .map_or(index, |position| index - position - 1);
     Location { line, column }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn fixed_runtime_lookup_crosses_a_class_without_a_matching_member() {
+        let source = r"import 'dart:io';
+final dartExe = Platform.resolvedExecutable;
+class Runner {
+  Future<Process> start() => Process.start(dartExe, const ['/path/to/snapshot']);
+}
+";
+        let parsed = parse_dart_source_lossy(Path::new("lib/main.dart"), source)
+            .unwrap_or_else(|error| panic!("parse fixture: {error}"));
+        let index = source
+            .find("Process.start")
+            .unwrap_or_else(|| panic!("process call"));
+        let call = call_inside_after(source, index + "Process.start(".len())
+            .unwrap_or_else(|| panic!("process arguments"));
+        assert_eq!(
+            lexical_binding_value(parsed.tree().root_node(), parsed.source(), index, "dartExe"),
+            Some("Platform.resolvedExecutable")
+        );
+        assert!(resolved_dart_runtime_start(
+            Some((parsed.tree().root_node(), parsed.source())),
+            index,
+            &call,
+        ));
+    }
 }

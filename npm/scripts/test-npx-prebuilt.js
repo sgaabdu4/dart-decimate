@@ -12,7 +12,9 @@ if (process.platform === "win32") {
 }
 
 const root = path.resolve(__dirname, "../..");
-const tempRoot = fs.mkdtempSync(path.join(tmpdir(), "dart-decimate-npx-prebuilt-"));
+const tempRoot = fs.mkdtempSync(
+  path.join(tmpdir(), "dart-decimate-npx-prebuilt-"),
+);
 
 main().catch((error) => {
   console.error(error.message);
@@ -20,7 +22,9 @@ main().catch((error) => {
 });
 
 async function main() {
-  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
   const platform = process.platform === "win32" ? "windows" : process.platform;
   const arch = process.arch === "x64" ? "x64" : process.arch;
   const assetName = `dart-decimate-${platform}-${arch}.tar.gz`;
@@ -46,15 +50,25 @@ async function main() {
     encoding: "utf8",
   });
   if (archive.status !== 0 || archive.error) {
-    throw new Error(archive.stderr || archive.error?.message || "failed to create test archive");
+    throw new Error(
+      archive.stderr ||
+        archive.error?.message ||
+        "failed to create test archive",
+    );
   }
 
-  const pack = spawnSync("npm", ["pack", "--json", "--pack-destination", tempRoot], {
-    cwd: root,
-    encoding: "utf8",
-  });
+  const pack = spawnSync(
+    "npm",
+    ["pack", "--json", "--pack-destination", tempRoot],
+    {
+      cwd: root,
+      encoding: "utf8",
+    },
+  );
   if (pack.status !== 0 || pack.error) {
-    throw new Error(pack.stderr || pack.error?.message || "failed to pack npm package");
+    throw new Error(
+      pack.stderr || pack.error?.message || "failed to pack npm package",
+    );
   }
   const [metadata] = JSON.parse(pack.stdout);
   const tarball = path.join(tempRoot, metadata.filename);
@@ -93,7 +107,9 @@ async function main() {
       throw new Error("npx did not execute the downloaded prebuilt binary");
     }
     if (result.stderr.includes("Rust/Cargo")) {
-      throw new Error("npx attempted the Cargo fallback even though a prebuilt binary was available");
+      throw new Error(
+        "npx attempted the Cargo fallback even though a prebuilt binary was available",
+      );
     }
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -103,10 +119,14 @@ async function main() {
 
 function runNpx(tarball, cwd, env) {
   return new Promise((resolve) => {
-    const child = spawn("npx", ["--yes", "--package", tarball, "--", "dart-decimate", "--help"], {
-      cwd,
-      env,
-    });
+    const child = spawn(
+      "npx",
+      ["--yes", "--package", tarball, "--", "dart-decimate", "--help"],
+      {
+        cwd,
+        env,
+      },
+    );
     let stdout = "";
     let stderr = "";
 

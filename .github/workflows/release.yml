@@ -164,6 +164,7 @@ jobs:
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test --all-targets
+          npm test
           npm run pack:check
           npm run test:postinstall:prebuilt
           npm run test:npx:prebuilt

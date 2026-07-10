@@ -1,0 +1,281 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use crate::graph::normalize_against;
+use crate::{DartCombinator, DartCombinatorKind, DependencyKind, DependencyVisibility};
+use crate::{ResolvedDependency, ScannedProject};
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct ClassKey {
+    pub(super) path: PathBuf,
+    pub(super) name: String,
+}
+
+#[derive(Debug)]
+pub(super) struct DeclarationResolver {
+    declarations: BTreeMap<PathBuf, BTreeSet<String>>,
+    imports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
+    exports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
+    library_by_path: BTreeMap<PathBuf, PathBuf>,
+    paths_by_library: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+}
+
+impl DeclarationResolver {
+    pub(super) fn new(
+        project: &ScannedProject,
+        declarations: impl IntoIterator<Item = ClassKey>,
+    ) -> Self {
+        let declarations = declarations.into_iter().fold(
+            BTreeMap::<PathBuf, BTreeSet<String>>::new(),
+            |mut declarations, class| {
+                declarations
+                    .entry(class.path)
+                    .or_default()
+                    .insert(class.name);
+                declarations
+            },
+        );
+        let dependencies = project
+            .graph
+            .dependencies()
+            .into_iter()
+            .map(|mut dependency| {
+                dependency.from_path = normalize_against(&project.root, &dependency.from_path);
+                dependency.to_path = normalize_against(&project.root, &dependency.to_path);
+                dependency
+            })
+            .collect::<Vec<_>>();
+        let mut library_by_path = declarations
+            .keys()
+            .map(|path| (path.clone(), path.clone()))
+            .collect::<BTreeMap<_, _>>();
+        for dependency in dependencies
+            .iter()
+            .filter(|dependency| dependency.kind == DependencyKind::Part)
+        {
+            library_by_path.insert(dependency.to_path.clone(), dependency.from_path.clone());
+        }
+        let paths_by_library = library_by_path.iter().fold(
+            BTreeMap::<PathBuf, BTreeSet<PathBuf>>::new(),
+            |mut paths, (path, library)| {
+                paths
+                    .entry(library.clone())
+                    .or_default()
+                    .insert(path.clone());
+                paths
+            },
+        );
+        let mut imports = BTreeMap::<PathBuf, Vec<ResolvedDependency>>::new();
+        let mut exports = BTreeMap::<PathBuf, Vec<ResolvedDependency>>::new();
+        for dependency in dependencies {
+            let index = match dependency.kind {
+                DependencyKind::Import => &mut imports,
+                DependencyKind::Export => &mut exports,
+                _ => continue,
+            };
+            index
+                .entry(dependency.from_path.clone())
+                .or_default()
+                .push(dependency);
+        }
+        Self {
+            declarations,
+            imports,
+            exports,
+            library_by_path,
+            paths_by_library,
+        }
+    }
+
+    pub(super) fn resolve(&self, from: &Path, reference: &str) -> BTreeSet<ClassKey> {
+        let reference = compact_reference(reference);
+        let segments = reference.split('.').collect::<Vec<_>>();
+        let Some(first) = segments.first().copied() else {
+            return BTreeSet::new();
+        };
+        let library = self.library_path(from);
+        let imports = self.imports.get(&library).map_or(&[][..], Vec::as_slice);
+
+        if let Some(name) = segments.get(1).filter(|name| type_like_name(name)) {
+            let has_prefixed_import = imports
+                .iter()
+                .any(|dependency| dependency.visibility.prefix.as_deref() == Some(first));
+            if has_prefixed_import {
+                if name.starts_with('_') {
+                    return BTreeSet::new();
+                }
+                return self.imported_classes(
+                    imports
+                        .iter()
+                        .filter(|dependency| dependency.visibility.prefix.as_deref() == Some(first))
+                        .filter(|dependency| visible(name, &dependency.visibility)),
+                    name,
+                );
+            }
+        }
+
+        let local = self.library_classes(&library, first);
+        if !local.is_empty() {
+            return exactly_one(local).into_iter().collect();
+        }
+        if first.starts_with('_') {
+            return BTreeSet::new();
+        }
+        self.imported_classes(
+            imports
+                .iter()
+                .filter(|dependency| dependency.visibility.prefix.is_none())
+                .filter(|dependency| visible(first, &dependency.visibility)),
+            first,
+        )
+    }
+
+    fn imported_classes<'a>(
+        &self,
+        imports: impl IntoIterator<Item = &'a ResolvedDependency>,
+        name: &str,
+    ) -> BTreeSet<ClassKey> {
+        let mut candidates_by_directive = BTreeMap::<(usize, usize), BTreeSet<ClassKey>>::new();
+        for dependency in imports {
+            candidates_by_directive
+                .entry((dependency.location.line, dependency.location.column))
+                .or_default()
+                .extend(self.exported_classes(&dependency.to_path, name));
+        }
+        let mut resolved = BTreeSet::new();
+        let mut matching_directives = 0usize;
+        for candidates in candidates_by_directive
+            .into_values()
+            .filter(|candidates| !candidates.is_empty())
+        {
+            matching_directives += 1;
+            resolved.extend(candidates);
+        }
+        if matching_directives <= 1 || resolved.len() <= 1 {
+            resolved
+        } else {
+            BTreeSet::new()
+        }
+    }
+
+    fn exported_classes(&self, library: &Path, name: &str) -> BTreeSet<ClassKey> {
+        let mut visited = BTreeSet::new();
+        self.collect_exported_classes(library, name, &mut visited)
+    }
+
+    fn collect_exported_classes(
+        &self,
+        library: &Path,
+        name: &str,
+        visited: &mut BTreeSet<PathBuf>,
+    ) -> BTreeSet<ClassKey> {
+        let library = self.library_path(library);
+        if !visited.insert(library.clone()) {
+            return BTreeSet::new();
+        }
+        let mut classes = self.library_classes(&library, name);
+        for dependency in self
+            .exports
+            .get(&library)
+            .into_iter()
+            .flatten()
+            .filter(|dependency| visible(name, &dependency.visibility))
+        {
+            classes.extend(self.collect_exported_classes(&dependency.to_path, name, visited));
+        }
+        classes
+    }
+
+    fn library_classes(&self, library: &Path, name: &str) -> BTreeSet<ClassKey> {
+        self.paths_by_library
+            .get(library)
+            .into_iter()
+            .flat_map(|paths| paths.iter())
+            .filter(|path| {
+                self.declarations
+                    .get(*path)
+                    .is_some_and(|declarations| declarations.contains(name))
+            })
+            .map(|path| ClassKey {
+                path: path.clone(),
+                name: name.to_owned(),
+            })
+            .collect()
+    }
+
+    fn library_path(&self, path: &Path) -> PathBuf {
+        self.library_by_path
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| path.to_path_buf())
+    }
+}
+
+fn compact_reference(reference: &str) -> String {
+    reference
+        .trim()
+        .trim_end_matches('?')
+        .split('<')
+        .next()
+        .unwrap_or(reference)
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
+}
+
+fn type_like_name(name: &&str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_uppercase())
+}
+
+fn visible(name: &str, visibility: &DependencyVisibility) -> bool {
+    visible_through_combinators(name, &visibility.combinators)
+}
+
+fn visible_through_combinators(name: &str, combinators: &[DartCombinator]) -> bool {
+    let mut is_visible = true;
+    for combinator in combinators {
+        match combinator.kind {
+            DartCombinatorKind::Show => {
+                is_visible &= combinator.names.iter().any(|shown| shown == name);
+            }
+            DartCombinatorKind::Hide => {
+                if combinator.names.iter().any(|hidden| hidden == name) {
+                    is_visible = false;
+                }
+            }
+        }
+    }
+    is_visible
+}
+
+fn exactly_one(mut classes: BTreeSet<ClassKey>) -> Option<ClassKey> {
+    let class = classes.pop_first()?;
+    classes.is_empty().then_some(class)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Location;
+
+    #[test]
+    fn combinators_cannot_revive_a_hidden_declaration() {
+        let combinators = [
+            combinator(DartCombinatorKind::Show, &["SearchInput"]),
+            combinator(DartCombinatorKind::Hide, &["SearchInput"]),
+            combinator(DartCombinatorKind::Show, &["SearchInput"]),
+        ];
+
+        assert!(!visible_through_combinators("SearchInput", &combinators));
+    }
+
+    fn combinator(kind: DartCombinatorKind, names: &[&str]) -> DartCombinator {
+        DartCombinator {
+            kind,
+            names: names.iter().map(|name| (*name).to_owned()).collect(),
+            location: Location { line: 1, column: 0 },
+        }
+    }
+}

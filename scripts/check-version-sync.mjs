@@ -21,7 +21,8 @@ if (cargoVersion !== npmVersion) {
   process.exit(1);
 }
 
-const tag = process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : "";
+const tag =
+  process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : "";
 if (tag && tag !== `v${npmVersion}`) {
   console.error(`tag ${tag} does not match package version ${npmVersion}`);
   process.exit(1);

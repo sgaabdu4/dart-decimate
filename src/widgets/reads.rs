@@ -1,6 +1,21 @@
+use std::collections::BTreeSet;
+
 use tree_sitter::Node;
 
 use super::patterns::{declaration_binds_name, pattern_binds_name};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum WidgetMemberReceiver {
+    Implicit,
+    This,
+    Super,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct WidgetMemberRead {
+    pub(super) name: String,
+    pub(super) receiver: WidgetMemberReceiver,
+}
 
 pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -> bool {
     let mut found = false;
@@ -13,6 +28,32 @@ pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -
         }
     });
     found
+}
+
+pub(super) fn widget_body_member_reads(body: Node<'_>, source: &str) -> BTreeSet<WidgetMemberRead> {
+    let mut reads = BTreeSet::new();
+    visit_named(body, &mut |node| {
+        if let Some(name) = receiver_member_name(node, &["super"], source) {
+            reads.insert(WidgetMemberRead {
+                name,
+                receiver: WidgetMemberReceiver::Super,
+            });
+        } else if let Some(name) = receiver_member_name(node, &["this"], source) {
+            reads.insert(WidgetMemberRead {
+                name,
+                receiver: WidgetMemberReceiver::This,
+            });
+        } else if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
+            && let Ok(name) = node.utf8_text(source.as_bytes())
+            && is_body_identifier_use(node, name, source)
+        {
+            reads.insert(WidgetMemberRead {
+                name: name.to_owned(),
+                receiver: WidgetMemberReceiver::Implicit,
+            });
+        }
+    });
+    reads
 }
 
 fn is_body_identifier_use(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -157,22 +198,31 @@ fn identifier_before_parameters(node: Node<'_>, source: &str) -> Option<String> 
 }
 
 fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
+    this_member_name(node, source).as_deref() == Some(name)
+}
+
+fn this_member_name(node: Node<'_>, source: &str) -> Option<String> {
+    receiver_member_name(node, &["this"], source)
+}
+
+fn receiver_member_name(node: Node<'_>, receivers: &[&str], source: &str) -> Option<String> {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
     ) {
-        return false;
+        return None;
     }
-    let Some(property) = node.child_by_field_name("property") else {
-        return false;
-    };
-    if property.utf8_text(source.as_bytes()).ok() != Some(name) {
-        return false;
-    }
-    let Some(object) = node.child_by_field_name("object") else {
-        return false;
-    };
-    object.utf8_text(source.as_bytes()).ok() == Some("this")
+    let property = node.child_by_field_name("property")?;
+    let object = node.child_by_field_name("object")?;
+    receivers
+        .contains(&object.utf8_text(source.as_bytes()).ok()?)
+        .then(|| {
+            property
+                .utf8_text(source.as_bytes())
+                .ok()
+                .map(str::to_owned)
+        })
+        .flatten()
 }
 
 pub(super) fn direct_identifier_shadowed_before(

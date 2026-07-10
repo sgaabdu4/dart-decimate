@@ -1,0 +1,11 @@
+*
+!.no-mistakes.yaml
+!package.json
+!package-lock.json
+!npm/
+!npm/**/*.js
+!scripts/
+!scripts/**/*.mjs
+!tests/
+!tests/js/
+!tests/js/**/*.mjs

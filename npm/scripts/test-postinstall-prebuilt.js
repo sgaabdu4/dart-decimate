@@ -7,7 +7,9 @@ const { tmpdir } = require("node:os");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "../..");
-const tempRoot = fs.mkdtempSync(path.join(tmpdir(), "dart-decimate-postinstall-"));
+const tempRoot = fs.mkdtempSync(
+  path.join(tmpdir(), "dart-decimate-postinstall-"),
+);
 
 main().catch((error) => {
   console.error(error.message);
@@ -15,7 +17,9 @@ main().catch((error) => {
 });
 
 async function main() {
-  const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
   const platform = process.platform === "win32" ? "windows" : process.platform;
   const arch = process.arch === "x64" ? "x64" : process.arch;
   const assetName = `dart-decimate-${platform}-${arch}.tar.gz`;
@@ -33,11 +37,18 @@ async function main() {
   );
   fs.writeFileSync(
     path.join(tempRoot, "package.json"),
-    JSON.stringify({ name: "dart-decimate", version: packageJson.version }, null, 2),
+    JSON.stringify(
+      { name: "dart-decimate", version: packageJson.version },
+      null,
+      2,
+    ),
   );
 
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
-    const binaryPath = path.join(payloadDir, process.platform === "win32" ? `${binary}.exe` : binary);
+    const binaryPath = path.join(
+      payloadDir,
+      process.platform === "win32" ? `${binary}.exe` : binary,
+    );
     fs.writeFileSync(binaryPath, "#!/usr/bin/env sh\nexit 0\n");
     fs.chmodSync(binaryPath, 0o755);
   }
@@ -47,7 +58,11 @@ async function main() {
     encoding: "utf8",
   });
   if (archive.status !== 0 || archive.error) {
-    throw new Error(archive.stderr || archive.error?.message || "failed to create test archive");
+    throw new Error(
+      archive.stderr ||
+        archive.error?.message ||
+        "failed to create test archive",
+    );
   }
 
   const server = http.createServer((request, response) => {
@@ -64,14 +79,17 @@ async function main() {
   const { port } = server.address();
 
   try {
-    const result = await runPostinstall(path.join(scriptDir, "postinstall.js"), {
-      cwd: tempRoot,
-      env: {
-        ...process.env,
-        CARGO: path.join(tempRoot, "missing-cargo"),
-        DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageJson.version}`,
+    const result = await runPostinstall(
+      path.join(scriptDir, "postinstall.js"),
+      {
+        cwd: tempRoot,
+        env: {
+          ...process.env,
+          CARGO: path.join(tempRoot, "missing-cargo"),
+          DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageJson.version}`,
+        },
       },
-    });
+    );
 
     if (result.stdout) {
       process.stdout.write(result.stdout);
@@ -80,7 +98,9 @@ async function main() {
       process.stderr.write(result.stderr);
     }
     if (result.status !== 0 || result.error) {
-      throw new Error(result.error?.message || `postinstall exited ${result.status}`);
+      throw new Error(
+        result.error?.message || `postinstall exited ${result.status}`,
+      );
     }
 
     for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
