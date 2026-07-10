@@ -47,6 +47,7 @@ cargo clippy --all-targets -- -D warnings
 npm ci --ignore-scripts
 npx fallow audit --base "$base_ref" --quiet
 cargo test --all-targets
+npm test
 npm run pack:check
 npm run test:postinstall:prebuilt
 npm run test:npx:prebuilt

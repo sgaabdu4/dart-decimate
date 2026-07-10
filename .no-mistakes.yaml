@@ -9,6 +9,7 @@ auto_fix:
 commands:
   test: >-
     cargo test --all-targets &&
+    npm test &&
     npm run pack:check &&
     npm run test:postinstall:prebuilt &&
     npm run test:npx:prebuilt &&
@@ -23,4 +24,4 @@ commands:
     cargo clippy --all-targets -- -D warnings &&
     npm ci --ignore-scripts &&
     npx fallow audit --base origin/main --quiet
-  format: "cargo fmt"
+  format: "npm run format"

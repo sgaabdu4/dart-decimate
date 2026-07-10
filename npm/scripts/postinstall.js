@@ -16,7 +16,9 @@ const root = path.resolve(__dirname, "../..");
 const exeExt = process.platform === "win32" ? ".exe" : "";
 const cargo = process.env.CARGO || "cargo";
 const cacheDir = path.join(root, "npm", "bin-cache");
-const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const packageJson = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8"),
+);
 const releaseBaseUrl =
   process.env.DART_DECIMATE_RELEASE_BASE_URL ||
   `https://github.com/sgaabdu4/dart-decimate/releases/download/v${packageJson.version}`;
@@ -57,7 +59,7 @@ async function installPrebuilt() {
 
   const extract = spawnSync("tar", ["-xzf", archivePath, "-C", cacheDir], {
     stdio: "pipe",
-    windowsHide: false
+    windowsHide: false,
   });
   fs.rmSync(archivePath, { force: true });
 
@@ -66,7 +68,9 @@ async function installPrebuilt() {
   }
   if (extract.status !== 0) {
     const stderr = extract.stderr?.toString().trim();
-    throw new Error(`could not extract ${assetName}${stderr ? `: ${stderr}` : ""}`);
+    throw new Error(
+      `could not extract ${assetName}${stderr ? `: ${stderr}` : ""}`,
+    );
   }
 
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
@@ -91,7 +95,8 @@ function prebuiltAssetName() {
         : process.platform === "win32"
           ? "windows"
           : null;
-  const arch = process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : null;
+  const arch =
+    process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : null;
 
   if (!platform || !arch) {
     return null;
@@ -108,7 +113,9 @@ function prebuiltAssetName() {
 
 function download(url, destination, redirectCount) {
   if (redirectCount > 5) {
-    return Promise.reject(new Error(`too many redirects while downloading ${url}`));
+    return Promise.reject(
+      new Error(`too many redirects while downloading ${url}`),
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -127,12 +134,17 @@ function download(url, destination, redirectCount) {
 
       if (response.statusCode !== 200) {
         response.resume();
-        reject(new Error(`download ${url} returned HTTP ${response.statusCode}`));
+        reject(
+          new Error(`download ${url} returned HTTP ${response.statusCode}`),
+        );
         return;
       }
 
       try {
-        await pipeline(response, fs.createWriteStream(destination, { mode: 0o600 }));
+        await pipeline(
+          response,
+          fs.createWriteStream(destination, { mode: 0o600 }),
+        );
         resolve();
       } catch (error) {
         reject(error);
@@ -147,21 +159,25 @@ function buildFromSource(prebuiltError) {
   const build = spawnSync(cargo, ["build", "--release", "--locked"], {
     cwd: root,
     stdio: "inherit",
-    windowsHide: false
+    windowsHide: false,
   });
 
   if (build.error) {
     if (build.error.code === "ENOENT") {
       if (prebuiltError) {
-        console.error(`dart-decimate: prebuilt install failed: ${prebuiltError.message}`);
+        console.error(
+          `dart-decimate: prebuilt install failed: ${prebuiltError.message}`,
+        );
       }
       console.error(
         "dart-decimate: Rust/Cargo is required as a fallback because a prebuilt binary " +
-          "could not be installed for this platform. Install Rust from https://rustup.rs."
+          "could not be installed for this platform. Install Rust from https://rustup.rs.",
       );
       process.exit(127);
     }
-    console.error(`dart-decimate: cargo build failed to start: ${build.error.message}`);
+    console.error(
+      `dart-decimate: cargo build failed to start: ${build.error.message}`,
+    );
     process.exit(1);
   }
 
@@ -170,7 +186,12 @@ function buildFromSource(prebuiltError) {
   }
 
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
-    const builtBinary = path.join(root, "target", "release", `${binary}${exeExt}`);
+    const builtBinary = path.join(
+      root,
+      "target",
+      "release",
+      `${binary}${exeExt}`,
+    );
     const cachedBinary = path.join(cacheDir, `${binary}${exeExt}`);
     fs.copyFileSync(builtBinary, cachedBinary);
     if (process.platform !== "win32") {

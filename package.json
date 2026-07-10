@@ -27,8 +27,12 @@
   ],
   "scripts": {
     "postinstall": "node npm/scripts/postinstall.js",
+    "test": "node --test tests/js/*.test.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
-    "lint": "npm run version:check && npm run migration:check",
+    "lint": "npm run version:check && npm run migration:check && npm run lint:js && npm run format:check",
+    "lint:js": "oxlint .",
+    "format": "prettier --write . && cargo fmt",
+    "format:check": "prettier --check . && cargo fmt --check",
     "version:bump:check": "node scripts/check-pr-version-bump.mjs",
     "release:check": "node scripts/check-release-version.mjs",
     "migration:check": "node scripts/check-dart-decimate-migration.mjs",
@@ -47,6 +51,8 @@
     "access": "public"
   },
   "devDependencies": {
-    "fallow": "3.2.0"
+    "fallow": "3.2.0",
+    "oxlint": "1.15.0",
+    "prettier": "3.9.5"
   }
 }

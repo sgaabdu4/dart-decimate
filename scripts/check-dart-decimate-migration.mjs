@@ -31,7 +31,10 @@ const checks = [
   ["old scoped npm package", /@sgaabdu4\/decimate/],
   ["old GitHub repo", /sgaabdu4\/decimate/],
   ["old banner filename", /(?<!dart-)decimate-banner\.png/],
-  ["double migrated package name", /dart-dart-decimate|dart_dart_decimate|DART_DART_DECIMATE/],
+  [
+    "double migrated package name",
+    /dart-dart-decimate|dart_dart_decimate|DART_DART_DECIMATE/,
+  ],
   ["old MCP binary", /(?<!dart-)decimate-mcp/],
   ["old suppression directive", /(?<!dart-)decimate-ignore|fallow-ignore/],
   ["old rule id prefix", /(?<!dart-)decimate\//],
@@ -108,7 +111,10 @@ function shouldScanFile(entry) {
   if (skippedFiles.has(entry.relative)) {
     return false;
   }
-  return extensions.has(path.extname(entry.relative)) || explicitFiles.has(entry.relative);
+  return (
+    extensions.has(path.extname(entry.relative)) ||
+    explicitFiles.has(entry.relative)
+  );
 }
 
 function isSkipped(relative) {
