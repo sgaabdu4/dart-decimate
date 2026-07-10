@@ -80,6 +80,13 @@ fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
     }
     if imports.contains(&"package:json_annotation/json_annotation.dart")
         || parts.iter().any(|part| part.ends_with(".g.dart"))
+            && references.iter().any(|reference| {
+                matches!(
+                    *reference,
+                    "JsonSerializable" | "JsonKey" | "JsonEnum" | "JsonValue"
+                ) || reference.ends_with("FromJson")
+                    || reference.ends_with("ToJson")
+            })
         || references.iter().any(|reference| {
             matches!(
                 *reference,

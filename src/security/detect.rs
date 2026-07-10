@@ -157,7 +157,9 @@ fn detect_insecure_transport(
             continue;
         }
         let line = line_at(source, literal.index);
-        if has_network_context(line) {
+        if has_network_context(line)
+            || oauth_endpoint_url_context(source, literal.index, &literal.value)
+        {
             candidates.push(detected(
                 path,
                 source,
@@ -273,8 +275,11 @@ fn detect_process_execution(
                 && args
                     .as_deref()
                     .is_some_and(|call| resolved_dart_runtime_start(syntax, index, call));
-            let risky = args.as_deref().is_some_and(call_invokes_command_shell)
-                || !run_in_shell_disabled
+            let risky = args.as_deref().is_some_and(|call| {
+                syntax.as_ref().is_some_and(|(root, parsed_source)| {
+                    call_invokes_command_shell(*root, parsed_source, index, call)
+                })
+            }) || !run_in_shell_disabled
                 || args.as_deref().is_some_and(|call| {
                     !safe_dart_runtime_start
                         && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
@@ -516,11 +521,11 @@ fn first_call_arg_is_fixed_literal(call: &str) -> bool {
     matches!(rest.as_bytes().first(), Some(b',' | b')'))
 }
 
-fn call_invokes_command_shell(call: &str) -> bool {
+fn call_invokes_command_shell(root: Node<'_>, source: &str, index: usize, call: &str) -> bool {
     let arguments = top_level_call_arguments(call);
     let Some(executable) = arguments
         .first()
-        .and_then(|value| fixed_literal_value(value))
+        .and_then(|value| resolved_fixed_literal_value(root, source, index, value))
     else {
         return false;
     };
@@ -531,7 +536,7 @@ fn call_invokes_command_shell(call: &str) -> bool {
         .to_ascii_lowercase();
     let Some(shell_arguments) = arguments
         .get(1)
-        .and_then(|value| list_literal_contents(value))
+        .and_then(|value| resolved_list_arguments(root, source, index, value))
     else {
         return false;
     };
@@ -543,8 +548,9 @@ fn call_invokes_command_shell(call: &str) -> bool {
     {
         return false;
     }
-    for argument in top_level_call_arguments(shell_arguments) {
-        let Some(flag) = fixed_literal_value(argument).map(|value| value.to_ascii_lowercase())
+    for argument in shell_arguments {
+        let Some(flag) = resolved_fixed_literal_value(root, source, index, &argument)
+            .map(|value| value.to_ascii_lowercase())
         else {
             return true;
         };
@@ -634,6 +640,9 @@ fn resolved_dart_runtime_start(syntax: Option<(Node<'_>, &str)>, index: usize, c
 }
 
 fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, value: &str) -> bool {
+    if library_scope_has_parts(root) {
+        return false;
+    }
     let qualifier = if value == "Platform.resolvedExecutable" {
         ""
     } else if let Some(qualifier) = value.strip_suffix(".Platform.resolvedExecutable") {
@@ -648,7 +657,8 @@ fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, val
     if prefix.is_none()
         && (top_level_declares_name(root, "Platform", source)
             || lexical_name_shadowed(root, source, index, "Platform")
-            || import_prefix_declares_name(root, source, "Platform"))
+            || import_prefix_declares_name(root, source, "Platform")
+            || imported_library_may_expose_name(root, source, "Platform"))
     {
         return false;
     }
@@ -741,14 +751,83 @@ fn top_level_declares_name(root: Node<'_>, name: &str, source: &str) -> bool {
         if direct_binding(child, name, source, false).is_some() {
             return true;
         }
-        matches!(
-            child.kind(),
-            "class_declaration" | "mixin_declaration" | "enum_declaration"
-        ) && child
-            .child_by_field_name("name")
-            .and_then(|name_node| name_node.utf8_text(source.as_bytes()).ok())
-            == Some(name)
+        top_level_declaration_name(child, source).as_deref() == Some(name)
     })
+}
+
+fn top_level_declaration_name(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(
+        node.kind(),
+        "class_declaration"
+            | "enum_declaration"
+            | "extension_declaration"
+            | "extension_type_declaration"
+            | "external_function_declaration"
+            | "external_getter_declaration"
+            | "external_setter_declaration"
+            | "function_declaration"
+            | "getter_declaration"
+            | "mixin_declaration"
+            | "setter_declaration"
+            | "type_alias"
+    ) {
+        return None;
+    }
+    if matches!(
+        node.kind(),
+        "external_function_declaration"
+            | "external_getter_declaration"
+            | "external_setter_declaration"
+            | "function_declaration"
+            | "getter_declaration"
+            | "setter_declaration"
+    ) {
+        return member_signature_name(node, source);
+    }
+    node.child_by_field_name("name")
+        .or_else(|| {
+            if node.kind() == "type_alias" {
+                first_named_descendant(node, "identifier")
+                    .or_else(|| first_named_descendant(node, "type_identifier"))
+            } else {
+                None
+            }
+        })
+        .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        .map(str::to_owned)
+}
+
+fn imported_library_may_expose_name(root: Node<'_>, source: &str, name: &str) -> bool {
+    let mut may_expose = false;
+    visit_named(root, &mut |node| {
+        if may_expose || node.kind() != "library_import" {
+            return;
+        }
+        let Some(specification) = first_named_descendant(node, "import_specification") else {
+            return;
+        };
+        if specification.child_by_field_name("alias").is_some() {
+            return;
+        }
+        let uri = specification
+            .child_by_field_name("uri")
+            .and_then(|uri| uri.utf8_text(source.as_bytes()).ok())
+            .and_then(fixed_literal_value);
+        if uri.as_deref() != Some("dart:io") && import_exposes_name(node, name, source) {
+            may_expose = true;
+        }
+    });
+    may_expose
+}
+
+fn library_scope_has_parts(root: Node<'_>) -> bool {
+    let mut has_parts = false;
+    visit_named(root, &mut |node| {
+        if matches!(node.kind(), "part_directive" | "part_of_directive") {
+            has_parts = true;
+        }
+    });
+    has_parts
 }
 
 fn import_prefix_declares_name(root: Node<'_>, source: &str, name: &str) -> bool {
@@ -876,10 +955,10 @@ fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
 }
 
 fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &str) -> bool {
-    let Some(inner) = list_literal_contents(arguments) else {
+    let Some(elements) = resolved_list_arguments(root, source, index, arguments) else {
         return false;
     };
-    top_level_call_arguments(inner).into_iter().all(|argument| {
+    elements.into_iter().all(|argument| {
         let argument = argument.trim();
         argument.is_empty()
             || fixed_string_literal(argument)
@@ -892,9 +971,73 @@ fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &s
 fn list_literal_contents(value: &str) -> Option<&str> {
     let value = value.trim();
     let value = value.strip_prefix("const").map_or(value, str::trim_start);
-    value
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
+    let start = value.find('[')?;
+    if !value[..start].trim().is_empty() && !value[..start].trim().ends_with('>') {
+        return None;
+    }
+    value[start + 1..].strip_suffix(']')
+}
+
+fn resolved_fixed_literal_value(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+) -> Option<String> {
+    let mut visited = BTreeSet::new();
+    resolved_fixed_literal_value_inner(root, source, index, value, &mut visited)
+}
+
+fn resolved_fixed_literal_value_inner(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    visited: &mut BTreeSet<String>,
+) -> Option<String> {
+    if let Some(literal) = fixed_literal_value(value) {
+        return Some(literal);
+    }
+    let name = value.trim();
+    if !is_identifier(name) || !visited.insert(name.to_owned()) {
+        return None;
+    }
+    let binding = lexical_binding_value(root, source, index, name)?;
+    resolved_fixed_literal_value_inner(root, source, index, binding, visited)
+}
+
+fn resolved_list_arguments(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+) -> Option<Vec<String>> {
+    let mut visited = BTreeSet::new();
+    resolved_list_arguments_inner(root, source, index, value, &mut visited)
+}
+
+fn resolved_list_arguments_inner(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    visited: &mut BTreeSet<String>,
+) -> Option<Vec<String>> {
+    let value = value.trim();
+    if let Some(inner) = list_literal_contents(value) {
+        return Some(
+            top_level_call_arguments(inner)
+                .into_iter()
+                .map(str::trim)
+                .map(str::to_owned)
+                .collect(),
+        );
+    }
+    if !is_identifier(value) || !visited.insert(value.to_owned()) {
+        return None;
+    }
+    let binding = lexical_binding_value(root, source, index, value)?;
+    resolved_list_arguments_inner(root, source, index, binding, visited)
 }
 
 fn fixed_string_literal(value: &str) -> bool {
@@ -1030,11 +1173,28 @@ fn inherited_class_binding<'source>(
     source: &'source str,
     visited: &mut BTreeSet<String>,
 ) -> Option<LexicalBinding<'source>> {
+    for mixin_name in class_mixin_names(class, source).into_iter().rev() {
+        if !visited.insert(mixin_name.clone()) {
+            continue;
+        }
+        let mixin = find_class_like_declaration(root, &mixin_name, source)?;
+        let body = mixin.child_by_field_name("body")?;
+        let mut cursor = body.walk();
+        if let Some(binding) = body
+            .named_children(&mut cursor)
+            .find_map(|member| class_member_binding(member, name, source))
+        {
+            return Some(binding);
+        }
+        if let Some(binding) = inherited_class_binding(root, mixin, name, source, visited) {
+            return Some(binding);
+        }
+    }
     let parent_name = class_superclass_name(class, source)?;
     if !visited.insert(parent_name.clone()) {
         return None;
     }
-    let parent = find_class_declaration(root, &parent_name, source)?;
+    let parent = find_class_like_declaration(root, &parent_name, source)?;
     let body = parent.child_by_field_name("body")?;
     let mut cursor = body.walk();
     if let Some(binding) = body
@@ -1052,6 +1212,17 @@ fn class_hierarchy_is_unresolved(
     source: &str,
     visited: &mut BTreeSet<String>,
 ) -> bool {
+    for mixin_name in class_mixin_names(class, source) {
+        if !visited.insert(mixin_name.clone()) {
+            return true;
+        }
+        let Some(mixin) = find_class_like_declaration(root, &mixin_name, source) else {
+            return true;
+        };
+        if class_hierarchy_is_unresolved(root, mixin, source, visited) {
+            return true;
+        }
+    }
     let Some(parent_name) = class_superclass_name(class, source) else {
         return false;
     };
@@ -1061,10 +1232,34 @@ fn class_hierarchy_is_unresolved(
     if parent_name == "Object" {
         return false;
     }
-    let Some(parent) = find_class_declaration(root, &parent_name, source) else {
+    let Some(parent) = find_class_like_declaration(root, &parent_name, source) else {
         return true;
     };
     class_hierarchy_is_unresolved(root, parent, source, visited)
+}
+
+fn class_mixin_names(class: Node<'_>, source: &str) -> Vec<String> {
+    let Some(superclass) = class.child_by_field_name("superclass") else {
+        return Vec::new();
+    };
+    let mixins = if superclass.kind() == "mixins" {
+        Some(superclass)
+    } else {
+        let mut cursor = superclass.walk();
+        superclass
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "mixins")
+    };
+    let Some(mixins) = mixins else {
+        return Vec::new();
+    };
+    let mut cursor = mixins.walk();
+    mixins
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "type")
+        .filter_map(|child| child.utf8_text(source.as_bytes()).ok())
+        .map(|name| name.split('<').next().unwrap_or(name).trim().to_owned())
+        .collect()
 }
 
 fn class_superclass_name(class: Node<'_>, source: &str) -> Option<String> {
@@ -1077,12 +1272,12 @@ fn class_superclass_name(class: Node<'_>, source: &str) -> Option<String> {
     Some(name.to_owned())
 }
 
-fn find_class_declaration<'tree>(
+fn find_class_like_declaration<'tree>(
     node: Node<'tree>,
     name: &str,
     source: &str,
 ) -> Option<Node<'tree>> {
-    if node.kind() == "class_declaration"
+    if matches!(node.kind(), "class_declaration" | "mixin_declaration")
         && node
             .child_by_field_name("name")
             .and_then(|name| name.utf8_text(source.as_bytes()).ok())
@@ -1092,7 +1287,7 @@ fn find_class_declaration<'tree>(
     }
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .find_map(|child| find_class_declaration(child, name, source))
+        .find_map(|child| find_class_like_declaration(child, name, source))
 }
 
 fn root_node(mut node: Node<'_>) -> Node<'_> {
@@ -1590,6 +1785,11 @@ fn literal_is_map_key(source: &str, index: usize) -> bool {
 fn matches_url_scheme(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     lower.starts_with("https://") || lower.starts_with("http://")
+}
+
+fn oauth_endpoint_url_context(source: &str, index: usize, value: &str) -> bool {
+    matches_url_scheme(value)
+        && literal_binding_name(source, index).is_some_and(|name| oauth_endpoint_name(&name))
 }
 
 fn named_argument_context(source: &str, index: usize, name: &str) -> bool {

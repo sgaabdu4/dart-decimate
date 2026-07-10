@@ -335,7 +335,8 @@ flutter_gen: {}\n",
     for dependency in ["build_runner", "envied_generator"] {
         let trace = trace_dependency(&fixture, dependency)?;
         assert_eq!(trace["is_used"], true, "{trace:#}");
-        assert_eq!(trace["used_in_scripts"], true, "{trace:#}");
+        assert_eq!(trace["used_in_scripts"], false, "{trace:#}");
+        assert_eq!(trace["used_in_codegen"], true, "{trace:#}");
     }
     Ok(())
 }

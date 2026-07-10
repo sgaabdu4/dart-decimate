@@ -361,6 +361,7 @@ Current implemented parity:
 - Fallow-style `ignoreDependencies` config entries for intentional pub
   dependency hygiene exceptions
 - unused dependency reports include a read-only `trace-dependency` next step
+- `trace-dependency` keeps `used_in_scripts` separate from `used_in_codegen`
 - code duplication findings with stable `dup:<id>` fingerprints, actual matched
   line/token counts, declaration-only abstract contract filtering, copied local
   package mirror canonicalization/filtering, and read-only `trace-clone` next
@@ -418,7 +419,8 @@ Current implemented parity:
   evidence, benign password-route/copy filtering unless copy is bound to a
   secret-like name or contains concrete token-like material, and non-autofixable
   `dart-decimate/security-*` findings; OAuth authorization/token endpoint URLs
-  are treated as public metadata, Firebase client API keys are warning-level by
+  are excluded from secret candidates as public metadata while cleartext endpoint
+  transport remains a security candidate, Firebase client API keys are warning-level by
   default, Stripe key names and `sk_test_`/`sk_live_` placeholders remain secret
   review candidates, and fixed Dart-runtime `Process.start` calls with fixed
   list arguments are not treated as shell injection; exact rule config

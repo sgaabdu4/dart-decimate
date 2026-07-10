@@ -392,7 +392,8 @@ generates client config. To make them fail a gate, set
 authentication copy such as password reset and password requirement text is
 filtered before reporting hardcoded-secret candidates unless it is bound to a
 secret-like name or contains a concrete token-like segment. OAuth authorization
-and token endpoint URLs are treated as public metadata. Stripe secret-key names
+and token endpoint URLs are excluded from secret candidates as public metadata,
+while cleartext endpoint transport remains an insecure-transport candidate. Stripe secret-key names
 and `sk_test_`/`sk_live_` values remain review candidates even when they look
 like placeholders. A fixed `Process.start` of `Platform.resolvedExecutable`
 with fixed list arguments is not classified as shell command injection.
