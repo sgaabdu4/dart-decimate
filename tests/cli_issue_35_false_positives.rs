@@ -205,6 +205,47 @@ fn imported_widget_declarations_resolve_through_prefixes_exports_and_parts()
 }
 
 #[test]
+fn conditional_widget_subclasses_render_every_platform_base()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/input_io.dart' if (dart.library.html) 'src/input_web.dart';\nvoid main() { SearchInput(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/framework.dart",
+        "class Widget {}\nclass StatefulWidget extends Widget { const StatefulWidget(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/input_io.dart",
+        "import 'framework.dart';\nclass BaseInput extends StatefulWidget {}\nclass SearchInput extends BaseInput {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/input_web.dart",
+        "import 'framework.dart';\nclass BaseInput extends StatefulWidget {}\nclass SearchInput extends BaseInput {}\n",
+    )?;
+
+    let json = check(&fixture)?;
+
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/unrendered-widget",
+        "lib/src/input_io.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/unrendered-widget",
+        "lib/src/input_web.dart",
+    );
+    Ok(())
+}
+
+#[test]
 fn tooling_conventions_count_as_dev_dependency_usage() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
@@ -243,6 +284,28 @@ flutter_gen:\n  integrations:\n    flutter_svg: true\n",
     ] {
         assert_no_unused_dev_dependency(&json, dependency);
     }
+    Ok(())
+}
+
+#[test]
+fn envied_import_without_generator_usage_keeps_dev_dependencies_unused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\ndependencies:\n  envied: ^1.0.0\ndev_dependencies:\n  build_runner: ^2.0.0\n  envied_generator: ^1.0.0\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'package:envied/envied.dart';\nvoid main() {}\n",
+    )?;
+
+    let json = check(&fixture)?;
+
+    assert_unused_dev_dependency(&json, "build_runner");
+    assert_unused_dev_dependency(&json, "envied_generator");
     Ok(())
 }
 
@@ -380,6 +443,40 @@ class CrossFileAvatar extends CrossFileBase {
         assert_no_action_target(&json, "dart-decimate/unused-widget-param", target);
     }
     assert_no_action_target(&json, "dart-decimate/unrendered-widget", "BaseInput");
+    Ok(())
+}
+
+#[test]
+fn closure_shadowing_does_not_read_a_widget_initializer_param()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"class Widget {}
+class StatelessWidget extends Widget {}
+class BuildContext {}
+class SizedBox extends Widget { const SizedBox(); }
+
+class ShadowedInitializer extends StatelessWidget {
+  ShadowedInitializer({required this.count}) : callback = ((count) => count);
+  final int count;
+  final int Function(int) callback;
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+void main() { ShadowedInitializer(count: 1); }
+",
+    )?;
+
+    let json = check(&fixture)?;
+
+    assert_action_target(
+        &json,
+        "dart-decimate/unused-widget-param",
+        "ShadowedInitializer.count",
+    );
     Ok(())
 }
 
@@ -653,6 +750,50 @@ Future<void> shadowedLoop(List<String> commands) async {
 }
 
 #[test]
+fn ash_shell_is_risky_while_const_raw_dart_arguments_are_fixed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+Future<Process> safeDartStart() {
+  final dartExe = Platform.resolvedExecutable;
+  return Process.start(dartExe, const [r'C:\$cache\analysis_server.dart.snapshot']);
+}
+
+Future<ProcessResult> shellRun(String command) {
+  return Process.run('/bin/ash', ['-c', command]);
+}
+
+Future<ProcessResult> fixedShellRun() {
+  return Process.run('/bin/ash', const ['-c', 'echo fixed']);
+}
+
+Future<ProcessResult> sshWithCipher(String cipher) {
+  return Process.run('ssh', ['-c', cipher, 'example.com']);
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+    let occurrences = process["occurrences"]
+        .as_array()
+        .unwrap_or_else(|| panic!("process occurrences: {json:#}"));
+
+    assert_eq!(occurrences.len(), 2, "{json:#}");
+    assert_eq!(occurrences[0]["line"], 9);
+    assert_eq!(occurrences[1]["line"], 13);
+    Ok(())
+}
+
+#[test]
 fn quoted_oauth_map_keys_are_metadata() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -673,6 +814,29 @@ fn quoted_oauth_map_keys_are_metadata() -> Result<(), Box<dyn std::error::Error>
             .is_none_or(Vec::is_empty),
         "{json:#}"
     );
+    Ok(())
+}
+
+#[test]
+fn oauth_endpoint_userinfo_remains_a_hardcoded_secret() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"const authorizationEndpoint = 'https://login.acme.com/oauth2/authorize';
+const tokenEndpoint = 'https://client:concrete-secret@login.acme.com/oauth2/token';
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let secret = candidate(candidates, "hardcoded-secret");
+
+    assert_eq!(secret["occurrences"].as_array().map(Vec::len), Some(1));
+    assert_eq!(secret["occurrences"][0]["line"], 2);
     Ok(())
 }
 

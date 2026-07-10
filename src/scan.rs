@@ -134,6 +134,12 @@ pub fn scan_project_with_options(
 
     let mut paths = BTreeSet::new();
     for scan_root in &scan_roots {
+        if scan_roots
+            .iter()
+            .any(|other| other != scan_root && scan_root.starts_with(other))
+        {
+            continue;
+        }
         discover_dart_files(&root, scan_root, &ignore_matcher, &mut paths)?;
     }
     let paths = paths.into_iter().collect::<Vec<_>>();
@@ -177,12 +183,15 @@ fn discover_dart_files(
 ) -> Result<(), ScanError> {
     let filter_root = root.to_path_buf();
     let filter_matcher = ignore_matcher.clone();
+    let has_repository_ancestor = dir
+        .ancestors()
+        .any(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists());
     let mut builder = WalkBuilder::new(dir);
     builder
         .standard_filters(false)
         .git_ignore(true)
-        .parents(true)
-        .require_git(false)
+        .parents(has_repository_ancestor)
+        .require_git(has_repository_ancestor)
         .filter_entry(move |entry| {
             entry.depth() == 0
                 || !(filter_matcher.matches(&filter_root, entry.path())

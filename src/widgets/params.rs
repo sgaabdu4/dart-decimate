@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use tree_sitter::Node;
 
+use super::reads::direct_identifier_shadowed_before;
 use crate::Location;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,18 +214,29 @@ fn initialized_field_from_param(
 }
 
 fn initializer_value_uses_param(node: Node<'_>, name: &str, source: &str) -> bool {
+    let boundary = node.parent().unwrap_or(node);
+    initializer_node_uses_param(boundary, node, name, source)
+}
+
+fn initializer_node_uses_param(
+    boundary: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
     if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
         && node.utf8_text(source.as_bytes()).ok() == Some(name)
         && node.parent().is_none_or(|parent| {
             !field_contains_node(parent, "name", node)
                 && !field_contains_node(parent, "property", node)
         })
+        && !direct_identifier_shadowed_before(boundary, node, name, source)
     {
         return true;
     }
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
-        .any(|child| initializer_value_uses_param(child, name, source))
+        .any(|child| initializer_node_uses_param(boundary, child, name, source))
 }
 
 fn collect_nodes_in<'tree>(node: Node<'tree>, kinds: &[&str], nodes: &mut Vec<Node<'tree>>) {

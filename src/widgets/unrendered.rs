@@ -302,19 +302,24 @@ fn render_counts(
     let mut counts = BTreeMap::<ClassKey, usize>::new();
     for file in files {
         for constructed in &file.object_constructors {
-            let Some(constructed) = resolver.resolve(&file.path, constructed) else {
-                continue;
-            };
-            let mut current = Some(constructed);
+            let mut pending = resolver
+                .resolve(&file.path, constructed)
+                .into_iter()
+                .collect::<Vec<_>>();
             let mut visited = BTreeSet::new();
-            while let Some(class) = current {
+            while let Some(class) = pending.pop() {
                 if !visited.insert(class.clone()) {
-                    break;
+                    continue;
                 }
                 if candidate_keys.contains(&class) {
                     *counts.entry(class.clone()).or_default() += 1;
                 }
-                current = superclasses.get(&class).cloned();
+                pending.extend(
+                    superclasses
+                        .get(&class)
+                        .into_iter()
+                        .flat_map(|parents| parents.iter().cloned()),
+                );
             }
         }
     }
@@ -324,20 +329,18 @@ fn render_counts(
 fn resolved_superclasses(
     files: &[&FileReachabilityFacts],
     resolver: &DeclarationResolver,
-) -> BTreeMap<ClassKey, ClassKey> {
-    let mut superclasses = BTreeMap::new();
+) -> BTreeMap<ClassKey, BTreeSet<ClassKey>> {
+    let mut superclasses = BTreeMap::<ClassKey, BTreeSet<ClassKey>>::new();
     for file in files {
         for (class, parent) in &file.superclasses {
-            let Some(parent) = resolver.resolve(&file.path, parent) else {
-                continue;
+            let class = ClassKey {
+                path: file.path.clone(),
+                name: class.clone(),
             };
-            superclasses.insert(
-                ClassKey {
-                    path: file.path.clone(),
-                    name: class.clone(),
-                },
-                parent,
-            );
+            superclasses
+                .entry(class)
+                .or_default()
+                .extend(resolver.resolve(&file.path, parent));
         }
     }
     superclasses

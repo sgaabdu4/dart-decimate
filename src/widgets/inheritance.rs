@@ -73,26 +73,29 @@ fn collect_file_inherited_uses(
     uses: &mut BTreeSet<(PathBuf, String, String)>,
 ) {
     for class in &file.classes {
-        let mut current_path = class.path.as_path();
-        let mut parent = class.superclass.as_deref();
+        let mut pending = class
+            .superclass
+            .iter()
+            .map(|parent| (class.path.clone(), parent.clone()))
+            .collect::<Vec<_>>();
         let mut visited = BTreeSet::new();
-        while let Some(parent_name) = parent {
-            let Some(ancestor_key) = resolver.resolve(current_path, parent_name) else {
-                break;
-            };
-            if !visited.insert(ancestor_key.clone()) {
-                break;
-            }
-            let Some(ancestor) = facts.get(&ancestor_key) else {
-                break;
-            };
-            for param in &ancestor.widget_params {
-                if class.body_param_reads.contains(param) {
-                    uses.insert((ancestor.path.clone(), ancestor.name.clone(), param.clone()));
+        while let Some((current_path, parent_name)) = pending.pop() {
+            for ancestor_key in resolver.resolve(&current_path, &parent_name) {
+                if !visited.insert(ancestor_key.clone()) {
+                    continue;
+                }
+                let Some(ancestor) = facts.get(&ancestor_key) else {
+                    continue;
+                };
+                for param in &ancestor.widget_params {
+                    if class.body_param_reads.contains(param) {
+                        uses.insert((ancestor.path.clone(), ancestor.name.clone(), param.clone()));
+                    }
+                }
+                if let Some(parent) = &ancestor.superclass {
+                    pending.push((ancestor.path.clone(), parent.clone()));
                 }
             }
-            current_path = &ancestor.path;
-            parent = ancestor.superclass.as_deref();
         }
     }
 }

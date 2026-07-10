@@ -83,10 +83,12 @@ impl DeclarationResolver {
         }
     }
 
-    pub(super) fn resolve(&self, from: &Path, reference: &str) -> Option<ClassKey> {
+    pub(super) fn resolve(&self, from: &Path, reference: &str) -> BTreeSet<ClassKey> {
         let reference = compact_reference(reference);
         let segments = reference.split('.').collect::<Vec<_>>();
-        let first = *segments.first()?;
+        let Some(first) = segments.first().copied() else {
+            return BTreeSet::new();
+        };
         let library = self.library_path(from);
         let imports = self
             .imports
@@ -101,31 +103,60 @@ impl DeclarationResolver {
                 .collect::<Vec<_>>();
             if !prefixed_imports.is_empty() {
                 if name.starts_with('_') {
-                    return None;
+                    return BTreeSet::new();
                 }
-                let prefixed = prefixed_imports
-                    .into_iter()
-                    .filter(|dependency| visible(name, &dependency.visibility))
-                    .flat_map(|dependency| self.exported_classes(&dependency.to_path, name))
-                    .collect::<BTreeSet<_>>();
-                return exactly_one(prefixed);
+                return self.imported_classes(
+                    prefixed_imports
+                        .into_iter()
+                        .copied()
+                        .filter(|dependency| visible(name, &dependency.visibility)),
+                    name,
+                );
             }
         }
 
         let local = self.library_classes(&library, first);
         if !local.is_empty() {
-            return exactly_one(local);
+            return exactly_one(local).into_iter().collect();
         }
         if first.starts_with('_') {
-            return None;
+            return BTreeSet::new();
         }
-        let imported = imports
-            .into_iter()
-            .filter(|dependency| dependency.visibility.prefix.is_none())
-            .filter(|dependency| visible(first, &dependency.visibility))
-            .flat_map(|dependency| self.exported_classes(&dependency.to_path, first))
-            .collect::<BTreeSet<_>>();
-        exactly_one(imported)
+        self.imported_classes(
+            imports
+                .into_iter()
+                .filter(|dependency| dependency.visibility.prefix.is_none())
+                .filter(|dependency| visible(first, &dependency.visibility)),
+            first,
+        )
+    }
+
+    fn imported_classes<'a>(
+        &self,
+        imports: impl IntoIterator<Item = &'a ResolvedDependency>,
+        name: &str,
+    ) -> BTreeSet<ClassKey> {
+        let mut candidates_by_directive = BTreeMap::<(usize, usize), BTreeSet<ClassKey>>::new();
+        for dependency in imports {
+            candidates_by_directive
+                .entry((dependency.location.line, dependency.location.column))
+                .or_default()
+                .extend(self.exported_classes(&dependency.to_path, name));
+        }
+        let mut resolved = BTreeSet::new();
+        let mut matching_directives = 0usize;
+        for candidates in candidates_by_directive
+            .into_values()
+            .filter(|candidates| !candidates.is_empty())
+        {
+            matching_directives += 1;
+            resolved.extend(candidates);
+        }
+        if matching_directives <= 1 || resolved.len() <= 1 {
+            resolved
+        } else {
+            BTreeSet::new()
+        }
     }
 
     fn exported_classes(&self, library: &Path, name: &str) -> BTreeSet<ClassKey> {

@@ -222,6 +222,49 @@ fn scans_pub_workspace_member_files() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
+fn repository_scan_stops_parent_gitignore_discovery_at_git_root()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "*.dart\n")?;
+    write(&fixture, "repo/.git/HEAD", "ref: refs/heads/main\n")?;
+    write(&fixture, "repo/.gitignore", "ignored.dart\n")?;
+    write(&fixture, "repo/pubspec.yaml", "name: app\n")?;
+    write(&fixture, "repo/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "repo/lib/ignored.dart", "class Ignored {}\n")?;
+
+    let project = scan_project(fixture.path().join("repo"))?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(
+        project.files[0].path,
+        fixture.path().join("repo/lib/main.dart")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn non_repository_scan_uses_root_gitignore_without_parent_rules()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "*.dart\n")?;
+    write(&fixture, "app/.gitignore", "ignored.dart\n")?;
+    write(&fixture, "app/pubspec.yaml", "name: app\n")?;
+    write(&fixture, "app/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "app/lib/ignored.dart", "class Ignored {}\n")?;
+
+    let project = scan_project(fixture.path().join("app"))?;
+
+    assert_eq!(project.files.len(), 1);
+    assert_eq!(
+        project.files[0].path,
+        fixture.path().join("app/lib/main.dart")
+    );
+
+    Ok(())
+}
+
+#[test]
 fn scans_all_conditional_import_targets() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

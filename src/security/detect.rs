@@ -524,28 +524,55 @@ fn call_invokes_command_shell(call: &str) -> bool {
         .to_ascii_lowercase();
     let Some(flag) = arguments
         .get(1)
-        .and_then(|value| value.trim().strip_prefix('['))
-        .and_then(|value| value.strip_suffix(']'))
+        .and_then(|value| list_literal_contents(value))
         .and_then(|value| top_level_call_arguments(value).into_iter().next())
         .and_then(fixed_literal_value)
         .map(|value| value.to_ascii_lowercase())
     else {
         return false;
     };
+    let posix_executable = executable.strip_suffix(".exe").unwrap_or(&executable);
     match executable.as_str() {
-        "sh" | "bash" | "dash" | "fish" | "ksh" | "zsh" => flag == "-c",
         "cmd" | "cmd.exe" => matches!(flag.as_str(), "/c" | "/k"),
         "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => {
             matches!(flag.as_str(), "-c" | "-command" | "-encodedcommand")
         }
-        _ => false,
+        _ => flag == "-c" && command_interpreter_uses_c_flag(posix_executable),
     }
+}
+
+fn command_interpreter_uses_c_flag(executable: &str) -> bool {
+    matches!(
+        executable,
+        "sh" | "ash"
+            | "bash"
+            | "csh"
+            | "dash"
+            | "elvish"
+            | "fish"
+            | "ksh"
+            | "mksh"
+            | "nu"
+            | "osh"
+            | "pdksh"
+            | "rc"
+            | "tcsh"
+            | "xonsh"
+            | "yash"
+            | "ysh"
+            | "zsh"
+    )
 }
 
 fn fixed_literal_value(value: &str) -> Option<String> {
     let value = value.trim();
-    read_string(value, 0)
-        .filter(|(_, _, end)| *end == value.len() && !value.contains('$'))
+    let raw = value
+        .as_bytes()
+        .get(0..2)
+        .is_some_and(|prefix| matches!(prefix, [b'r' | b'R', b'\'' | b'"']));
+    let quote_index = usize::from(raw);
+    read_string(value, quote_index)
+        .filter(|(literal, _, end)| *end == value.len() && (raw || !literal.contains('$')))
         .map(|(literal, _, _)| literal)
 }
 
@@ -604,10 +631,7 @@ fn named_bool_argument_is_statically_false_or_absent(call: &str, name: &str) -> 
 }
 
 fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &str) -> bool {
-    let Some(inner) = arguments
-        .strip_prefix('[')
-        .and_then(|value| value.strip_suffix(']'))
-    else {
+    let Some(inner) = list_literal_contents(arguments) else {
         return false;
     };
     top_level_call_arguments(inner).into_iter().all(|argument| {
@@ -620,10 +644,16 @@ fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &s
     })
 }
 
+fn list_literal_contents(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let value = value.strip_prefix("const").map_or(value, str::trim_start);
+    value
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+}
+
 fn fixed_string_literal(value: &str) -> bool {
-    matches!(value.as_bytes().first(), Some(b'\'' | b'"'))
-        && read_string(value, 0).is_some_and(|(_, _, end)| end == value.len())
-        && !value.contains('$')
+    fixed_literal_value(value).is_some()
 }
 
 fn lexical_binding_value<'source>(
@@ -1039,7 +1069,7 @@ fn oauth_endpoint_metadata_context(source: &str, index: usize, value: &str) -> b
     };
     oauth_endpoint_name(&identifier)
         && matches_url_scheme(value)
-        && !literal_has_secret_like_url_parameter(value)
+        && !literal_has_embedded_url_credentials(value)
 }
 
 fn oauth_endpoint_name(value: &str) -> bool {
@@ -1560,7 +1590,7 @@ fn benign_secret_named_literal(value: &str, secret_binding_name: bool) -> bool {
         || literal_looks_like_validation_copy(value)
         || literal_looks_like_operational_copy(value);
     (route_or_reset_url
-        && !literal_has_secret_like_url_parameter(value)
+        && !literal_has_embedded_url_credentials(value)
         && !literal_has_secret_like_reset_path_segment(value))
         || (benign_copy && !secret_binding_name && !literal_has_concrete_token_like_segment(value))
 }
@@ -1601,6 +1631,23 @@ fn literal_has_secret_like_url_parameter(value: &str) -> bool {
     trimmed.find('#').is_some_and(|fragment_index| {
         segment_has_secret_like_url_parameter(&trimmed[fragment_index + 1..])
     })
+}
+
+fn literal_has_embedded_url_credentials(value: &str) -> bool {
+    literal_has_url_userinfo(value) || literal_has_secret_like_url_parameter(value)
+}
+
+fn literal_has_url_userinfo(value: &str) -> bool {
+    let trimmed = value.trim();
+    let Some(authority_start) = trimmed.find("://").map(|index| index + 3) else {
+        return false;
+    };
+    let authority_end = trimmed[authority_start..]
+        .find(['/', '?', '#'])
+        .map_or(trimmed.len(), |index| authority_start + index);
+    trimmed[authority_start..authority_end]
+        .split_once('@')
+        .is_some_and(|(userinfo, host)| !userinfo.is_empty() && !host.is_empty())
 }
 
 fn segment_has_secret_like_url_parameter(segment: &str) -> bool {

@@ -105,9 +105,10 @@ fn codegen_signals(file: &DartFile) -> BTreeSet<CodegenSignal> {
         signals.insert(CodegenSignal::GoRouter);
     }
     if imports.contains(&"package:envied/envied.dart")
-        || references
-            .iter()
-            .any(|reference| matches!(*reference, "Envied" | "EnviedField"))
+        && (parts.iter().any(|part| part.ends_with(".g.dart"))
+            || references
+                .iter()
+                .any(|reference| matches!(*reference, "Envied" | "EnviedField")))
     {
         signals.insert(CodegenSignal::Envied);
     }
