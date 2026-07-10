@@ -12,7 +12,7 @@ use crate::graph::normalize_path;
 use crate::package_map::PackageMap;
 use crate::{
     DartFile, ExtractError, GraphError, GraphOptions, ModuleGraph, build_module_graph_with_options,
-    extract_dart_file,
+    extract_dart_file, git_command,
 };
 
 /// Parsed Dart files plus their resolved module graph.
@@ -135,16 +135,19 @@ pub fn scan_project_with_options(
 
     let mut paths = BTreeSet::new();
     for scan_root in &scan_roots {
-        if scan_root != &root && ignored_by_parent_gitignore(&root, scan_root) {
-            continue;
-        }
         if scan_roots
             .iter()
             .any(|other| other != scan_root && scan_root.starts_with(other))
         {
             continue;
         }
+        let tracked = tracked_dart_files(&root, scan_root, &ignore_matcher);
+        if scan_root != &root && tracked.is_empty() && ignored_by_parent_gitignore(&root, scan_root)
+        {
+            continue;
+        }
         discover_dart_files(&root, scan_root, &ignore_matcher, &mut paths)?;
+        paths.extend(tracked);
     }
     let paths = paths.into_iter().collect::<Vec<_>>();
 
@@ -154,13 +157,14 @@ pub fn scan_project_with_options(
         .collect::<Result<Vec<_>, _>>()?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
-    let graph = build_module_graph_with_options(
+    let mut graph = build_module_graph_with_options(
         &root,
         &files,
         &GraphOptions {
             conditional_environment: options.conditional_environment.clone(),
         },
     )?;
+    graph.suppress_existing_unresolved_targets();
 
     Ok(ScannedProject {
         root,
@@ -256,6 +260,45 @@ fn discover_dart_files(
     }
 
     Ok(())
+}
+
+fn tracked_dart_files(
+    root: &Path,
+    scan_root: &Path,
+    ignore_matcher: &IgnoreMatcher,
+) -> BTreeSet<PathBuf> {
+    let Ok(output) = git_command::for_repository(scan_root)
+        .args(["ls-files", "--cached", "-z"])
+        .output()
+    else {
+        return BTreeSet::new();
+    };
+    if !output.status.success() {
+        return BTreeSet::new();
+    }
+
+    output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter_map(|path| std::str::from_utf8(path).ok())
+        .map(|path| normalize_path(&scan_root.join(path)))
+        .filter(|path| {
+            path.starts_with(scan_root)
+                && path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension == "dart")
+                && !ignore_matcher.matches(root, path)
+                && !has_skipped_directory(scan_root, path)
+        })
+        .collect()
+}
+
+fn has_skipped_directory(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root)
+        .ok()
+        .and_then(Path::parent)
+        .is_some_and(|parent| parent.ancestors().any(should_skip_dir))
 }
 
 fn should_skip_dir(path: &Path) -> bool {

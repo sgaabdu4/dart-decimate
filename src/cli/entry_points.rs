@@ -143,45 +143,40 @@ fn is_direct_script_entry_point(path: &Path) -> bool {
                 Some("test" | "integration_test" | "test_driver" | "tool" | "scripts" | "pigeon")
             )
         })
+        && path.components().count() == 2
 }
 
 fn is_test_entry_point(path: &Path) -> bool {
     let file_name = path.file_name().and_then(|name| name.to_str());
     let is_test_file = file_name.is_some_and(|name| name.ends_with("_test.dart"));
-    is_test_file
-        && path.components().any(|component| {
-            matches!(
-                component,
-                Component::Normal(name)
-                    if name == "test" || name == "integration_test" || name == "test_driver"
-            )
-        })
+    is_test_file && starts_in_test_tree(path)
 }
 
 fn is_test_tree_main(path: &Path, has_main: bool) -> bool {
-    has_main && has_test_component(path)
+    has_main && starts_in_test_tree(path)
 }
 
 fn is_patrol_entry_point(path: &Path, patrol_suffix: Option<&str>) -> bool {
     let Some(suffix) = patrol_suffix else {
         return false;
     };
-    has_component(path, "integration_test")
+    starts_with_component(path, "integration_test")
         && path
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.ends_with(suffix))
 }
 
-fn has_test_component(path: &Path) -> bool {
+fn starts_in_test_tree(path: &Path) -> bool {
     ["test", "integration_test", "test_driver"]
         .iter()
-        .any(|name| has_component(path, name))
+        .any(|name| starts_with_component(path, name))
 }
 
-fn has_component(path: &Path, expected: &str) -> bool {
+fn starts_with_component(path: &Path, expected: &str) -> bool {
     path.components()
-        .any(|component| matches!(component, Component::Normal(name) if name == expected))
+        .next()
+        .is_some_and(|component| matches!(component, Component::Normal(name) if name == expected))
 }
 
 fn has_path_suffix(path: &Path, suffix: &[&str]) -> bool {

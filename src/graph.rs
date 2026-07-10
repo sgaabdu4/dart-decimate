@@ -150,6 +150,11 @@ impl ModuleGraph {
         &self.unresolved
     }
 
+    pub(crate) fn suppress_existing_unresolved_targets(&mut self) {
+        self.unresolved
+            .retain(|dependency| !dependency.attempted_path.is_file());
+    }
+
     /// Resolved `part` edges whose target file does not declare a matching `part of`.
     #[must_use]
     pub fn invalid_part_relationships(&self) -> &[InvalidPartRelationship] {

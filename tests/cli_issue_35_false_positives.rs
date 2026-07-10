@@ -10,7 +10,11 @@ fn git_ignored_generated_files_do_not_emit_source_findings()
     let fixture = tempfile::tempdir()?;
     write(&fixture, ".gitignore", "**/*.g.dart\n**/*.gen.dart\n")?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
-    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'gen/assets.gen.dart';\nvoid main() {}\n",
+    )?;
     write(
         &fixture,
         "lib/src/example_dto.g.dart",
@@ -54,6 +58,11 @@ fn git_ignored_generated_files_do_not_emit_source_findings()
         &json,
         "dart-decimate/unlisted-dependency",
         "packages/shared/lib/assets.gen.dart",
+    );
+    assert_no_finding_path(
+        &json,
+        "dart-decimate/unresolved-dependency",
+        "lib/main.dart",
     );
     Ok(())
 }
@@ -138,6 +147,45 @@ fn patrol_suffix_is_scoped_to_its_package() -> Result<(), Box<dyn std::error::Er
         "dart-decimate/dead-file",
         "packages/shared/integration_test/features/shared_patrol.dart",
     );
+    Ok(())
+}
+
+#[test]
+fn runner_trees_must_be_package_root_directories() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\npatrol:\n  test_file_suffix: _patrol.dart\n",
+    )?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "lib/src/test/helper.dart", "class Helper {}\n")?;
+    write(
+        &fixture,
+        "lib/src/integration_test/feature_test.dart",
+        "void testFeature() {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/integration_test/feature_patrol.dart",
+        "class PatrolHelper {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/test/features/nested_main.dart",
+        "void main() {}\n",
+    )?;
+
+    let json = check(&fixture)?;
+
+    for path in [
+        "lib/src/test/helper.dart",
+        "lib/src/integration_test/feature_test.dart",
+        "lib/src/integration_test/feature_patrol.dart",
+        "lib/src/test/features/nested_main.dart",
+    ] {
+        assert_finding_path(&json, "dart-decimate/dead-file", path);
+    }
     Ok(())
 }
 
@@ -518,6 +566,65 @@ class RenamedAvatar extends RenamedBase {
         "dart-decimate/unused-widget-param",
         "RenamedBase.size",
     );
+    Ok(())
+}
+
+#[test]
+fn imported_subclass_super_reads_preserve_inherited_params()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'avatar.dart';\nimport 'same_file.dart';\nvoid main() { const Avatar(); const SameFileAvatar(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/framework.dart",
+        "class Widget {}\nclass StatelessWidget extends Widget { const StatelessWidget(); }\nclass BuildContext {}\nclass SizedBox extends Widget { const SizedBox.square({double? dimension}); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/base.dart",
+        r"import 'framework.dart';
+abstract class AvatarBase extends StatelessWidget {
+  const AvatarBase({this.size});
+  final double? size;
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/avatar.dart",
+        r"import 'base.dart';
+import 'framework.dart';
+class Avatar extends AvatarBase {
+  const Avatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: super.size);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/same_file.dart",
+        r"import 'framework.dart';
+abstract class SameFileBase extends StatelessWidget {
+  const SameFileBase({this.size});
+  final double? size;
+}
+class SameFileAvatar extends SameFileBase {
+  const SameFileAvatar({super.size});
+  Widget build(BuildContext context) => SizedBox.square(dimension: super.size);
+}
+",
+    )?;
+
+    let json = check(&fixture)?;
+
+    for target in ["AvatarBase.size", "SameFileBase.size"] {
+        assert_no_action_target(&json, "dart-decimate/unused-widget-param", target);
+    }
     Ok(())
 }
 
@@ -904,12 +1011,78 @@ fn leading_shell_options_remain_process_candidates() -> Result<(), Box<dyn std::
         "lib/main.dart",
         r"import 'dart:io';
 
+const bashOption = '--noprofile';
+
 Future<ProcessResult> bashRun(String command) {
   return Process.run('/bin/bash', ['--noprofile', '-c', command]);
 }
 
+Future<ProcessResult> bashRunWithFixedOption(String command) {
+  return Process.run('/bin/bash', [bashOption, '-c', command]);
+}
+
 Future<ProcessResult> powershellRun(String command) {
   return Process.run('pwsh', ['-NoProfile', '-Command', command]);
+}
+
+Future<ProcessResult> sshRun(String host) {
+  return Process.run('ssh', [host]);
+}
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let candidates = json["security_candidates"]
+        .as_array()
+        .unwrap_or_else(|| panic!("security_candidates array"));
+    let process = candidate(candidates, "process-execution");
+
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(3));
+    Ok(())
+}
+
+#[test]
+fn class_getters_shadow_outer_fixed_process_executables() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'dart:io';
+
+final dartExe = Platform.resolvedExecutable;
+
+class DirectRunner {
+  DirectRunner(this.command);
+  final String command;
+  String get dartExe => command;
+
+  Future<Process> start() =>
+      Process.start(dartExe, const ['/path/to/snapshot']);
+}
+
+class BaseRunner {
+  BaseRunner(this.command);
+  final String command;
+  String get dartExe => command;
+}
+
+class InheritedRunner extends BaseRunner {
+  InheritedRunner(super.command);
+
+  Future<Process> start() =>
+      Process.start(dartExe, const ['/path/to/snapshot']);
+}
+
+class LocalFunctionRunner {
+  void helper() {
+    String dartExe() => 'other';
+    dartExe();
+  }
+
+  Future<Process> start() =>
+      Process.start(dartExe, const ['/path/to/snapshot']);
 }
 ",
     )?;

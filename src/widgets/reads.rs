@@ -17,10 +17,23 @@ pub(super) fn widget_body_uses_param(body: Node<'_>, name: &str, source: &str) -
     found
 }
 
+pub(super) fn widget_body_uses_inherited_param(body: Node<'_>, name: &str, source: &str) -> bool {
+    if widget_body_uses_param(body, name, source) {
+        return true;
+    }
+    let mut found = false;
+    visit_named(body, &mut |node| {
+        if !found && receiver_member_name(node, &["super"], source).as_deref() == Some(name) {
+            found = true;
+        }
+    });
+    found
+}
+
 pub(super) fn widget_body_param_reads(body: Node<'_>, source: &str) -> BTreeSet<String> {
     let mut reads = BTreeSet::new();
     visit_named(body, &mut |node| {
-        if let Some(name) = this_member_name(node, source) {
+        if let Some(name) = inherited_member_name(node, source) {
             reads.insert(name);
         }
         if matches!(node.kind(), "identifier" | "identifier_dollar_escaped")
@@ -178,7 +191,15 @@ fn is_this_member_access(node: Node<'_>, name: &str, source: &str) -> bool {
     this_member_name(node, source).as_deref() == Some(name)
 }
 
+fn inherited_member_name(node: Node<'_>, source: &str) -> Option<String> {
+    receiver_member_name(node, &["this", "super"], source)
+}
+
 fn this_member_name(node: Node<'_>, source: &str) -> Option<String> {
+    receiver_member_name(node, &["this"], source)
+}
+
+fn receiver_member_name(node: Node<'_>, receivers: &[&str], source: &str) -> Option<String> {
     if !matches!(
         node.kind(),
         "member_expression" | "null_aware_member_expression" | "assignable_expression"
@@ -187,7 +208,8 @@ fn this_member_name(node: Node<'_>, source: &str) -> Option<String> {
     }
     let property = node.child_by_field_name("property")?;
     let object = node.child_by_field_name("object")?;
-    (object.utf8_text(source.as_bytes()).ok() == Some("this"))
+    receivers
+        .contains(&object.utf8_text(source.as_bytes()).ok()?)
         .then(|| {
             property
                 .utf8_text(source.as_bytes())

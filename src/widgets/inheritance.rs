@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 
 use super::params::constructor_params;
-use super::reads::{widget_body_param_reads, widget_body_uses_param};
+use super::reads::{widget_body_param_reads, widget_body_uses_inherited_param};
 use super::resolution::{ClassKey, DeclarationResolver};
 use super::{WidgetFileFacts, simple_type_name, superclass_type_text, widget_kind};
 
@@ -156,7 +156,7 @@ pub(super) fn inherited_param_uses(
                 continue;
             };
             for param in params {
-                if widget_body_uses_param(body, param, source) {
+                if widget_body_uses_inherited_param(body, param, source) {
                     uses.insert((ancestor.clone(), param.clone()));
                 }
             }

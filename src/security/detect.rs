@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use tree_sitter::Node;
@@ -529,10 +530,17 @@ fn call_invokes_command_shell(call: &str) -> bool {
         return false;
     };
     let posix_executable = executable.strip_suffix(".exe").unwrap_or(&executable);
+    if !matches!(
+        executable.as_str(),
+        "cmd" | "cmd.exe" | "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
+    ) && !command_interpreter_uses_c_flag(posix_executable)
+    {
+        return false;
+    }
     for argument in top_level_call_arguments(shell_arguments) {
         let Some(flag) = fixed_literal_value(argument).map(|value| value.to_ascii_lowercase())
         else {
-            return false;
+            return true;
         };
         let (invokes_command, is_option) = match executable.as_str() {
             "cmd" | "cmd.exe" => (
@@ -726,10 +734,108 @@ fn class_binding<'source>(
     source: &'source str,
 ) -> Option<LexicalBinding<'source>> {
     let mut cursor = class_body.walk();
-    class_body
+    let direct = class_body
         .named_children(&mut cursor)
         .filter(|member| member.start_byte() != current_member.start_byte())
-        .find_map(|member| direct_binding(member, name, source, false))
+        .find_map(|member| class_member_binding(member, name, source));
+    if direct.is_some() {
+        return direct;
+    }
+    let class = class_body.parent()?;
+    let mut visited = BTreeSet::new();
+    inherited_class_binding(root_node(class), class, name, source, &mut visited)
+}
+
+fn class_member_binding<'source>(
+    member: Node<'_>,
+    name: &str,
+    source: &'source str,
+) -> Option<LexicalBinding<'source>> {
+    direct_binding(member, name, source, false).or_else(|| {
+        class_member_declares_name(member, name, source).then_some(LexicalBinding::Unknown)
+    })
+}
+
+fn class_member_declares_name(member: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = member.walk();
+    member
+        .named_children(&mut cursor)
+        .filter(|child| matches!(child.kind(), "declaration" | "method_declaration"))
+        .any(|child| member_signature_name(child, source).as_deref() == Some(name))
+}
+
+fn member_signature_name(node: Node<'_>, source: &str) -> Option<String> {
+    if matches!(
+        node.kind(),
+        "function_signature" | "getter_signature" | "setter_signature"
+    ) {
+        return node
+            .child_by_field_name("name")?
+            .utf8_text(source.as_bytes())
+            .ok()
+            .map(str::to_owned);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| member_signature_name(child, source))
+}
+
+fn inherited_class_binding<'source>(
+    root: Node<'_>,
+    class: Node<'_>,
+    name: &str,
+    source: &'source str,
+    visited: &mut BTreeSet<String>,
+) -> Option<LexicalBinding<'source>> {
+    let parent_name = class_superclass_name(class, source)?;
+    if !visited.insert(parent_name.clone()) {
+        return None;
+    }
+    let parent = find_class_declaration(root, &parent_name, source)?;
+    let body = parent.child_by_field_name("body")?;
+    let mut cursor = body.walk();
+    if let Some(binding) = body
+        .named_children(&mut cursor)
+        .find_map(|member| class_member_binding(member, name, source))
+    {
+        return Some(binding);
+    }
+    inherited_class_binding(root, parent, name, source, visited)
+}
+
+fn class_superclass_name(class: Node<'_>, source: &str) -> Option<String> {
+    let superclass = class.child_by_field_name("superclass")?;
+    let name = superclass
+        .child_by_field_name("type")?
+        .utf8_text(source.as_bytes())
+        .ok()?;
+    let name = name.split('<').next()?.trim();
+    (!name.contains('.')).then(|| name.to_owned())
+}
+
+fn find_class_declaration<'tree>(
+    node: Node<'tree>,
+    name: &str,
+    source: &str,
+) -> Option<Node<'tree>> {
+    if node.kind() == "class_declaration"
+        && node
+            .child_by_field_name("name")
+            .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+            == Some(name)
+    {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find_map(|child| find_class_declaration(child, name, source))
+}
+
+fn root_node(mut node: Node<'_>) -> Node<'_> {
+    while let Some(parent) = node.parent() {
+        node = parent;
+    }
+    node
 }
 
 enum LexicalBinding<'source> {
