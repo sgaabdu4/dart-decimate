@@ -1,8 +1,8 @@
 use tree_sitter::Node;
 
 use super::{
-    balanced_enclosed_text, class_extends_state, direct_constructor_call_text, direct_named_child,
-    direct_static_member_call_text, is_identifier_character, simple_type_name,
+    argument_list, balanced_enclosed_text, class_extends_state, direct_constructor_call_text,
+    direct_named_child, direct_static_member_call_text, is_identifier_character, simple_type_name,
     strip_constructor_keyword_prefix, strip_whitespace, unwrap_parenthesized_text,
 };
 
@@ -42,10 +42,8 @@ pub(super) fn route_extension_navigation_has_context_argument(
 ) -> bool {
     first_positional_argument(arguments)
         .and_then(|argument| argument.utf8_text(source.as_bytes()).ok())
-        .and_then(navigation_target_name)
-        .is_some_and(|target| {
-            target_resolves_to_navigation_type(root, site, &target, &[BUILD_CONTEXT], source)
-        })
+        .and_then(|target| navigation_expression_resolution(root, site, target, source))
+        .is_some_and(|resolution| resolution.matches(&[BUILD_CONTEXT]))
 }
 
 pub(super) fn navigation_receiver_accepts_route_location(
@@ -58,9 +56,8 @@ pub(super) fn navigation_receiver_accepts_route_location(
     if go_router_receiver_expression(root, site, receiver, source) {
         return true;
     }
-    navigation_target_name(receiver).is_some_and(|target| {
-        target_resolves_to_navigation_type(root, site, &target, &[BUILD_CONTEXT, GO_ROUTER], source)
-    })
+    navigation_expression_resolution(root, site, receiver, source)
+        .is_some_and(|resolution| resolution.matches(&[BUILD_CONTEXT, GO_ROUTER]))
 }
 
 fn go_router_receiver_expression(
@@ -325,19 +322,76 @@ fn navigation_target_name(text: &str) -> Option<NavigationTargetName> {
     })
 }
 
-fn target_resolves_to_navigation_type(
+fn navigation_expression_resolution(
     root: Node<'_>,
     site: Node<'_>,
-    target: &NavigationTargetName,
-    accepted: &[&str],
+    expression: &str,
+    source: &str,
+) -> Option<NameResolution> {
+    let compact = strip_whitespace(expression.trim());
+    let unwrapped = unwrap_parenthesized_text(&compact).unwrap_or(&compact);
+    let expression = unwrapped.trim_end_matches(['?', '!']);
+    if navigator_context_expression(root, site, expression, source) {
+        return Some(NameResolution::Type(BUILD_CONTEXT.to_owned()));
+    }
+    if let Some(target) = navigation_target_name(expression) {
+        return if target.member_only {
+            class_member_resolution_at(root, site, &target.name, source)
+        } else {
+            visible_name_resolution_at(root, site, &target.name, source)
+        };
+    }
+    let (receiver, member) = expression.rsplit_once('.')?;
+    if !is_simple_identifier(receiver) || !is_simple_identifier(member) {
+        return None;
+    }
+    let NameResolution::Type(owner_type) =
+        visible_name_resolution_at(root, site, receiver, source)?
+    else {
+        return Some(NameResolution::Shadowed);
+    };
+    local_type_member_resolution(root, &owner_type, member, source)
+}
+
+fn navigator_context_expression(
+    root: Node<'_>,
+    site: Node<'_>,
+    expression: &str,
     source: &str,
 ) -> bool {
-    let resolution = if target.member_only {
-        class_member_resolution_at(root, site, &target.name, source)
-    } else {
-        visible_name_resolution_at(root, site, &target.name, source)
+    let Some(factory) = expression.strip_suffix(".context") else {
+        return false;
     };
-    resolution.is_some_and(|resolution| resolution.matches(accepted))
+    if !direct_static_member_call_text(factory, "Navigator", "of")
+        || term_identifier_shadowed_at(root, site, "Navigator", source)
+        || !framework_build_context_import(root, None, source)
+    {
+        return false;
+    }
+    let mut context_argument_resolves = false;
+    visit_named(site, &mut |node| {
+        if context_argument_resolves
+            || !matches!(
+                node.kind(),
+                "call_expression" | "function_expression_invocation"
+            )
+        {
+            return;
+        }
+        let Some(arguments) = argument_list(node) else {
+            return;
+        };
+        let Some(prefix) = source.get(node.start_byte()..arguments.start_byte()) else {
+            return;
+        };
+        if strip_whitespace(prefix) == "Navigator.of" {
+            context_argument_resolves = first_positional_argument(arguments)
+                .and_then(|argument| argument.utf8_text(source.as_bytes()).ok())
+                .and_then(|argument| navigation_expression_resolution(root, node, argument, source))
+                .is_some_and(|resolution| resolution.matches(&[BUILD_CONTEXT]));
+        }
+    });
+    context_argument_resolves
 }
 
 fn visible_name_resolution_at(
@@ -505,6 +559,9 @@ fn declaration_type_resolution(
         return formal_parameter_type(root, node, name, source)
             .map_or(NameResolution::Shadowed, NameResolution::Type);
     }
+    if let Some(resolution) = object_pattern_member_resolution(root, node, name, source) {
+        return resolution;
+    }
     if let Some(resolution) = declared_type_for_name(root, node, name, source) {
         return resolution;
     }
@@ -611,9 +668,8 @@ fn initializer_type_for_name(
 }
 
 fn initializer_type(root: Node<'_>, node: Node<'_>, source: &str) -> Option<String> {
-    let text = node.utf8_text(source.as_bytes()).ok()?;
-    let (_, right) = text.split_once('=')?;
-    let expression = right.trim().trim_end_matches([',', ';']).trim();
+    let value = node.child_by_field_name("value")?;
+    let expression = value.utf8_text(source.as_bytes()).ok()?.trim();
     let unwrapped = unwrap_parenthesized_text(expression).unwrap_or(expression);
     let without_postfix = unwrapped.trim_end_matches(['?', '!']).trim();
     let unwrapped = unwrap_parenthesized_text(without_postfix).unwrap_or(without_postfix);
@@ -627,7 +683,60 @@ fn initializer_type(root: Node<'_>, node: Node<'_>, source: &str) -> Option<Stri
             return Some(target_type.to_owned());
         }
     }
-    None
+    match navigation_expression_resolution(root, node, expression, source)? {
+        NameResolution::Type(type_name) => Some(type_name),
+        NameResolution::Shadowed => None,
+    }
+}
+
+fn object_pattern_member_resolution(
+    root: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<NameResolution> {
+    let mut owner_type = None;
+    visit_named(node, &mut |candidate| {
+        if owner_type.is_some()
+            || candidate.kind() != "object_pattern"
+            || !declaration_binds_name(candidate, name, source)
+        {
+            return;
+        }
+        let Some(text) = candidate.utf8_text(source.as_bytes()).ok() else {
+            return;
+        };
+        let Some((raw_type, _)) = text.split_once('(') else {
+            return;
+        };
+        let type_name = simple_type_name(raw_type.trim());
+        if is_simple_identifier(&type_name) {
+            owner_type = Some(type_name);
+        }
+    });
+    local_type_member_resolution(root, &owner_type?, name, source)
+}
+
+fn local_type_member_resolution(
+    root: Node<'_>,
+    owner_type: &str,
+    member_name: &str,
+    source: &str,
+) -> Option<NameResolution> {
+    let mut resolution = None;
+    visit_named(root, &mut |candidate| {
+        if resolution.is_some()
+            || candidate.kind() != "class_declaration"
+            || field_text(candidate, "name", source).as_deref() != Some(owner_type)
+        {
+            return;
+        }
+        let Some(body) = candidate.child_by_field_name("body") else {
+            return;
+        };
+        resolution = class_member_resolution(root, body, member_name, source);
+    });
+    resolution
 }
 
 fn scoped_header_binding_exists(
@@ -756,7 +865,9 @@ fn is_body_statement_child(kind: &str) -> bool {
 }
 
 fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
-    if binding_name(node, source).as_deref() == Some(name) {
+    if binding_name(node, source).as_deref() == Some(name)
+        || object_pattern_shorthand_binds_name(node, name, source)
+    {
         return true;
     }
     if is_callable_node(node.kind()) {
@@ -765,6 +876,23 @@ fn declaration_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
     let mut cursor = node.walk();
     node.named_children(&mut cursor)
         .any(|child| declaration_binds_name(child, name, source))
+}
+
+fn object_pattern_shorthand_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
+    if node.kind() != "object_pattern" {
+        return false;
+    }
+    let Some(text) = node.utf8_text(source.as_bytes()).ok() else {
+        return false;
+    };
+    let compact = strip_whitespace(text);
+    let marker = format!(":{name}");
+    compact.match_indices(&marker).any(|(start, _)| {
+        compact
+            .get(start + marker.len()..)
+            .and_then(|rest| rest.chars().next())
+            .is_none_or(|character| !is_identifier_character(character))
+    })
 }
 
 fn binding_name(node: Node<'_>, source: &str) -> Option<String> {

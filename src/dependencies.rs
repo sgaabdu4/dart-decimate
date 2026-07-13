@@ -7,7 +7,7 @@ use serde_yaml_ng::{Mapping, Value};
 use thiserror::Error;
 
 use crate::graph::normalize_path;
-use crate::{DependencyKind, Location};
+use crate::{DependencyKind, ExtractError, GraphError, Location};
 
 mod analyze;
 mod codegen;
@@ -145,6 +145,12 @@ impl DependencySection {
 /// Errors returned while analyzing pub dependency hygiene.
 #[derive(Debug, Error)]
 pub enum DependencyHygieneError {
+    /// Local package resolution failed while following a generated runtime file.
+    #[error(transparent)]
+    Graph(#[from] GraphError),
+    /// A reachable generated runtime file could not be parsed.
+    #[error(transparent)]
+    Extract(#[from] ExtractError),
     /// A directory could not be read.
     #[error("failed to read directory {path}: {source}")]
     ReadDir {
