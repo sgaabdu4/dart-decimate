@@ -1,9 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::dependency_scripts::package_used_in_tooling;
 use crate::generated::is_generated_dart_path;
-use crate::{DependencyKind, Location, scan::ScannedProject};
+use crate::graph::resolve_local_uri;
+use crate::package_map::PackageMap;
+use crate::{DartFile, DependencyKind, Location, extract_dart_file, scan::ScannedProject};
 
 use super::codegen::codegen_dependencies_for_file;
 use super::usage::DependencyUsage;
@@ -31,7 +33,8 @@ pub fn analyze_dependency_hygiene(
     project: &ScannedProject,
 ) -> Result<DependencyHygieneReport, DependencyHygieneError> {
     let packages = discover_packages(&project.root)?;
-    let mut imports = collect_import_usage(project, &packages);
+    let generated_runtime_files = reachable_generated_runtime_files(project, &packages)?;
+    let mut imports = collect_import_usage(project, &packages, &generated_runtime_files);
     let mut unused_dependencies = unused_dependencies(&packages, &imports.used_by_package);
 
     sort_unused_dependencies(&mut unused_dependencies);
@@ -48,7 +51,11 @@ pub fn analyze_dependency_hygiene(
     })
 }
 
-fn collect_import_usage(project: &ScannedProject, packages: &[PubPackage]) -> ImportUsage {
+fn collect_import_usage(
+    project: &ScannedProject,
+    packages: &[PubPackage],
+    generated_runtime_files: &[DartFile],
+) -> ImportUsage {
     let mut usage = ImportUsage::default();
     for file in &project.files {
         let Some(owner) = owning_package(packages, &file.path) else {
@@ -80,7 +87,74 @@ fn collect_import_usage(project: &ScannedProject, packages: &[PubPackage]) -> Im
             }
         }
     }
+    for file in generated_runtime_files {
+        let Some(owner) = owning_package(packages, &file.path) else {
+            continue;
+        };
+        for specifier in file
+            .imports
+            .iter()
+            .map(|import| import.uri.as_str())
+            .chain(file.exports.iter().map(|export| export.uri.as_str()))
+        {
+            let Some(dependency) = package_name(specifier) else {
+                continue;
+            };
+            if dependency != owner.name {
+                record_dependency_usage(&mut usage, owner, &file.path, &dependency);
+            }
+        }
+    }
     usage
+}
+
+fn reachable_generated_runtime_files(
+    project: &ScannedProject,
+    packages: &[PubPackage],
+) -> Result<Vec<DartFile>, DependencyHygieneError> {
+    let package_map = PackageMap::discover(&project.root)?;
+    let mut known_paths = project
+        .files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<BTreeSet<_>>();
+    let mut frontier = project
+        .files
+        .iter()
+        .filter(|file| {
+            owning_package(packages, &file.path)
+                .is_some_and(|owner| !super::allows_dev_dependency(&owner.root, &file.path))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut generated = Vec::new();
+
+    while let Some(file) = frontier.pop() {
+        for specifier in file
+            .imports
+            .iter()
+            .map(|import| import.uri.as_str())
+            .chain(file.exports.iter().map(|export| export.uri.as_str()))
+        {
+            let Some(target) =
+                resolve_local_uri(&project.root, &package_map, &file.path, specifier)
+            else {
+                continue;
+            };
+            if !target.local
+                || !target.path.is_file()
+                || !is_generated_dart_path(&target.path)
+                || !known_paths.insert(target.path.clone())
+            {
+                continue;
+            }
+            let parsed = extract_dart_file(&target.path)?;
+            frontier.push(parsed.clone());
+            generated.push(parsed);
+        }
+    }
+    generated.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(generated)
 }
 
 fn record_directive(
@@ -110,13 +184,7 @@ fn record_directive(
         });
     }
 
-    usage
-        .used_by_package
-        .entry(owner.root.clone())
-        .or_default()
-        .entry(dependency.clone())
-        .or_default()
-        .record(&owner.root, file_path);
+    record_dependency_usage(usage, owner, file_path, &dependency);
 
     if !owner.declares_dependency_for_path(&dependency, file_path)
         && !is_known_generated_internal_import(file_path, specifier)
@@ -135,6 +203,21 @@ fn record_directive(
                 location,
             });
     }
+}
+
+fn record_dependency_usage(
+    usage: &mut ImportUsage,
+    owner: &PubPackage,
+    file_path: &Path,
+    dependency: &str,
+) {
+    usage
+        .used_by_package
+        .entry(owner.root.clone())
+        .or_default()
+        .entry(dependency.to_owned())
+        .or_default()
+        .record(&owner.root, file_path);
 }
 
 fn is_known_generated_internal_import(file_path: &Path, specifier: &str) -> bool {
