@@ -181,7 +181,10 @@ fn raw_receiver_before_navigation<'source>(
 }
 
 fn constructor_receiver_text(receiver: &str) -> String {
-    let trimmed = receiver.trim();
+    let trimmed = receiver
+        .rsplit_once("=>")
+        .map_or(receiver, |(_, expression)| expression)
+        .trim();
     let unwrapped = unwrap_parenthesized_text(trimmed).unwrap_or(trimmed);
     let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
     strip_whitespace(without_keyword)
