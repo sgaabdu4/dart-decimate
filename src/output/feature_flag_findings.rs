@@ -44,6 +44,7 @@ pub(super) fn add_feature_flag_findings(
         report
             .flags
             .iter()
+            .filter(|flag| !report.options.allow.contains(&flag.name))
             .map(|flag| feature_flag_finding(root, flag)),
     );
 }

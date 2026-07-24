@@ -14,6 +14,9 @@ use crate::{Location, ScannedProject};
 pub struct FeatureFlagOptions {
     /// Limit output to the N most frequently referenced flags.
     pub top: Option<usize>,
+    /// Flag names kept in inventory but acknowledged as intentional.
+    #[serde(default)]
+    pub allow: BTreeSet<String>,
 }
 
 /// Feature flag report.

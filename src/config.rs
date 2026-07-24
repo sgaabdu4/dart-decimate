@@ -125,6 +125,9 @@ pub struct FeatureFlagConfig {
     /// Limit output to the N most frequently referenced flags.
     #[serde(default)]
     pub top: Option<usize>,
+    /// Intentional flag names retained in inventory without findings.
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 /// Security analyzer config defaults.
@@ -257,7 +260,8 @@ pub fn config_schema() -> Value {
             "cache": cache::cache_schema(),
             "health": health::health_schema(),
             "dupes": dupes_schema(),
-            "flags": top_schema(),
+            "flags": feature_flags_schema(),
+            "featureFlags": feature_flags_schema(),
             "security": security_schema(),
             "rules": rules_schema()
         }
@@ -286,6 +290,7 @@ impl DartDecimateConfig {
     pub fn feature_flag_options(&self) -> FeatureFlagOptions {
         FeatureFlagOptions {
             top: self.flags.top,
+            allow: self.flags.allow.iter().cloned().collect(),
         }
     }
 
@@ -356,6 +361,7 @@ struct RawConfig {
     cache: CacheConfig,
     health: HealthConfig,
     dupes: DuplicateConfig,
+    #[serde(alias = "featureFlags")]
     flags: FeatureFlagConfig,
     security: SecurityConfig,
     rules: RuleConfig,
@@ -580,12 +586,13 @@ fn dupes_schema() -> Value {
     })
 }
 
-fn top_schema() -> Value {
+fn feature_flags_schema() -> Value {
     json!({
         "type": "object",
         "additionalProperties": false,
         "properties": {
-            "top": positive_integer_schema()
+            "top": positive_integer_schema(),
+            "allow": string_list_schema()
         }
     })
 }

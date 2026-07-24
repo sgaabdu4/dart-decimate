@@ -73,6 +73,14 @@ fn config_schema_command_emits_json_schema() -> Result<(), Box<dyn std::error::E
         100
     );
     assert_eq!(
+        json["properties"]["flags"]["properties"]["allow"]["items"]["type"],
+        "string"
+    );
+    assert_eq!(
+        json["properties"]["featureFlags"]["properties"]["allow"]["items"]["type"],
+        "string"
+    );
+    assert_eq!(
         json["properties"]["ignoreDependencies"]["items"]["type"],
         "string"
     );
