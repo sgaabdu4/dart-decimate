@@ -2435,6 +2435,7 @@ fn literal_looks_like_user_facing_copy(value: &str) -> bool {
             "password reset",
             "enter password",
             "confirm password",
+            "confirm your password",
             "password must",
             "password is",
             "password should",
