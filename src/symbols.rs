@@ -348,7 +348,7 @@ fn unused_member_from_declaration(
             &indexed.member.owner,
             &indexed.member.name,
             reachable_files,
-        )
+        ) + index.qualified_reference_count(&indexed.member.owner, "values", reachable_files)
     } else {
         let library = index.library_path(&indexed.path);
         index.library_reference_count(&indexed.member.name, library, reachable_files)

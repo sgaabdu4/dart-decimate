@@ -65,6 +65,73 @@ fn external_and_interpolated_enum_member_usage_stays_live() -> Result<(), Box<dy
     Ok(())
 }
 
+#[test]
+fn reachable_enum_values_iteration_keeps_every_constant_live()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'src/sections.dart';
+
+void main() {
+  print(Section.home);
+  print(Section.tips);
+  for (final section in Section.values) {
+    print(section.id);
+  }
+  print(Section.fromId('library'));
+  print(Control.used);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/src/sections.dart",
+        r"enum Section {
+  home('home'),
+  tips('tips'),
+  library('library');
+
+  const Section(this.id);
+  final String id;
+
+  static Section? fromId(String? id) {
+    for (final section in Section.values) {
+      if (section.id == id) return section;
+    }
+    return null;
+  }
+}
+
+enum Control { used, neverRead }
+",
+    )?;
+
+    let (_, json) = run_json([
+        "dart-decimate",
+        "dead-code",
+        root(&fixture),
+        "--format",
+        "json",
+        "--entry",
+        "lib/main.dart",
+    ])?;
+
+    assert!(!finding_targets_symbol(
+        &json,
+        "dart-decimate/unused-enum-member",
+        "library"
+    ));
+    assert!(finding_targets_symbol(
+        &json,
+        "dart-decimate/unused-enum-member",
+        "neverRead"
+    ));
+    Ok(())
+}
+
 fn symbol_usage_report() -> Result<Value, Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write_symbol_usage_fixture(&fixture)?;
@@ -208,7 +275,7 @@ const web = FirebaseOptions(
         "lib/main.dart",
         r"import 'firebase_options.dart';
 
-const apiSecret = 'AKIAIOSFODNN7EXAMPLE';
+const apiSecret = 'N7kQ9vR2mX4cT8pL6zW3';
 
 String? validateConfirmPassword(String password, String confirmPassword) {
   if (confirmPassword.isEmpty) return 'Please confirm your password';
@@ -216,9 +283,23 @@ String? validateConfirmPassword(String password, String confirmPassword) {
   return null;
 }
 
+Future<void> reset({
+  required String userId,
+  required String secret,
+}) async {
+  print(userId);
+  print(secret);
+}
+
+void log(String message) {
+  print(message);
+}
+
 void main() {
   print(web);
   print(apiSecret);
+  log('requestAuthorization');
+  log('reloadConfiguration');
 }
 ",
     )?;
@@ -240,21 +321,20 @@ void main() {
             .count(),
         1
     );
-    assert!(
-        json["security_candidates"]
-            .as_array()
-            .is_some_and(|candidates| {
-                candidates.iter().all(|candidate| {
-                    candidate["occurrences"]
-                        .as_array()
-                        .is_some_and(|occurrences| {
-                            occurrences
-                                .iter()
-                                .all(|occurrence| occurrence["path"] != "lib/firebase_options.dart")
-                        })
-                })
-            })
-    );
+    let Some(candidate) = json["security_candidates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate["category"] == "hardcoded-secret")
+    else {
+        panic!("hardcoded-secret candidate");
+    };
+    let Some(occurrences) = candidate["occurrences"].as_array() else {
+        panic!("hardcoded-secret occurrences");
+    };
+    assert_eq!(occurrences.len(), 1);
+    assert_eq!(occurrences[0]["path"], "lib/main.dart");
+    assert_eq!(occurrences[0]["line"], 3);
     Ok(())
 }
 
