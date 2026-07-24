@@ -248,6 +248,12 @@ fn unused_dependency(
     if dependency.name == package.name {
         return None;
     }
+    if package
+        .flutter_metadata_dependencies
+        .contains(&dependency.name)
+    {
+        return None;
+    }
     let mut usage = used
         .and_then(|used| used.get(&dependency.name))
         .copied()

@@ -13,6 +13,7 @@ mod analyze;
 mod codegen;
 pub(crate) use codegen::file_uses_codegen_dependency;
 mod discovery;
+mod flutter_usage;
 mod overrides;
 mod private_src_imports;
 mod pubspec_document;
@@ -280,6 +281,7 @@ pub(super) struct PubPackage {
     root: PathBuf,
     pubspec_path: PathBuf,
     dependencies: Vec<DeclaredDependency>,
+    flutter_metadata_dependencies: BTreeSet<String>,
     misconfigured_dependency_overrides: Vec<MisconfiguredDependencyOverride>,
     locked_packages: Option<BTreeSet<String>>,
 }
@@ -348,12 +350,14 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
         .parent()
         .map_or_else(|| PathBuf::from("."), normalize_path);
     let overrides = read_pubspec_overrides(&root)?;
+    let flutter_metadata_dependencies = flutter_usage::flutter_metadata_dependencies(&root, &value);
 
     Ok(Some(PubPackage {
         name: name.to_owned(),
         root,
         pubspec_path: path.to_path_buf(),
         dependencies: merged_declared_dependencies(&value, &source, path, overrides.as_ref()),
+        flutter_metadata_dependencies,
         misconfigured_dependency_overrides: merged_misconfigured_dependency_overrides(
             &value,
             &source,

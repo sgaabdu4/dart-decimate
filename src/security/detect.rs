@@ -124,6 +124,9 @@ fn detect_firebase_api_keys(
     source: &str,
     candidates: &mut Vec<DetectedSecurityCandidate>,
 ) {
+    if is_flutterfire_options_path(path) {
+        return;
+    }
     for literal in string_literals(source) {
         if is_comment_match(source, literal.index)
             || is_placeholder(&literal.value)

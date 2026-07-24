@@ -224,6 +224,9 @@ pub struct MemberDeclaration {
 pub struct IdentifierReference {
     /// Referenced identifier text.
     pub name: String,
+    /// Simple receiver identifier for a qualified member access.
+    #[serde(default, skip_serializing)]
+    pub qualifier: Option<String>,
     /// Location of the identifier token.
     pub location: Location,
 }

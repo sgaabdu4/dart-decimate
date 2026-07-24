@@ -24,6 +24,7 @@ fn collect_identifier_references(
         if let Ok(name) = node.utf8_text(source.as_bytes()) {
             references.push(IdentifierReference {
                 name: name.to_owned(),
+                qualifier: simple_member_qualifier(node, source),
                 location: node.start_position().into(),
             });
         }
@@ -97,11 +98,55 @@ fn collect_string_segment_interpolation_references(
         if let Some((name, start)) = interpolation_identifier(text, interpolation_start) {
             references.push(IdentifierReference {
                 name: name.to_owned(),
+                qualifier: None,
                 location: location_at(source, base_byte + start),
             });
             index = start + name.len();
         }
     }
+}
+
+fn simple_member_qualifier(node: Node<'_>, source: &str) -> Option<String> {
+    let parent = node.parent()?;
+    if parent.kind() == "constant_pattern" {
+        let text = parent.utf8_text(source.as_bytes()).ok()?;
+        let (qualifier, property) = text.rsplit_once('.')?;
+        let qualifier = qualifier.trim();
+        if property.trim() == node.utf8_text(source.as_bytes()).ok()?
+            && qualifier.bytes().all(is_identifier_byte)
+        {
+            return Some(qualifier.to_owned());
+        }
+        return None;
+    }
+    if parent.kind() == "qualified" {
+        let qualifier = parent.named_child(0)?;
+        let property_index = u32::try_from(parent.named_child_count().checked_sub(1)?).ok()?;
+        let property = parent.named_child(property_index)?;
+        if property == node && matches!(qualifier.kind(), "identifier" | "type_identifier") {
+            return qualifier
+                .utf8_text(source.as_bytes())
+                .ok()
+                .map(str::to_owned);
+        }
+        return None;
+    }
+    if !matches!(
+        parent.kind(),
+        "member_expression" | "null_aware_member_expression" | "assignable_expression"
+    ) || parent.child_by_field_name("property")? != node
+    {
+        return None;
+    }
+    let object = parent.child_by_field_name("object")?;
+    if !matches!(object.kind(), "identifier" | "type_identifier") {
+        return None;
+    }
+    object.utf8_text(source.as_bytes()).ok().map(str::to_owned)
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$')
 }
 
 fn is_string_literal_segment(kind: &str) -> bool {

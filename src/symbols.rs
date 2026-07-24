@@ -10,9 +10,12 @@ use crate::{
     MemberDeclaration, MemberKind, ScannedProject, TopLevelDeclaration,
 };
 
+mod extensions;
+mod index;
 mod path_filters;
 mod private_type_leaks;
 mod riverpod;
+use extensions::extend_implicit_extension_references;
 use path_filters::{is_library_source, is_private, is_public_library_entry};
 pub use private_type_leaks::PrivateTypeLeak;
 use private_type_leaks::private_type_leaks;
@@ -81,6 +84,7 @@ pub struct SymbolIndex {
     declarations: Vec<IndexedDeclaration>,
     members: Vec<IndexedMember>,
     references_by_name: BTreeMap<String, Vec<IndexedReference>>,
+    qualified_references_by_name: BTreeMap<(String, String), Vec<IndexedReference>>,
     library_by_path: BTreeMap<PathBuf, PathBuf>,
     public_exports: BTreeSet<(PathBuf, String)>,
     public_exported_declarations: Vec<PublicExportedDeclaration>,
@@ -110,86 +114,6 @@ struct PublicExportedDeclaration {
     declaration: TopLevelDeclaration,
 }
 
-impl SymbolIndex {
-    /// Build a symbol index from parsed Dart files.
-    #[must_use]
-    pub fn from_project(project: &ScannedProject) -> Self {
-        let mut declarations = Vec::new();
-        let mut members = Vec::new();
-        let mut references_by_name = BTreeMap::<String, Vec<IndexedReference>>::new();
-        let library_by_path = library_by_path(project);
-        let public_exported_declarations = public_exported_declarations(project);
-        let public_exports = public_exported_declarations
-            .iter()
-            .map(|exported| (exported.path.clone(), exported.declaration.name.clone()))
-            .collect();
-
-        for file in &project.files {
-            let path = normalize_against(&project.root, &file.path);
-            declarations.extend(file.declarations.iter().cloned().map(|declaration| {
-                IndexedDeclaration {
-                    path: path.clone(),
-                    declaration,
-                }
-            }));
-            members.extend(file.members.iter().cloned().map(|member| IndexedMember {
-                path: path.clone(),
-                member,
-            }));
-            for reference in &file.references {
-                references_by_name
-                    .entry(reference.name.clone())
-                    .or_default()
-                    .push(IndexedReference { path: path.clone() });
-            }
-        }
-        extend_generated_provider_owner_references(&mut references_by_name, &declarations);
-
-        Self {
-            declarations,
-            members,
-            references_by_name,
-            library_by_path,
-            public_exports,
-            public_exported_declarations,
-        }
-    }
-
-    fn reference_count(&self, name: &str, reachable_files: &BTreeSet<PathBuf>) -> usize {
-        self.references_by_name.get(name).map_or(0, |references| {
-            references
-                .iter()
-                .filter(|reference| reachable_files.contains(&reference.path))
-                .count()
-        })
-    }
-
-    fn library_reference_count(
-        &self,
-        name: &str,
-        library: &Path,
-        reachable_files: &BTreeSet<PathBuf>,
-    ) -> usize {
-        self.references_by_name.get(name).map_or(0, |references| {
-            references
-                .iter()
-                .filter(|reference| reachable_files.contains(&reference.path))
-                .filter(|reference| self.library_path(&reference.path) == library)
-                .count()
-        })
-    }
-
-    fn library_path<'a>(&'a self, path: &'a Path) -> &'a Path {
-        self.library_by_path
-            .get(path)
-            .map_or(path, std::path::PathBuf::as_path)
-    }
-
-    fn is_public_export(&self, path: &Path, name: &str) -> bool {
-        self.public_exports
-            .contains(&(path.to_path_buf(), name.to_owned()))
-    }
-}
 /// Find the first conservative unused-export symbol findings.
 #[must_use]
 pub fn analyze_symbols(
@@ -419,9 +343,16 @@ fn unused_member_from_declaration(
         return None;
     }
 
-    let library = index.library_path(&indexed.path);
-    let reference_count =
-        index.library_reference_count(&indexed.member.name, library, reachable_files);
+    let reference_count = if indexed.member.kind == MemberKind::EnumConstant {
+        index.qualified_reference_count(
+            &indexed.member.owner,
+            &indexed.member.name,
+            reachable_files,
+        )
+    } else {
+        let library = index.library_path(&indexed.path);
+        index.library_reference_count(&indexed.member.name, library, reachable_files)
+    };
     if reference_count != 0 {
         return None;
     }

@@ -626,6 +626,40 @@ void boot(String suffix, String escaped) {
 }
 
 #[test]
+fn extracts_simple_member_qualifiers() -> Result<(), ExtractError> {
+    let source = r"
+void boot(Command command) {
+  print(Command.settings.name);
+  print('${Command.tips.id}');
+  print(command.settings);
+  final label = switch (command) {
+    ReminderType.doctor => 'doctor',
+  };
+  print(label);
+}
+";
+
+    let extracted = extract_dart_source("lib/qualified.dart", source)?;
+    let references = extracted
+        .references
+        .iter()
+        .filter(|reference| matches!(reference.name.as_str(), "settings" | "tips" | "doctor"))
+        .map(|reference| (reference.name.as_str(), reference.qualifier.as_deref()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        references,
+        vec![
+            ("settings", Some("Command")),
+            ("tips", Some("Command")),
+            ("settings", Some("command")),
+            ("doctor", Some("ReminderType"))
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn extracts_references_from_annotations_generics_and_patterns() -> Result<(), ExtractError> {
     let source = "\
 @Route(path: '/home')

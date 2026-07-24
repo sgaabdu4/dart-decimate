@@ -20,6 +20,7 @@ pub(super) fn extract_primary_constructor_identifier_references(
         .into_iter()
         .map(|token| IdentifierReference {
             name: token.text,
+            qualifier: None,
             location: byte_location(source, token.start),
         })
         .collect()
