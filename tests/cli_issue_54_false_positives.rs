@@ -321,7 +321,15 @@ void main() {
             .count(),
         1
     );
-    let Some(occurrences) = json["security_candidates"][0]["occurrences"].as_array() else {
+    let Some(candidate) = json["security_candidates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate["category"] == "hardcoded-secret")
+    else {
+        panic!("hardcoded-secret candidate");
+    };
+    let Some(occurrences) = candidate["occurrences"].as_array() else {
         panic!("hardcoded-secret occurrences");
     };
     assert_eq!(occurrences.len(), 1);
