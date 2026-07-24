@@ -142,6 +142,65 @@ class Copy {
 }
 
 #[test]
+fn skips_low_entropy_labels_with_secret_like_words() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "void log(String message) => print(message);
+
+void main() {
+  log('requestAuthorization result');
+  log('synchronizeRemoteCatalog');
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert!(report.candidates.is_empty());
+    assert_eq!(report.total_occurrences, 0);
+
+    Ok(())
+}
+
+#[test]
+fn reports_secret_bindings_and_shaped_literals() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "const clientSecret = 'ordinary dictionary words';
+
+void authenticate({required String accessToken}) {}
+void log(String message) => print(message);
+
+void main() {
+  authenticate(accessToken: 'another dictionary phrase');
+  log('ghp_0123456789abcdef0123456789abcdef');
+  print(clientSecret);
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert_eq!(report.total_occurrences, 3);
+    assert_eq!(report.candidates.len(), 1);
+    assert_eq!(
+        report.candidates[0].rule_id,
+        "dart-decimate/security-hardcoded-secret"
+    );
+    assert_eq!(report.candidates[0].occurrences.len(), 3);
+
+    Ok(())
+}
+
+#[test]
 fn reports_operational_copy_with_concrete_token_segments() -> Result<(), Box<dyn std::error::Error>>
 {
     let fixture = tempfile::tempdir()?;

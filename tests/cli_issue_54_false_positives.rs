@@ -298,7 +298,8 @@ void log(String message) {
 void main() {
   print(web);
   print(apiSecret);
-  log('requestAuthorization');
+  log('requestAuthorization result');
+  log('synchronizeRemoteCatalog');
   log('reloadConfiguration');
 }
 ",
