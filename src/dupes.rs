@@ -16,6 +16,8 @@ mod lex;
 use lex::normalized_lines;
 mod declarations;
 use declarations::DeclarationCloneFilter;
+mod mappings;
+use mappings::MappingBoundaryFilter;
 mod packages;
 use packages::CopiedPackageFilter;
 
@@ -387,6 +389,8 @@ pub fn detect_duplicates(
     clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
     let mut declaration_filter = DeclarationCloneFilter::new();
     clone_groups.retain(|group| !declaration_filter.is_declaration_only_clone(group));
+    let mapping_filter = MappingBoundaryFilter::new(project);
+    clone_groups.retain(|group| !mapping_filter.is_mapping_boundary_clone(group));
     sort_clone_groups(&mut clone_groups);
     clone_groups = collapse_overlapping_groups(clone_groups);
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));

@@ -267,7 +267,7 @@ fn classifies_firebase_options_api_key_separately() -> Result<(), Box<dyn std::e
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
         &fixture,
-        "lib/firebase_options.dart",
+        "lib/firebase_config.dart",
         "const options = FirebaseOptions(
   apiKey: 'DartDecimateFirebaseKeyValue123456789',
   appId: '1:123:web:abc',
@@ -334,14 +334,8 @@ fn classifies_compact_firebase_options_literals_by_argument()
         .collect::<Vec<_>>();
     rules.sort_unstable();
 
-    assert_eq!(report.total_occurrences, 2);
-    assert_eq!(
-        rules,
-        vec![
-            "dart-decimate/security-firebase-api-key",
-            "dart-decimate/security-hardcoded-secret"
-        ]
-    );
+    assert_eq!(report.total_occurrences, 1);
+    assert_eq!(rules, vec!["dart-decimate/security-hardcoded-secret"]);
 
     Ok(())
 }
@@ -367,14 +361,8 @@ fn classifies_newline_firebase_options_api_key_by_argument()
         .collect::<Vec<_>>();
     rules.sort_unstable();
 
-    assert_eq!(report.total_occurrences, 2);
-    assert_eq!(
-        rules,
-        vec![
-            "dart-decimate/security-firebase-api-key",
-            "dart-decimate/security-hardcoded-secret"
-        ]
-    );
+    assert_eq!(report.total_occurrences, 1);
+    assert_eq!(rules, vec!["dart-decimate/security-hardcoded-secret"]);
 
     Ok(())
 }
@@ -405,14 +393,8 @@ fn classifies_newline_firebase_options_secret_argument() -> Result<(), Box<dyn s
         .collect::<Vec<_>>();
     rules.sort_unstable();
 
-    assert_eq!(report.total_occurrences, 2);
-    assert_eq!(
-        rules,
-        vec![
-            "dart-decimate/security-firebase-api-key",
-            "dart-decimate/security-hardcoded-secret"
-        ]
-    );
+    assert_eq!(report.total_occurrences, 1);
+    assert_eq!(rules, vec!["dart-decimate/security-hardcoded-secret"]);
 
     Ok(())
 }

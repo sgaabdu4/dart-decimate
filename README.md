@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.17"
+    "dart-decimate": "^0.0.18"
   }
 }
 ```
@@ -612,6 +612,9 @@ mode = "semantic"
 min_tokens = 80
 threshold = 5
 
+[flags]
+allow = ["SKIP_PERMISSION_PROMPT"]
+
 [boundaries]
 presets = ["layered"]
 rules = ["lib/domain:lib/ui"]
@@ -626,6 +629,11 @@ unused-exports = "warn"
 security-candidate = "warn"
 "dart-decimate/security-firebase-api-key" = "error"
 ```
+
+Allowed feature flags remain visible in the inventory but do not create
+`feature-flag` findings. Inline suppressions can document intent after `--`,
+`because`, or `reason:`, for example
+`// dart-decimate-ignore-next-line feature-flag -- required by E2E startup`.
 
 ## Full Issue List
 
@@ -667,7 +675,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.17`.
+Current version: `0.0.18`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

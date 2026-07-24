@@ -58,8 +58,15 @@ fn annotation_window(source: &str, declaration_line: usize) -> String {
 }
 
 fn riverpod_provider_names(declaration_name: &str) -> Vec<String> {
-    lower_camel_candidates(declaration_name)
+    let mut source_names = vec![declaration_name];
+    if let Some(stripped) = declaration_name.strip_suffix("Notifier")
+        && !stripped.is_empty()
+    {
+        source_names.push(stripped);
+    }
+    source_names
         .into_iter()
+        .flat_map(lower_camel_candidates)
         .map(|name| format!("{name}Provider"))
         .collect()
 }
