@@ -101,7 +101,13 @@ fn detect_hardcoded_secrets(
         {
             continue;
         }
-        if secret_name && literal.value.len() >= 12 || secret_value {
+        if ((secret_binding_name
+            || (secret_name
+                && (literal_has_concrete_token_like_segment(&literal.value)
+                    || literal_has_embedded_url_credentials(&literal.value))))
+            && literal.value.len() >= 12)
+            || secret_value
+        {
             candidates.push(detected(
                 path,
                 source,
