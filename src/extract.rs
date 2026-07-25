@@ -27,6 +27,14 @@ pub use signatures::SignatureReference;
 use signatures::extract_signature_references;
 use strings::unquote_dart_string;
 
+pub(crate) fn declared_return_type(signature: Node<'_>, source: &str) -> Option<String> {
+    let name = signature.child_by_field_name("name")?;
+    let before_name = source
+        .get(signature.start_byte()..name.start_byte())?
+        .trim();
+    (!before_name.is_empty()).then(|| before_name.to_owned())
+}
+
 /// A 1-based line and 0-based byte column in a Dart source file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Location {
@@ -214,6 +222,9 @@ pub struct MemberDeclaration {
     pub kind: MemberKind,
     /// Declared member name.
     pub name: String,
+    /// Declared method return type, when the member is a method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_type: Option<String>,
     /// Location of the member declaration node.
     pub location: Location,
 }

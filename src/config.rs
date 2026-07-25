@@ -116,6 +116,9 @@ pub struct DuplicateConfig {
     /// Ignore import/export/part/augment directives.
     #[serde(default, alias = "ignoreImports")]
     pub ignore_imports: Option<bool>,
+    /// Ignore pair-only clones joined by an explicit entity/domain mapper.
+    #[serde(default, alias = "ignoreMapperPairs")]
+    pub ignore_mapper_pairs: Option<bool>,
 }
 
 /// Feature flag analyzer config defaults.
@@ -330,6 +333,9 @@ impl DuplicateConfig {
         }
         if let Some(ignore_imports) = self.ignore_imports {
             options.ignore_imports = ignore_imports;
+        }
+        if let Some(ignore_mapper_pairs) = self.ignore_mapper_pairs {
+            options.ignore_mapper_pairs = ignore_mapper_pairs;
         }
     }
 }
@@ -581,7 +587,9 @@ fn dupes_schema() -> Value {
             "skip_local": { "type": "boolean" },
             "skipLocal": { "type": "boolean" },
             "ignore_imports": { "type": "boolean" },
-            "ignoreImports": { "type": "boolean" }
+            "ignoreImports": { "type": "boolean" },
+            "ignore_mapper_pairs": { "type": "boolean" },
+            "ignoreMapperPairs": { "type": "boolean" }
         }
     })
 }

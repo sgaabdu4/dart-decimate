@@ -2,7 +2,8 @@ use tree_sitter::Node;
 
 use super::{
     MemberDeclaration, MemberKind, collect_direct_identifier_children, collect_named_fields,
-    field_text, find_first_named_descendant, find_first_named_descendant_in, first_identifier_text,
+    declared_return_type, field_text, find_first_named_descendant, find_first_named_descendant_in,
+    first_identifier_text,
 };
 
 pub(super) fn push_class_like_members(
@@ -80,6 +81,7 @@ fn push_bodyless_member(
         owner: owner.to_owned(),
         kind: MemberKind::Field,
         name,
+        return_type: None,
         location: node.start_position().into(),
     }));
 }
@@ -132,10 +134,14 @@ fn push_signature_member(
             .map(|name| member_name_without_owner(&name, owner)),
     };
     if let Some(name) = name {
+        let return_type = (kind == MemberKind::Method)
+            .then(|| declared_return_type(signature, source))
+            .flatten();
         members.push(MemberDeclaration {
             owner: owner.to_owned(),
             kind,
             name,
+            return_type,
             location: node.start_position().into(),
         });
     }
@@ -183,6 +189,7 @@ fn push_member(
             owner: owner.to_owned(),
             kind,
             name,
+            return_type: None,
             location: node.start_position().into(),
         });
     }
