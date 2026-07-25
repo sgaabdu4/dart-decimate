@@ -65,6 +65,9 @@ pub struct DuplicateOptions {
     pub skip_local: bool,
     /// Ignore import/export/part/augment directives.
     pub ignore_imports: bool,
+    /// Ignore pair-only clones joined by an explicit entity/domain mapper.
+    #[serde(default = "default_ignore_mapper_pairs")]
+    pub ignore_mapper_pairs: bool,
     /// Limit output to the N largest clone groups.
     pub top: Option<usize>,
     /// Fail when duplicated lines exceed this percentage.
@@ -81,10 +84,15 @@ impl Default for DuplicateOptions {
             min_occurrences: 2,
             skip_local: false,
             ignore_imports: true,
+            ignore_mapper_pairs: true,
             top: None,
             threshold: None,
         }
     }
+}
+
+const fn default_ignore_mapper_pairs() -> bool {
+    true
 }
 
 /// Duplicate percentage threshold represented as percentage basis points.
@@ -389,8 +397,10 @@ pub fn detect_duplicates(
     clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
     let mut declaration_filter = DeclarationCloneFilter::new();
     clone_groups.retain(|group| !declaration_filter.is_declaration_only_clone(group));
-    let mapping_filter = MappingBoundaryFilter::new(project);
-    clone_groups.retain(|group| !mapping_filter.is_mapping_boundary_clone(group));
+    if options.ignore_mapper_pairs {
+        let mapping_filter = MappingBoundaryFilter::new(project);
+        clone_groups.retain(|group| !mapping_filter.is_mapping_boundary_clone(group));
+    }
     sort_clone_groups(&mut clone_groups);
     clone_groups = collapse_overlapping_groups(clone_groups);
     clone_groups.retain(|group| !copied_packages.is_copied_package_clone(group));

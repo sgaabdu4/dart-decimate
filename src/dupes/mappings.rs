@@ -25,18 +25,20 @@ impl MappingBoundaryFilter {
             let model_path = normalize_against(&project.root, &model_file.path);
             for member in model_file.members.iter().filter(|member| {
                 member.kind == MemberKind::Method
-                    && member.name == "toEntity"
-                    && member.owner.ends_with("Model")
+                    && matches!(member.name.as_str(), "toEntity" | "toDomain")
             }) {
                 let Some(model) = model_file.declarations.iter().find(|declaration| {
                     declaration.kind == DeclarationKind::Class && declaration.name == member.owner
                 }) else {
                     continue;
                 };
-                let Some(prefix) = model.name.strip_suffix("Model") else {
+                let Some(entity_name) = member
+                    .return_type
+                    .as_deref()
+                    .and_then(mapper_target_class_name)
+                else {
                     continue;
                 };
-                let entity_name = format!("{prefix}Entity");
 
                 for dependency in dependencies.iter().filter(|dependency| {
                     dependency.kind == DependencyKind::Import && dependency.from_path == model_path
@@ -92,6 +94,32 @@ impl MappingBoundaryFilter {
             all_inside_pair && saw_model && saw_entity
         })
     }
+}
+
+fn mapper_target_class_name(return_type: &str) -> Option<&str> {
+    let qualified_name = return_type.strip_suffix('?').unwrap_or(return_type);
+    let mut segments = qualified_name.split('.');
+    let first = segments.next()?;
+    let second = segments.next();
+    if segments.next().is_some() {
+        return None;
+    }
+    let name = match second {
+        Some(name) if is_identifier(first) => name,
+        Some(_) => return None,
+        None => first,
+    };
+    let first = name.chars().next()?;
+    (first.is_ascii_uppercase() && is_identifier(name)).then_some(name)
+}
+
+fn is_identifier(name: &str) -> bool {
+    let mut characters = name.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 fn instance_inside(instance: &CodeCloneInstance, path: &PathBuf, range: SourceRange) -> bool {

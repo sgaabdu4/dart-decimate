@@ -73,6 +73,14 @@ fn config_schema_command_emits_json_schema() -> Result<(), Box<dyn std::error::E
         100
     );
     assert_eq!(
+        json["properties"]["dupes"]["properties"]["ignore_mapper_pairs"]["type"],
+        "boolean"
+    );
+    assert_eq!(
+        json["properties"]["dupes"]["properties"]["ignoreMapperPairs"]["type"],
+        "boolean"
+    );
+    assert_eq!(
         json["properties"]["flags"]["properties"]["allow"]["items"]["type"],
         "string"
     );

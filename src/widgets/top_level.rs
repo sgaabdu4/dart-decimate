@@ -2,7 +2,7 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
-use crate::WidgetTopLevelFunction;
+use crate::{WidgetTopLevelFunction, extract::declared_return_type};
 
 pub(super) fn top_level_widget_functions(
     path: &Path,
@@ -41,7 +41,7 @@ fn function_candidate(path: &Path, node: Node<'_>, source: &str) -> Option<Widge
     }
 
     let signature_text = signature.utf8_text(source.as_bytes()).ok()?;
-    let return_type = declared_return_type(signature, name_node, source);
+    let return_type = declared_return_type(signature, source);
     let returns_widget = return_type.as_deref().is_some_and(return_type_has_ui_type);
     let build_helper =
         is_build_helper_name(&name) && (signature_text.contains("BuildContext") || returns_widget);
@@ -55,13 +55,6 @@ fn function_candidate(path: &Path, node: Node<'_>, source: &str) -> Option<Widge
         return_type,
         location: name_node.start_position().into(),
     })
-}
-
-fn declared_return_type(signature: Node<'_>, name: Node<'_>, source: &str) -> Option<String> {
-    let before_name = source
-        .get(signature.start_byte()..name.start_byte())?
-        .trim();
-    (!before_name.is_empty()).then(|| before_name.to_owned())
 }
 
 fn return_type_has_ui_type(return_type: &str) -> bool {

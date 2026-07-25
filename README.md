@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.20"
+    "dart-decimate": "^0.0.21"
   }
 }
 ```
@@ -262,6 +262,9 @@ Clone windows must meet both line and token thresholds; sparse duplicated blocks
 can span more than `--min-lines`, and `line_count` reports the actual match.
 Declaration-only abstract contracts are filtered, and copied local Pub package
 mirrors are canonicalized before same-mirror matches are ignored.
+Pair-only class clones joined by an explicit `toEntity()` or `toDomain()` mapper
+are treated as intentional boundaries by default. Set
+`dupes.ignore_mapper_pairs = false` to report those pairs.
 
 Useful commands:
 
@@ -611,6 +614,7 @@ targets = true
 mode = "semantic"
 min_tokens = 80
 threshold = 5
+ignore_mapper_pairs = true
 
 [flags]
 allow = ["SKIP_PERMISSION_PROMPT"]
@@ -675,7 +679,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.20`.
+Current version: `0.0.21`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base
