@@ -96,6 +96,38 @@ fn arbitrary_conversion_method_does_not_suppress_clone() -> Result<(), Box<dyn s
 }
 
 #[test]
+fn qualified_mapper_return_type_is_recognized() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/data/remote_user.dart",
+        &format!(
+            "import '../domain/user.dart' as domain;\n\n{}",
+            class_source(
+                "RemoteUser",
+                Some(
+                    "domain.User toDomain() => domain.User(id: id, name: name, email: email, phone: phone);",
+                ),
+            )
+        ),
+    )?;
+    write(
+        &fixture,
+        "lib/domain/user.dart",
+        &class_source("User", None),
+    )?;
+    write_real_clone(&fixture)?;
+
+    let (_, json) = run_dupes(&fixture)?;
+    assert_eq!(
+        clone_path_sets(&json),
+        vec![vec!["lib/a.dart", "lib/b.dart"]]
+    );
+    Ok(())
+}
+
+#[test]
 fn valid_mapper_pair_does_not_hide_clone_shared_with_third_class()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

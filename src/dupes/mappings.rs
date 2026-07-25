@@ -97,13 +97,29 @@ impl MappingBoundaryFilter {
 }
 
 fn mapper_target_class_name(return_type: &str) -> Option<&str> {
-    let name = return_type.strip_suffix('?').unwrap_or(return_type);
+    let qualified_name = return_type.strip_suffix('?').unwrap_or(return_type);
+    let mut segments = qualified_name.split('.');
+    let first = segments.next()?;
+    let second = segments.next();
+    if segments.next().is_some() {
+        return None;
+    }
+    let name = match second {
+        Some(name) if is_identifier(first) => name,
+        Some(_) => return None,
+        None => first,
+    };
+    let first = name.chars().next()?;
+    (first.is_ascii_uppercase() && is_identifier(name)).then_some(name)
+}
+
+fn is_identifier(name: &str) -> bool {
     let mut characters = name.chars();
-    let first = characters.next()?;
-    (first.is_ascii_alphabetic()
-        && first.is_ascii_uppercase()
-        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_'))
-    .then_some(name)
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 fn instance_inside(instance: &CodeCloneInstance, path: &PathBuf, range: SourceRange) -> bool {

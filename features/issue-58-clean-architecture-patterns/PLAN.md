@@ -7,10 +7,10 @@
 - approval_status = approved
 - approval_fingerprint = sha256:91f97a91002b76a560a22154fd2490c34cfefb1f4d1448f230e79eb429fb7e66
 - approval_provenance = ready-to-build
-- green_artifact = sha256:40b02cae4b049fcd7edab32381498366820ae8b5b13896b2deeb631df2bbfca5
+- green_artifact = sha256:50ca3815717e89bf7abc5b3df6ccef856547911679688fc8b53153bffb559401
 - active_slice = none
 - completed_slices = S-1
-- next_action = Await exact approval to commit and push codex/issue-58-clean-architecture-patterns and open a pull request.
+- next_action = Update PR 59 with the qualified-return and shared parser fixes, then wait for required CI.
 - replan_reason = none
 <!-- /hard-eng-state -->
 

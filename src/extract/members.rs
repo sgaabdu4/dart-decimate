@@ -2,7 +2,8 @@ use tree_sitter::Node;
 
 use super::{
     MemberDeclaration, MemberKind, collect_direct_identifier_children, collect_named_fields,
-    field_text, find_first_named_descendant, find_first_named_descendant_in, first_identifier_text,
+    declared_return_type, field_text, find_first_named_descendant, find_first_named_descendant_in,
+    first_identifier_text,
 };
 
 pub(super) fn push_class_like_members(
@@ -144,14 +145,6 @@ fn push_signature_member(
             location: node.start_position().into(),
         });
     }
-}
-
-fn declared_return_type(signature: Node<'_>, source: &str) -> Option<String> {
-    let name = signature.child_by_field_name("name")?;
-    let before_name = source
-        .get(signature.start_byte()..name.start_byte())?
-        .trim();
-    (!before_name.is_empty()).then(|| before_name.to_owned())
 }
 
 fn find_member_signature_node(node: Node<'_>) -> Option<Node<'_>> {
