@@ -80,6 +80,7 @@ fn push_bodyless_member(
         owner: owner.to_owned(),
         kind: MemberKind::Field,
         name,
+        return_type: None,
         location: node.start_position().into(),
     }));
 }
@@ -132,13 +133,25 @@ fn push_signature_member(
             .map(|name| member_name_without_owner(&name, owner)),
     };
     if let Some(name) = name {
+        let return_type = (kind == MemberKind::Method)
+            .then(|| declared_return_type(signature, source))
+            .flatten();
         members.push(MemberDeclaration {
             owner: owner.to_owned(),
             kind,
             name,
+            return_type,
             location: node.start_position().into(),
         });
     }
+}
+
+fn declared_return_type(signature: Node<'_>, source: &str) -> Option<String> {
+    let name = signature.child_by_field_name("name")?;
+    let before_name = source
+        .get(signature.start_byte()..name.start_byte())?
+        .trim();
+    (!before_name.is_empty()).then(|| before_name.to_owned())
 }
 
 fn find_member_signature_node(node: Node<'_>) -> Option<Node<'_>> {
@@ -183,6 +196,7 @@ fn push_member(
             owner: owner.to_owned(),
             kind,
             name,
+            return_type: None,
             location: node.start_position().into(),
         });
     }

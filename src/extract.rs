@@ -214,6 +214,9 @@ pub struct MemberDeclaration {
     pub kind: MemberKind,
     /// Declared member name.
     pub name: String,
+    /// Declared method return type, when the member is a method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_type: Option<String>,
     /// Location of the member declaration node.
     pub location: Location,
 }

@@ -321,6 +321,7 @@ fn options(mode: DuplicateMode, min_lines: usize, min_tokens: usize) -> Duplicat
         min_occurrences: 2,
         skip_local: false,
         ignore_imports: true,
+        ignore_mapper_pairs: true,
         top: None,
         threshold: None,
     }
