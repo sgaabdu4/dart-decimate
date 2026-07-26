@@ -17,6 +17,7 @@ unused-enum-member
 unused-class-member
 duplicate-export
 route-collision
+mixed-go-router-style
 private-widget-class
 widget-top-level-function-boundary
 unused-widget-param

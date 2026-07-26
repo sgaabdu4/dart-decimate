@@ -73,6 +73,12 @@ fn architecture_items(summary: &ReportSummary) -> Vec<String> {
     );
     push_count(
         &mut items,
+        summary.mixed_go_router_styles,
+        "mixed GoRouter style",
+        "mixed GoRouter styles",
+    );
+    push_count(
+        &mut items,
         summary.part_of_violations,
         "part-of violation",
         "part-of violations",
@@ -290,6 +296,7 @@ pub(super) const fn kind_label(kind: FindingKind) -> &'static str {
         FindingKind::UnusedClassMember => "Unused class member",
         FindingKind::DuplicateExport => "Duplicate export",
         FindingKind::RouteCollision => "Route collision",
+        FindingKind::MixedGoRouterStyle => "Mixed GoRouter style",
         FindingKind::PrivateWidgetClass => "Private widget class",
         FindingKind::WidgetTopLevelFunctionBoundary => "Top-level widget helper",
         FindingKind::UnusedWidgetParam => "Unused widget parameter",
@@ -380,6 +387,9 @@ pub(super) const fn why_text(kind: FindingKind) -> &'static str {
         }
         FindingKind::RouteCollision => {
             "Two typed route declarations resolve to the same route name or path."
+        }
+        FindingKind::MixedGoRouterStyle => {
+            "A raw GoRouter route, destination call, or redirect bypasses the generated API after typed routes were adopted."
         }
         FindingKind::CodeDuplication => {
             "The same token sequence appears in multiple Dart locations, increasing maintenance cost when behavior changes."
