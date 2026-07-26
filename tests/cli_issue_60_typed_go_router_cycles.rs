@@ -53,6 +53,53 @@ void openHome(BuildContext context) {
 }
 
 #[test]
+fn check_reports_context_navigation_when_go_router_import_is_prefixed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = typed_fixture()?;
+    write(
+        &fixture,
+        "lib/navigation.dart",
+        r"import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart' as go;
+
+void open(BuildContext context) => context.go('/legacy');
+",
+    )?;
+
+    let (code, json) = run_json(&fixture, "check")?;
+
+    assert_eq!(code, 1);
+    let finding = finding(&json, MIXED_ROUTING_RULE);
+    assert_eq!(finding["path"], "lib/navigation.dart");
+    assert_eq!(finding["actions"][0]["target_symbol"], "go");
+    Ok(())
+}
+
+#[test]
+fn check_ignores_context_navigation_when_prefixed_import_hides_go_router_helper()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = typed_fixture()?;
+    write(
+        &fixture,
+        "lib/navigation.dart",
+        r"import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart' as go hide GoRouterHelper;
+
+extension CustomNavigation on BuildContext {
+  void go(String event) {}
+}
+
+void record(BuildContext context) => context.go('opened-home');
+",
+    )?;
+
+    let (_code, json) = run_json(&fixture, "check")?;
+
+    assert_no_finding(&json, MIXED_ROUTING_RULE);
+    Ok(())
+}
+
+#[test]
 fn check_accepts_generated_route_object_navigation() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(

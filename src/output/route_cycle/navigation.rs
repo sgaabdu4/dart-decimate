@@ -92,7 +92,7 @@ pub(super) fn navigation_receiver_is_imported_go_router_api(
                 return false;
             };
             let prefix = prefix.as_option();
-            go_router_symbol_import(root, None, "GoRouterHelper", source)
+            any_go_router_symbol_import(root, "GoRouterHelper", source)
                 && framework_build_context_import(root, prefix, source)
                 && (prefix.is_some() || !local_type_declaration_named(root, BUILD_CONTEXT, source))
         }
@@ -300,12 +300,25 @@ pub(super) fn go_router_symbol_import(
     symbol: &str,
     source: &str,
 ) -> bool {
+    matching_go_router_symbol_import(root, symbol, source, |candidate| candidate == prefix)
+}
+
+fn any_go_router_symbol_import(root: Node<'_>, symbol: &str, source: &str) -> bool {
+    matching_go_router_symbol_import(root, symbol, source, |_| true)
+}
+
+fn matching_go_router_symbol_import(
+    root: Node<'_>,
+    symbol: &str,
+    source: &str,
+    prefix_matches: impl Fn(Option<&str>) -> bool,
+) -> bool {
     let mut found = false;
     visit_named(root, &mut |node| {
         if found || node.kind() != "library_import" {
             return;
         }
-        if import_alias(node, source).as_deref() != prefix {
+        if !prefix_matches(import_alias(node, source).as_deref()) {
             return;
         }
         if import_uri(node, source).as_deref() == Some("package:go_router/go_router.dart")

@@ -7,10 +7,10 @@
 - approval_status = approved
 - approval_fingerprint = sha256:b67c26b9792e1e2b8166f84d095300e82f9c80c8fc6d03456bb379c5c004cc8b
 - approval_provenance = ready-to-build
-- green_artifact = sha256:7eee09cf4e5989763c2c5dba8f65bb2720a8b9e22661e866a864bd19ac76a8bf
+- green_artifact = sha256:256b322e1d47778bff6c368b34ff422648b4630f53964d34f09d235f77835524
 - active_slice = none
 - completed_slices = S-1,S-2
-- next_action = Obtain exact approval to commit the green issue 60 artifact, push codex/issue-60-typed-go-router-cycles, and open a ready pull request against main.
+- next_action = Commit the corrected green artifact, push codex/issue-60-typed-go-router-cycles, resolve the Copilot thread, wait for green CI, squash merge PR #61, preserve the branch, keep issue #60 open, and monitor automatic 0.0.22 publication.
 - replan_reason = none
 <!-- /hard-eng-state -->
 
