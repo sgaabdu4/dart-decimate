@@ -21,7 +21,6 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::output) struct TypedGoRouterCycle {
     pub residual_cycles: Vec<ResidualCycle>,
-    pub typed_route_files: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,10 +105,7 @@ pub(in crate::output) fn decompose_typed_go_router_cycle(
     append_route_registry_edge_errors(&route_files, &residual_dependencies, &mut residual_cycles);
     residual_cycles.sort_by(|left, right| left.files.cmp(&right.files));
 
-    Some(TypedGoRouterCycle {
-        residual_cycles,
-        typed_route_files,
-    })
+    Some(TypedGoRouterCycle { residual_cycles })
 }
 
 fn is_typed_go_router_navigation_back_edge(

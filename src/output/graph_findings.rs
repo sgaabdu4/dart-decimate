@@ -97,15 +97,12 @@ struct CycleClassification {
     severity: Severity,
     action: &'static str,
     description: &'static str,
-    route_registry: bool,
     typed_route_residual: bool,
 }
 
 impl CycleClassification {
     fn message(self, file_count: usize) -> String {
-        if self.route_registry {
-            format!("Typed GoRouter route registry cycle spans {file_count} Dart files")
-        } else if self.typed_route_residual {
+        if self.typed_route_residual {
             format!(
                 "Circular dependency spans {file_count} Dart files after typed GoRouter helper imports are excluded"
             )
@@ -119,17 +116,6 @@ impl CycleClassification {
             severity: Severity::Error,
             action: "break-cycle",
             description: "Inspect the cycle edge; split barrels or move shared ownership before expanding imports",
-            route_registry: false,
-            typed_route_residual: false,
-        }
-    }
-
-    const fn typed_route_warning() -> Self {
-        Self {
-            severity: Severity::Warning,
-            action: "review-typed-route-cycle",
-            description: "Keep typed routes if this is only the route registry to screen navigation helper cycle; split unrelated imports out of the cycle",
-            route_registry: true,
             typed_route_residual: false,
         }
     }
@@ -139,7 +125,6 @@ impl CycleClassification {
             severity: Severity::Error,
             action: "break-cycle",
             description: "Inspect the non-route cycle edge after excluding typed GoRouter helper imports",
-            route_registry: false,
             typed_route_residual: true,
         }
     }
@@ -153,13 +138,6 @@ fn add_typed_go_router_cycle_findings(
     for residual in &typed_cycle.residual_cycles {
         push_residual_cycle_finding(project, residual, findings);
     }
-    push_cycle_finding(
-        project,
-        &typed_cycle.typed_route_files,
-        CycleClassification::typed_route_warning(),
-        None,
-        findings,
-    );
 }
 
 fn push_residual_cycle_finding(

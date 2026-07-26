@@ -68,8 +68,8 @@ fn ignored_generated_import_reachable_only_from_tests_stays_test_only()
 }
 
 #[test]
-fn typed_route_navigation_resolves_captured_context() -> Result<(), Box<dyn std::error::Error>> {
-    assert_typed_route_warning(
+fn typed_route_navigation_omits_captured_context_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    assert_typed_route_cycle_omitted(
         r"void open(BuildContext context) {
   onPressed(() => const HomeRoute().push<void>(context));
 }
@@ -80,8 +80,8 @@ void onPressed(void Function() callback) {}
 }
 
 #[test]
-fn typed_route_navigation_resolves_context_alias() -> Result<(), Box<dyn std::error::Error>> {
-    assert_typed_route_warning(
+fn typed_route_navigation_omits_context_alias_cycle() -> Result<(), Box<dyn std::error::Error>> {
+    assert_typed_route_cycle_omitted(
         r"void open(BuildContext context) {
   final navigationContext = context;
   const HomeRoute().push<void>(navigationContext);
@@ -91,9 +91,9 @@ fn typed_route_navigation_resolves_context_alias() -> Result<(), Box<dyn std::er
 }
 
 #[test]
-fn typed_route_navigation_resolves_destructured_context_field()
+fn typed_route_navigation_omits_destructured_context_field_cycle()
 -> Result<(), Box<dyn std::error::Error>> {
-    assert_typed_route_warning(
+    assert_typed_route_cycle_omitted(
         r"class Request {
   const Request(this.context);
   final BuildContext context;
@@ -108,8 +108,9 @@ void handle(Request request) {
 }
 
 #[test]
-fn typed_route_navigation_resolves_typed_context_field() -> Result<(), Box<dyn std::error::Error>> {
-    assert_typed_route_warning(
+fn typed_route_navigation_omits_typed_context_field_cycle() -> Result<(), Box<dyn std::error::Error>>
+{
+    assert_typed_route_cycle_omitted(
         r"class Request {
   const Request(this.context);
   final BuildContext context;
@@ -123,9 +124,9 @@ void handle(Request request) {
 }
 
 #[test]
-fn typed_route_navigation_resolves_navigator_context_alias()
+fn typed_route_navigation_omits_navigator_context_alias_cycle()
 -> Result<(), Box<dyn std::error::Error>> {
-    assert_typed_route_warning(
+    assert_typed_route_cycle_omitted(
         r"void open(BuildContext context) {
   final navigationContext = Navigator.of(context, rootNavigator: true).context;
   const HomeRoute().push<void>(navigationContext);
@@ -134,7 +135,7 @@ fn typed_route_navigation_resolves_navigator_context_alias()
     )
 }
 
-fn assert_typed_route_warning(helper_body: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn assert_typed_route_cycle_omitted(helper_body: &str) -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -182,15 +183,8 @@ class TypedGoRoute<T> {
 
     assert_eq!(code, 0, "{json:#}");
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    let Some(finding) = json["findings"].as_array().and_then(|findings| {
-        findings
-            .iter()
-            .find(|finding| finding["rule_id"] == "dart-decimate/circular-dependency")
-    }) else {
-        panic!("circular dependency finding");
-    };
-    assert_eq!(finding["severity"], "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 

@@ -242,6 +242,18 @@ const ISSUES: &[IssueExplanation] = &[
         &["dart-decimate inspect --format json --file <path>"],
     ),
     issue!(
+        "mixed-go-router-style",
+        "dart-decimate/mixed-go-router-style",
+        &["mixed-go-router-style"],
+        "Mixed GoRouter style",
+        "A raw GoRouter route definition, destination call, or redirect is used after production code adopts typed routes.",
+        "Generated route objects preserve compile-time checking for route parameters and keep one navigation style across the repository.",
+        "context.go('/users/42') is used alongside @TypedGoRoute<UserRoute>.",
+        "Replace the raw destination with a generated route object or document a narrow migration exception.",
+        &["// dart-decimate-ignore-next-line mixed-go-router-style -- <reason>"],
+        &["dart-decimate check --format json"],
+    ),
+    issue!(
         "private-widget-class",
         "dart-decimate/private-widget-class",
         &["private-widget-class", "flutter-private-widget-class"],

@@ -4,6 +4,7 @@ use tree_sitter::Node;
 
 mod aliases;
 mod classification;
+mod mixed_style;
 mod navigation;
 mod receivers;
 mod registry_api;
@@ -15,6 +16,7 @@ use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliase
 pub(super) use classification::{
     ResidualCycle, TypedGoRouterCycle, decompose_typed_go_router_cycle,
 };
+pub(super) use mixed_style::{MixedGoRouterUse, MixedGoRouterUseKind, mixed_go_router_uses};
 use navigation::{
     navigation_receiver_accepts_route_location, route_extension_navigation_has_context_argument,
 };

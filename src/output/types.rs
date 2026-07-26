@@ -218,6 +218,8 @@ pub struct ReportSummary {
     pub duplicate_exports: usize,
     /// Typed `GoRouter` route path or name collisions.
     pub route_collisions: usize,
+    /// Raw `GoRouter` definitions or destination APIs used after typed-route adoption.
+    pub mixed_go_router_styles: usize,
     /// Private classes extending Flutter widget bases.
     pub private_widget_classes: usize,
     /// Top-level Flutter widget helper functions.
@@ -355,6 +357,8 @@ pub enum FindingKind {
     DuplicateExport,
     /// Typed `GoRouter` routes declare the same path or route name.
     RouteCollision,
+    /// Typed and raw `GoRouter` navigation styles coexist.
+    MixedGoRouterStyle,
     /// Private class extends a Flutter widget base.
     PrivateWidgetClass,
     /// Top-level function belongs behind a Flutter widget boundary.

@@ -328,7 +328,7 @@ fn report_findings(
         add_security_findings(&project.root, security, &mut findings);
     }
     if let Some(routes) = &results.routes {
-        add_route_findings(&project.root, routes, &mut findings);
+        add_route_findings(project, routes, &mut findings);
     }
     if let Some(widgets) = &results.widgets {
         add_widget_findings(&project.root, widgets, &mut findings);
@@ -441,6 +441,7 @@ fn apply_cleanup_summary(
     summary.unused_class_members = kind_count(findings, FindingKind::UnusedClassMember);
     summary.duplicate_exports = kind_count(findings, FindingKind::DuplicateExport);
     summary.route_collisions = kind_count(findings, FindingKind::RouteCollision);
+    summary.mixed_go_router_styles = kind_count(findings, FindingKind::MixedGoRouterStyle);
 }
 
 fn apply_widget_summary(summary: &mut ReportSummary, findings: &[Finding]) {
@@ -597,6 +598,7 @@ fn apply_scoped_counts(summary: &mut ReportSummary, findings: &[Finding]) {
     summary.unused_class_members = kind_count(findings, FindingKind::UnusedClassMember);
     summary.duplicate_exports = kind_count(findings, FindingKind::DuplicateExport);
     summary.route_collisions = kind_count(findings, FindingKind::RouteCollision);
+    summary.mixed_go_router_styles = kind_count(findings, FindingKind::MixedGoRouterStyle);
     summary.private_widget_classes = kind_count(findings, FindingKind::PrivateWidgetClass);
     summary.widget_top_level_functions =
         kind_count(findings, FindingKind::WidgetTopLevelFunctionBoundary);
