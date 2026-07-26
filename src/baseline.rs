@@ -570,6 +570,8 @@ fn recompute_summary(report: &mut JsonReport) {
         kind_count(&report.findings, FindingKind::UnusedClassMember);
     report.summary.duplicate_exports = kind_count(&report.findings, FindingKind::DuplicateExport);
     report.summary.route_collisions = kind_count(&report.findings, FindingKind::RouteCollision);
+    report.summary.mixed_go_router_styles =
+        kind_count(&report.findings, FindingKind::MixedGoRouterStyle);
     report.summary.private_widget_classes =
         kind_count(&report.findings, FindingKind::PrivateWidgetClass);
     report.summary.widget_top_level_functions = kind_count(

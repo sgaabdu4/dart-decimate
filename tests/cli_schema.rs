@@ -30,66 +30,7 @@ fn schema_command_emits_agent_manifest() -> Result<(), Box<dyn std::error::Error
             .iter()
             .any(|command| command["name"] == "trace" && command["kind"] == "trace-symbol")
     }));
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "unused-export"))
-    );
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "unused-type"))
-    );
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "private-type-leak"))
-    );
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "unused-widget-param"))
-    );
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "unrendered-widget"))
-    );
-    assert!(json["issue_types"].as_array().is_some_and(|issues| {
-        issues
-            .iter()
-            .any(|issue| issue == "missing-context-mounted-after-await")
-    }));
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| { issues.iter().any(|issue| issue == "private-widget-class") })
-    );
-    assert!(json["issue_types"].as_array().is_some_and(|issues| {
-        issues
-            .iter()
-            .any(|issue| issue == "widget-top-level-function-boundary")
-    }));
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "boundary-coverage"))
-    );
-    assert!(json["issue_types"].as_array().is_some_and(|issues| {
-        issues
-            .iter()
-            .any(|issue| issue == "boundary-call-violation")
-    }));
-    assert!(
-        json["issue_types"]
-            .as_array()
-            .is_some_and(|issues| issues.iter().any(|issue| issue == "policy-violation"))
-    );
-    assert!(json["issue_types"].as_array().is_some_and(|issues| {
-        issues
-            .iter()
-            .any(|issue| issue == "missing-suppression-reason")
-    }));
+    assert_manifest_issue_types(&json);
     assert!(json["task_matrix"].as_array().is_some_and(|tasks| {
         tasks.iter().any(|task| {
             task["intent"] == "trace a top-level symbol"
@@ -100,6 +41,32 @@ fn schema_command_emits_agent_manifest() -> Result<(), Box<dyn std::error::Error
     }));
 
     Ok(())
+}
+
+fn assert_manifest_issue_types(json: &Value) {
+    let issues = json["issue_types"].as_array();
+    assert!(issues.is_some(), "manifest issue_types should be an array");
+    let issues = issues.map(Vec::as_slice).unwrap_or_default();
+    for expected in [
+        "unused-export",
+        "unused-type",
+        "mixed-go-router-style",
+        "private-type-leak",
+        "unused-widget-param",
+        "unrendered-widget",
+        "missing-context-mounted-after-await",
+        "private-widget-class",
+        "widget-top-level-function-boundary",
+        "boundary-coverage",
+        "boundary-call-violation",
+        "policy-violation",
+        "missing-suppression-reason",
+    ] {
+        assert!(
+            issues.iter().any(|issue| issue == expected),
+            "missing issue type {expected}"
+        );
+    }
 }
 
 fn assert_manifest_identity(json: &Value) {

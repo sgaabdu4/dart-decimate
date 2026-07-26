@@ -20,7 +20,8 @@ impl NameResolution {
         let Self::Type(type_name) = self else {
             return false;
         };
-        accepted.contains(&type_name.as_str())
+        let simple = simple_type_name(type_name);
+        accepted.contains(&simple.as_str())
     }
 }
 
@@ -32,6 +33,21 @@ struct NavigationTargetName {
 struct GoRouterFactoryCall {
     method: &'static str,
     prefix: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+enum ImportPrefix<'source> {
+    Unprefixed,
+    Prefixed(&'source str),
+}
+
+impl<'source> ImportPrefix<'source> {
+    const fn as_option(self) -> Option<&'source str> {
+        match self {
+            Self::Unprefixed => None,
+            Self::Prefixed(prefix) => Some(prefix),
+        }
+    }
 }
 
 pub(super) fn route_extension_navigation_has_context_argument(
@@ -60,6 +76,95 @@ pub(super) fn navigation_receiver_accepts_route_location(
         .is_some_and(|resolution| resolution.matches(&[BUILD_CONTEXT, GO_ROUTER]))
 }
 
+pub(super) fn navigation_receiver_is_imported_go_router_api(
+    root: Node<'_>,
+    site: Node<'_>,
+    receiver: &str,
+    source: &str,
+) -> bool {
+    let receiver = receiver.trim_end_matches(['?', '!']);
+    if imported_go_router_receiver_expression(root, site, receiver, source) {
+        return true;
+    }
+    match navigation_expression_resolution(root, site, receiver, source) {
+        Some(NameResolution::Type(type_name)) if simple_type_name(&type_name) == BUILD_CONTEXT => {
+            let Some(prefix) = resolved_type_import_prefix(&type_name, BUILD_CONTEXT) else {
+                return false;
+            };
+            let prefix = prefix.as_option();
+            any_go_router_symbol_import(root, "GoRouterHelper", source)
+                && framework_build_context_import(root, prefix, source)
+                && (prefix.is_some() || !local_type_declaration_named(root, BUILD_CONTEXT, source))
+        }
+        Some(NameResolution::Type(type_name)) if simple_type_name(&type_name) == GO_ROUTER => {
+            let Some(prefix) = resolved_type_import_prefix(&type_name, GO_ROUTER) else {
+                return false;
+            };
+            let prefix = prefix.as_option();
+            go_router_symbol_import(root, prefix, GO_ROUTER, source)
+                && (prefix.is_some() || !local_type_declaration_named(root, GO_ROUTER, source))
+        }
+        Some(NameResolution::Type(_) | NameResolution::Shadowed) | None => false,
+    }
+}
+
+fn imported_go_router_receiver_expression(
+    root: Node<'_>,
+    site: Node<'_>,
+    receiver: &str,
+    source: &str,
+) -> bool {
+    let trimmed = receiver.trim();
+    let unwrapped = unwrap_parenthesized_text(trimmed).unwrap_or(trimmed);
+    let without_postfix = unwrapped.trim_end_matches(['?', '!']).trim();
+    let without_keyword =
+        strip_constructor_keyword_prefix(without_postfix).unwrap_or(without_postfix);
+    let compact = strip_whitespace(without_keyword);
+    let unwrapped = unwrap_parenthesized_text(&compact).unwrap_or(&compact);
+    let receiver = unwrapped.trim_end_matches(['?', '!']);
+    if let Some(prefix) = direct_prefixed_constructor_call_text(receiver, GO_ROUTER) {
+        return !term_identifier_shadowed_at(root, site, &prefix, source)
+            && go_router_symbol_import(root, Some(&prefix), GO_ROUTER, source);
+    }
+    if direct_constructor_call_text(receiver, GO_ROUTER) {
+        return !term_identifier_shadowed_at(root, site, GO_ROUTER, source)
+            && go_router_symbol_import(root, None, GO_ROUTER, source)
+            && !local_type_declaration_named(root, GO_ROUTER, source);
+    }
+    let Some(factory) = go_router_factory_call(receiver) else {
+        return false;
+    };
+    if let Some(prefix) = factory.prefix.as_deref() {
+        return !term_identifier_shadowed_at(root, site, prefix, source)
+            && go_router_symbol_import(root, Some(prefix), GO_ROUTER, source);
+    }
+    !term_identifier_shadowed_at(root, site, GO_ROUTER, source)
+        && go_router_symbol_import(root, None, GO_ROUTER, source)
+        && !local_type_declaration_named(root, GO_ROUTER, source)
+}
+
+pub(super) fn local_type_declaration_named(root: Node<'_>, name: &str, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found
+            || !matches!(
+                node.kind(),
+                "class_declaration"
+                    | "mixin_declaration"
+                    | "enum_declaration"
+                    | "extension_type_declaration"
+                    | "type_alias"
+            )
+        {
+            return;
+        }
+        if field_text(node, "name", source).as_deref() == Some(name) {
+            found = true;
+        }
+    });
+    found
+}
+
 fn go_router_receiver_expression(
     root: Node<'_>,
     site: Node<'_>,
@@ -77,7 +182,7 @@ fn go_router_receiver_expression(
     };
     if let Some(prefix) = factory.prefix.as_deref() {
         return !term_identifier_shadowed_at(root, site, prefix, source)
-            && go_router_import(root, Some(prefix), source);
+            && go_router_symbol_import(root, Some(prefix), GO_ROUTER, source);
     }
     !term_identifier_shadowed_at(root, site, GO_ROUTER, source)
         && go_router_factory_available(root, factory.method, source)
@@ -123,11 +228,21 @@ fn direct_prefixed_static_member_call_text(
     .then(|| prefix.to_owned())
 }
 
+fn direct_prefixed_constructor_call_text(text: &str, type_name: &str) -> Option<String> {
+    let receiver = unwrap_parenthesized_text(text.trim())?;
+    let type_marker = format!(".{type_name}");
+    let type_start = receiver.find(&type_marker)?;
+    let prefix = &receiver[..type_start];
+    (is_simple_identifier(prefix)
+        && direct_constructor_call_text(&receiver[type_start + 1..], type_name))
+    .then(|| prefix.to_owned())
+}
+
 fn go_router_factory_available(root: Node<'_>, method: &str, source: &str) -> bool {
     if let Some(class) = local_go_router_class(root, source) {
         return local_go_router_class_has_factory(class, method, source);
     }
-    go_router_import(root, None, source)
+    go_router_symbol_import(root, None, GO_ROUTER, source)
 }
 
 fn local_go_router_class<'tree>(root: Node<'tree>, source: &str) -> Option<Node<'tree>> {
@@ -179,13 +294,46 @@ fn class_has_named_constructor(node: Node<'_>, method: &str, source: &str) -> bo
     .any(|prefix| compact.starts_with(prefix))
 }
 
-fn go_router_import(root: Node<'_>, prefix: Option<&str>, source: &str) -> bool {
+pub(super) fn go_router_symbol_import(
+    root: Node<'_>,
+    prefix: Option<&str>,
+    symbol: &str,
+    source: &str,
+) -> bool {
+    matching_go_router_symbol_import(root, symbol, source, |candidate| candidate == prefix)
+}
+
+fn any_go_router_symbol_import(root: Node<'_>, symbol: &str, source: &str) -> bool {
+    matching_go_router_symbol_import(root, symbol, source, |_| true)
+}
+
+fn matching_go_router_symbol_import(
+    root: Node<'_>,
+    symbol: &str,
+    source: &str,
+    prefix_matches: impl Fn(Option<&str>) -> bool,
+) -> bool {
     let mut found = false;
     visit_named(root, &mut |node| {
         if found || node.kind() != "library_import" {
             return;
         }
-        if import_alias(node, source).as_deref() != prefix {
+        if !prefix_matches(import_alias(node, source).as_deref()) {
+            return;
+        }
+        if import_uri(node, source).as_deref() == Some("package:go_router/go_router.dart")
+            && import_exposes_symbol(node, symbol, source)
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+pub(super) fn has_go_router_import(root: Node<'_>, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        if found || node.kind() != "library_import" {
             return;
         }
         if import_uri(node, source).as_deref() == Some("package:go_router/go_router.dart") {
@@ -193,6 +341,45 @@ fn go_router_import(root: Node<'_>, prefix: Option<&str>, source: &str) -> bool 
         }
     });
     found
+}
+
+fn import_exposes_symbol(node: Node<'_>, symbol: &str, source: &str) -> bool {
+    let Some(specification) = find_first_named_descendant(node, "import_specification") else {
+        return true;
+    };
+    let mut shown = None;
+    let mut hidden = false;
+    let mut cursor = specification.walk();
+    for combinator in specification
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "combinator")
+    {
+        let text = combinator
+            .utf8_text(source.as_bytes())
+            .unwrap_or_default()
+            .trim();
+        let contains_symbol = combinator_identifiers(combinator, source)
+            .iter()
+            .any(|name| name == symbol);
+        if text.starts_with("show") {
+            shown = Some(shown.unwrap_or(true) && contains_symbol);
+        } else if text.starts_with("hide") && contains_symbol {
+            hidden = true;
+        }
+    }
+    shown.unwrap_or(true) && !hidden
+}
+
+fn combinator_identifiers(node: Node<'_>, source: &str) -> Vec<String> {
+    let mut identifiers = Vec::new();
+    visit_named(node, &mut |candidate| {
+        if candidate.kind() == "identifier"
+            && let Ok(name) = candidate.utf8_text(source.as_bytes())
+        {
+            identifiers.push(name.to_owned());
+        }
+    });
+    identifiers
 }
 
 fn import_alias(node: Node<'_>, source: &str) -> Option<String> {
@@ -350,7 +537,7 @@ fn navigation_expression_resolution(
     else {
         return Some(NameResolution::Shadowed);
     };
-    local_type_member_resolution(root, &owner_type, member, source)
+    local_type_member_resolution(root, &simple_type_name(&owner_type), member, source)
 }
 
 fn navigator_context_expression(
@@ -425,6 +612,33 @@ fn visible_name_resolution_at(
         }
         path_child = scope;
         parent = scope.parent();
+    }
+    top_level_name_resolution(root, name, source)
+}
+
+fn top_level_name_resolution(root: Node<'_>, name: &str, source: &str) -> Option<NameResolution> {
+    let mut cursor = root.walk();
+    for declaration in root.named_children(&mut cursor) {
+        if matches!(
+            declaration.kind(),
+            "top_level_variable_declaration" | "external_variable_declaration"
+        ) && declaration_binds_name(declaration, name, source)
+        {
+            return Some(declaration_type_resolution(root, declaration, name, source));
+        }
+        if (is_callable_node(declaration.kind())
+            && local_function_name(declaration, source).as_deref() == Some(name))
+            || (matches!(
+                declaration.kind(),
+                "class_declaration"
+                    | "mixin_declaration"
+                    | "enum_declaration"
+                    | "extension_type_declaration"
+                    | "type_alias"
+            ) && field_text(declaration, "name", source).as_deref() == Some(name))
+        {
+            return Some(NameResolution::Shadowed);
+        }
     }
     None
 }
@@ -620,12 +834,30 @@ fn declared_navigation_type(root: Node<'_>, type_name: &str, source: &str) -> Op
         }
         return match simple {
             BUILD_CONTEXT => framework_build_context_import(root, Some(prefix), source),
-            GO_ROUTER => go_router_import(root, Some(prefix), source),
+            GO_ROUTER => go_router_symbol_import(root, Some(prefix), GO_ROUTER, source),
             _ => false,
         }
-        .then(|| simple.to_owned());
+        .then(|| base.to_owned());
     }
     Some(simple_type_name(base))
+}
+
+fn resolved_type_import_prefix<'source>(
+    type_name: &'source str,
+    expected: &str,
+) -> Option<ImportPrefix<'source>> {
+    let base = type_name
+        .trim()
+        .trim_end_matches('?')
+        .split('<')
+        .next()
+        .unwrap_or(type_name)
+        .trim();
+    if base == expected {
+        return Some(ImportPrefix::Unprefixed);
+    }
+    let (prefix, simple) = base.rsplit_once('.')?;
+    (simple == expected && is_simple_identifier(prefix)).then_some(ImportPrefix::Prefixed(prefix))
 }
 
 fn framework_build_context_import(root: Node<'_>, prefix: Option<&str>, source: &str) -> bool {
@@ -637,7 +869,9 @@ fn framework_build_context_import(root: Node<'_>, prefix: Option<&str>, source: 
         if import_alias(node, source).as_deref() != prefix {
             return;
         }
-        if import_uri(node, source).is_some_and(|uri| uri.starts_with("package:flutter/")) {
+        if import_uri(node, source).is_some_and(|uri| uri.starts_with("package:flutter/"))
+            && import_exposes_symbol(node, BUILD_CONTEXT, source)
+        {
             found = true;
         }
     });
@@ -675,6 +909,14 @@ fn initializer_type(root: Node<'_>, node: Node<'_>, source: &str) -> Option<Stri
     let unwrapped = unwrap_parenthesized_text(without_postfix).unwrap_or(without_postfix);
     let without_keyword = strip_constructor_keyword_prefix(unwrapped).unwrap_or(unwrapped);
     let compact = strip_whitespace(without_keyword);
+    let prefixed_go_router = direct_prefixed_constructor_call_text(&compact, GO_ROUTER)
+        .or_else(|| go_router_factory_call(&compact).and_then(|factory| factory.prefix));
+    if let Some(prefix) = prefixed_go_router
+        && !term_identifier_shadowed_at(root, node, &prefix, source)
+        && go_router_symbol_import(root, Some(&prefix), GO_ROUTER, source)
+    {
+        return Some(format!("{prefix}.{GO_ROUTER}"));
+    }
     for target_type in [BUILD_CONTEXT, GO_ROUTER] {
         if direct_constructor_call_text(&compact, target_type)
             || (target_type == GO_ROUTER
@@ -901,6 +1143,7 @@ fn binding_name(node: Node<'_>, source: &str) -> Option<String> {
         "formal_parameter"
             | "initialized_identifier"
             | "initialized_variable_definition"
+            | "static_final_declaration"
             | "typed_identifier"
             | "variable_pattern"
     ) {

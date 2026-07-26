@@ -57,6 +57,7 @@ fn report_schema_types_inventory_arrays() -> Result<(), Box<dyn std::error::Erro
     assert_array_contains(&json["$defs"]["clone_group"]["required"], "instances");
     for kind in [
         "route-collision",
+        "mixed-go-router-style",
         "unused-widget-param",
         "private-widget-class",
         "widget-top-level-function-boundary",
@@ -88,6 +89,7 @@ fn assert_summary_schema(json: &Value) {
         "risk_level",
         "attribution",
         "route_collisions",
+        "mixed_go_router_styles",
         "private_widget_classes",
         "widget_top_level_functions",
         "unused_widget_params",

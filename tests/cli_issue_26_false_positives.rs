@@ -81,8 +81,8 @@ fn check_resolves_copied_nested_path_packages_by_owner() -> Result<(), Box<dyn s
 }
 
 #[test]
-fn cycles_downgrades_typed_go_router_builder_registry_cycles()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_typed_go_router_builder_registry_cycles() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -138,18 +138,13 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
-    assert!(
-        findings(&json)[0]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("Typed GoRouter"))
-    );
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_named_constructor_typed_route_extension_navigation()
+fn cycles_omits_named_constructor_typed_route_extension_navigation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -207,8 +202,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -351,8 +346,8 @@ class BuildContext {}
 }
 
 #[test]
-fn cycles_downgrades_generic_typed_route_extension_navigation()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_generic_typed_route_extension_navigation() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -408,14 +403,14 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_generic_context_route_location_navigation()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_generic_context_route_location_navigation() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -472,8 +467,8 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -542,7 +537,7 @@ extension BuildContextNavigation on BuildContext {
 }
 
 #[test]
-fn cycles_downgrades_route_location_on_build_context_navigation()
+fn cycles_omits_route_location_on_build_context_navigation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -600,13 +595,13 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_route_location_on_typed_go_router_receiver()
+fn cycles_omits_route_location_on_typed_go_router_receiver()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -663,14 +658,13 @@ class HomeScreen extends Widget {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_local_route_alias_extension_navigation()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_local_route_alias_extension_navigation() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -729,13 +723,13 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_new_prefixed_route_alias_extension_navigation()
+fn cycles_omits_new_prefixed_route_alias_extension_navigation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -795,14 +789,13 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_context_after_prior_block_local_shadow()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_context_after_prior_block_local_shadow() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -868,13 +861,13 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_state_context_route_navigation() -> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_state_context_route_navigation() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -943,13 +936,13 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_this_context_route_navigation() -> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_this_context_route_navigation() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -1018,14 +1011,13 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_member_route_alias_location_navigation()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_member_route_alias_location_navigation() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -1083,13 +1075,13 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_unqualified_member_route_alias_extension_navigation()
+fn cycles_omits_unqualified_member_route_alias_extension_navigation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -1147,8 +1139,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -1296,7 +1288,7 @@ class newHomeRoute {
 }
 
 #[test]
-fn cycles_downgrades_member_route_alias_after_nested_callback_shadows()
+fn cycles_omits_member_route_alias_after_nested_callback_shadows()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -1366,8 +1358,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -1592,7 +1584,7 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
-fn cycles_downgrades_route_alias_after_block_local_shadow_reassignment()
+fn cycles_omits_route_alias_after_block_local_shadow_reassignment()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -1660,8 +1652,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -2074,8 +2066,7 @@ class RouteLocationWrapper {
 }
 
 #[test]
-fn cycles_downgrades_go_router_of_route_location_navigation()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_go_router_of_route_location_navigation() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -2137,13 +2128,13 @@ class GoRouter {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_go_router_factory_aliases_with_null_assertions()
+fn cycles_omits_go_router_factory_aliases_with_null_assertions()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -2208,13 +2199,13 @@ class GoRouter {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_prefixed_go_router_import_factory_navigation()
+fn cycles_omits_prefixed_go_router_import_factory_navigation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -2273,8 +2264,8 @@ class HomeScreen extends Widget {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -2488,8 +2479,7 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
-fn cycles_downgrades_resolved_prefixed_navigation_types() -> Result<(), Box<dyn std::error::Error>>
-{
+fn cycles_omits_resolved_prefixed_navigation_types() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -2551,8 +2541,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_severity(&json, "dart-decimate/circular-dependency", "warning");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -2690,7 +2680,7 @@ extension BuildContextNavigation on BuildContext {
 }
 
 #[test]
-fn cycles_splits_mixed_go_router_sccs_into_warning_and_real_error()
+fn cycles_omits_typed_scc_and_keeps_real_error_from_mixed_cycles()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -2759,8 +2749,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 1);
     assert_eq!(json["verdict"], "fail");
-    assert_eq!(json["summary"]["cycles"], 2);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
     assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
     let error = finding_with_severity(&json, "dart-decimate/circular-dependency", "error");
     assert_eq!(error["actions"][0]["action"], "break-cycle");
@@ -2772,14 +2762,11 @@ extension HomeRouteNavigation on HomeRoute {
         !finding_files(error).contains(&"lib/core/router/app_routes.dart"),
         "real cycle should not keep the route registry in its file list: {error:?}",
     );
-    let warning = finding_with_severity(&json, "dart-decimate/circular-dependency", "warning");
-    assert_eq!(warning["actions"][0]["action"], "review-typed-route-cycle");
-    assert!(finding_files(warning).contains(&"lib/core/router/app_routes.dart"));
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_many_screen_typed_go_router_sccs() -> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_many_screen_typed_go_router_sccs() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -2857,17 +2844,13 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
-    let warning = finding_with_severity(&json, "dart-decimate/circular-dependency", "warning");
-    assert_eq!(warning["actions"][0]["action"], "review-typed-route-cycle");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_indirect_screen_typed_go_router_sccs() -> Result<(), Box<dyn std::error::Error>>
-{
+fn cycles_omits_indirect_screen_typed_go_router_sccs() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -2933,15 +2916,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
-    let warning = finding_with_severity(&json, "dart-decimate/circular-dependency", "warning");
-    assert_eq!(warning["actions"][0]["action"], "review-typed-route-cycle");
-    let files = finding_files(warning);
-    assert!(files.contains(&"lib/core/router/app_routes.dart"));
-    assert!(files.contains(&"lib/features/home/home_screen.dart"));
-    assert!(files.contains(&"lib/features/home/home_navigation.dart"));
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -3496,7 +3472,7 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
-fn cycles_downgrades_route_location_navigation_with_unused_location_extension_member()
+fn cycles_omits_route_location_navigation_with_unused_location_extension_member()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -3558,9 +3534,8 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -3702,7 +3677,7 @@ extension BuildContextNavigation on BuildContext {
 }
 
 #[test]
-fn cycles_downgrades_route_location_constructor_arguments_without_registry_api()
+fn cycles_omits_route_location_constructor_arguments_without_registry_api()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -3765,14 +3740,13 @@ extension BuildContextNavigation on BuildContext {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_generated_route_extension_navigation_members()
+fn cycles_omits_generated_route_extension_navigation_members()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -3831,9 +3805,8 @@ class HomeScreen extends Widget {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -3971,7 +3944,7 @@ class HomeScreen extends Widget {
 }
 
 #[test]
-fn cycles_downgrades_route_extension_navigation_despite_registry_go_member()
+fn cycles_omits_route_extension_navigation_despite_registry_go_member()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -4032,9 +4005,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -4106,8 +4078,7 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
-fn cycles_downgrades_local_non_route_registry_name_shadows()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_local_non_route_registry_name_shadows() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -4168,15 +4139,14 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_parameter_non_route_registry_name_shadows()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_parameter_non_route_registry_name_shadows() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -4235,14 +4205,13 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_block_local_non_route_registry_name_shadows()
+fn cycles_omits_block_local_non_route_registry_name_shadows()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -4305,15 +4274,14 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
 #[test]
-fn cycles_downgrades_prefixed_non_route_name_from_other_import()
--> Result<(), Box<dyn std::error::Error>> {
+fn cycles_omits_prefixed_non_route_name_from_other_import() -> Result<(), Box<dyn std::error::Error>>
+{
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write(
@@ -4378,9 +4346,8 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 0);
     assert_eq!(json["verdict"], "pass");
-    assert_eq!(json["summary"]["cycles"], 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
     Ok(())
 }
 
@@ -4593,9 +4560,9 @@ extension AppRouteNavigation on AppRoute {
 
     assert_eq!(code, 1);
     assert_eq!(json["verdict"], "fail");
-    assert_eq!(json["summary"]["cycles"], 2);
+    assert_eq!(json["summary"]["cycles"], 1);
     assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
     let error = finding_with_severity(&json, "dart-decimate/circular-dependency", "error");
     assert_eq!(error["edge"]["kind"], "import");
     assert_eq!(error["edge"]["from"], "lib/core/router/app_routes.dart");
@@ -4662,9 +4629,9 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 1);
     assert_eq!(json["verdict"], "fail");
-    assert_eq!(json["summary"]["cycles"], 2);
+    assert_eq!(json["summary"]["cycles"], 1);
     assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
     Ok(())
 }
 
@@ -4735,9 +4702,9 @@ extension HomeRouteNavigation on HomeRoute {
 
     assert_eq!(code, 1);
     assert_eq!(json["verdict"], "fail");
-    assert_eq!(json["summary"]["cycles"], 2);
+    assert_eq!(json["summary"]["cycles"], 1);
     assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
-    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "warning", 0);
     let error = finding_with_severity(&json, "dart-decimate/circular-dependency", "error");
     assert_eq!(error["edge"]["kind"], "export");
     Ok(())

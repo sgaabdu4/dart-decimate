@@ -91,7 +91,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.21"
+    "dart-decimate": "^0.0.22"
   }
 }
 ```
@@ -287,10 +287,11 @@ Dart Decimate finds:
 - import/export/part/augment targets that do not resolve
 - invalid `part` / `part of` relationships
 
-Generated typed GoRouter route registry back-edges are warning-level only when
-the importing file uses real typed-route navigation helpers. Mixed cycles still
-emit error-level residual findings for unrelated edges, registry-to-registry
-imports, exports, or non-route registry API usage.
+Canonical typed GoRouter route-registry back-edges are omitted when the
+importing file uses generated typed-route navigation helpers. Only those proven
+navigation back-edges are waived: unrelated edges, registry-to-registry
+imports, exports, and non-route registry API usage remain error-level cycle
+findings.
 
 Useful commands:
 
@@ -362,11 +363,22 @@ and Dart patterns only to avoid false positives and to find graph problems.
 Dart Decimate finds:
 
 - GoRouter route path/name collisions
+- raw GoRouter definitions or destination APIs mixed into a typed-route project
 - private Flutter widget classes
 - top-level widget helper functions
 - unused widget constructor parameters
 - widget classes that are never constructed
 - missing `context.mounted` guards after awaited widget work
+
+Typed consistency activates after production code declares an imported
+`TypedGoRoute`/`GoRouteData` route. From then on, `check` and `audit` report raw
+`GoRoute` declarations, resolved `BuildContext`/`GoRouter` destination calls,
+and literal raw redirect destinations as errors. Generated route-object
+navigation and `.location` redirects remain clean. Raw-only projects,
+`Navigator` flows, `pop`, incoming deep links, tests, generated files, and
+same-named user APIs are not classified as mixed routing. A deliberate
+exception can use a reasoned line suppression such as
+`// dart-decimate-ignore-next-line mixed-go-router-style -- legacy URL migration`.
 
 `unused-widget-param` counts normal field reads, transformed constructor
 initializer reads, inherited field reads, forwarding helpers, and Dart object
@@ -679,7 +691,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.21`.
+Current version: `0.0.22`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base
