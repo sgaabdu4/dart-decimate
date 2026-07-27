@@ -51,8 +51,8 @@
     "access": "public"
   },
   "devDependencies": {
-    "fallow": "3.7.0",
-    "oxlint": "1.74.0",
-    "prettier": "3.9.5"
+    "fallow": "3.10.0",
+    "oxlint": "1.76.0",
+    "prettier": "3.9.6"
   }
 }
