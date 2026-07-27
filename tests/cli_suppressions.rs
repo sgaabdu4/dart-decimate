@@ -123,6 +123,108 @@ void runLive() { print(Mode.on); }
 }
 
 #[test]
+fn misplaced_suppression_names_the_line_its_finding_lands_on()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/live.dart';\nvoid main() { runLive(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/live.dart",
+        "\
+enum Mode {
+  on,
+  // dart-decimate-ignore-next-line unused-enum-member
+  // the directive sits one line too high to cover the member
+  off,
+}
+void runLive() { print(Mode.on); }
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "dead-code",
+        fixture.path().to_str().unwrap_or("."),
+        "--format",
+        "json",
+        "--entry",
+        "lib/main.dart",
+    ])?;
+
+    assert_eq!(code, 1);
+    let stale = json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|finding| finding["kind"] == "stale-suppression")
+        .ok_or("expected a stale-suppression finding")?;
+    assert_eq!(stale["line"], 3);
+    assert_eq!(
+        stale["message"],
+        "Suppression covers line 4, but the finding it names is reported on line 5: \
+// dart-decimate-ignore-next-line unused-enum-member"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn equidistant_candidates_resolve_to_the_lower_line() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/live.dart';\nvoid main() { runLive(); }\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/live.dart",
+        "\
+enum Mode {
+  alpha,
+  // filler comment
+  // dart-decimate-ignore-next-line unused-enum-member
+  // padding line
+  beta,
+  live,
+}
+void runLive() { print(Mode.live); }
+",
+    )?;
+
+    let (_, json) = run_json([
+        "dart-decimate",
+        "dead-code",
+        fixture.path().to_str().unwrap_or("."),
+        "--format",
+        "json",
+        "--entry",
+        "lib/main.dart",
+    ])?;
+
+    // Lines 2 and 6 are both two lines from the directive on line 4.
+    let stale = json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|finding| finding["kind"] == "stale-suppression")
+        .ok_or("expected a stale-suppression finding")?;
+    assert_eq!(
+        stale["message"],
+        "Suppression covers line 5, but the finding it names is reported on line 2: \
+// dart-decimate-ignore-next-line unused-enum-member"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn stale_suppression_rule_can_be_disabled() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
