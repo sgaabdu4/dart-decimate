@@ -55,6 +55,70 @@ fn run_git(root: &Path, args: &[&str]) -> Result<(), Box<dyn std::error::Error>>
     .into())
 }
 
+fn write_lockfiles(
+    root: &Path,
+    package_lock_version: &str,
+    cargo_lock_version: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    fs::write(
+        root.join("package-lock.json"),
+        format!(
+            "{{\"name\":\"dart-decimate\",\"version\":\"{package_lock_version}\",\
+\"packages\":{{\"\":{{\"name\":\"dart-decimate\",\"version\":\"{package_lock_version}\"}}}}}}\n"
+        ),
+    )?;
+    fs::write(
+        root.join("Cargo.lock"),
+        format!("[[package]]\nname = \"dart-decimate\"\nversion = \"{cargo_lock_version}\"\n"),
+    )?;
+    Ok(())
+}
+
+fn run_version_sync_script(
+    root: &Path,
+) -> Result<std::process::Output, Box<dyn std::error::Error>> {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-version-sync.mjs");
+    Ok(common::isolated_command("node")
+        .arg(script)
+        .current_dir(root)
+        .output()?)
+}
+
+#[test]
+fn version_sync_script_rejects_lockfiles_left_behind() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let root = fixture.path();
+
+    write_versions(root, "1.2.3", "1.2.3")?;
+    write_lockfiles(root, "1.2.3", "1.2.3")?;
+    let output = run_version_sync_script(root)?;
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The drift that actually shipped: manifests bumped, npm lock left behind.
+    write_lockfiles(root, "1.2.2", "1.2.3")?;
+    let output = run_version_sync_script(root)?;
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("version mismatch: package-lock.json=1.2.2 expected=1.2.3")
+    );
+
+    write_lockfiles(root, "1.2.3", "1.2.2")?;
+    let output = run_version_sync_script(root)?;
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("version mismatch: Cargo.lock=1.2.2 expected=1.2.3")
+    );
+
+    Ok(())
+}
+
 fn run_pr_bump_script(root: &Path) -> Result<std::process::Output, Box<dyn std::error::Error>> {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/check-pr-version-bump.mjs");
     Ok(common::isolated_command("node")
