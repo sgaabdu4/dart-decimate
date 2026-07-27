@@ -145,7 +145,9 @@ impl SuppressionState {
                         .any(|rule| rule_matches_kind(rule, &finding.rule_id, finding.kind))
             })
             .map(|finding| finding.line)
-            .min_by_key(|line| line.abs_diff(key.line))
+            // Ties break toward the lower line, so the message does not depend
+            // on the order findings happen to arrive in.
+            .min_by_key(|line| (line.abs_diff(key.line), *line))
     }
 
     fn missing_reason_findings(&self) -> Vec<Finding> {
