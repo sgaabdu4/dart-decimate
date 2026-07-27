@@ -542,6 +542,28 @@ void main(BuildContext context) {
     }
 
     #[test]
+    fn object_constructor_names_include_named_argument_arrow_closure_builders()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source = r"
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  void _show(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => ClosureSheet(label: 'x'),
+    );
+  }
+}
+";
+        let parsed = parse_tree(Path::new("lib/main.dart"), source)?;
+        let names = object_constructor_names(parsed.tree().root_node(), parsed.source());
+
+        assert!(names.iter().any(|name| name == "ClosureSheet"), "{names:?}");
+        Ok(())
+    }
+
+    #[test]
     fn object_constructor_names_include_material_page_route_builders()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = r"
