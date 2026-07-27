@@ -1,3 +1,5 @@
+# Every merge to main publishes a release, so each pull request must carry one
+# version bump. Grouping keeps that to one bump per ecosystem per week.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -5,16 +7,27 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns:
+          - "*"
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-
+    groups:
+      github-actions:
+        patterns:
+          - "*"
