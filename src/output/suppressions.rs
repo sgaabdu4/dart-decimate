@@ -13,6 +13,7 @@ pub(super) fn filter_suppressed_findings(
     require_reasons: bool,
 ) -> Vec<Finding> {
     let mut state = SuppressionState::new(root, files);
+    state.record(&findings);
     let mut filtered = findings
         .into_iter()
         .filter(|finding| !state.is_suppressed(finding))
@@ -30,6 +31,17 @@ struct SuppressionState {
     cache: BTreeMap<PathBuf, Option<Vec<String>>>,
     directives: BTreeMap<SuppressionKey, SuppressionDirective>,
     used: BTreeSet<SuppressionKey>,
+    reported: Vec<ReportedFinding>,
+}
+
+/// The identity a directive needs to decide whether it merely sits on the
+/// wrong line rather than covering nothing at all.
+#[derive(Debug)]
+struct ReportedFinding {
+    path: String,
+    line: usize,
+    rule_id: String,
+    kind: FindingKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -43,6 +55,7 @@ struct SuppressionDirective {
     column: usize,
     text: String,
     has_reason: bool,
+    rules: Vec<String>,
 }
 
 impl SuppressionState {
@@ -62,7 +75,20 @@ impl SuppressionState {
             cache,
             directives,
             used: BTreeSet::new(),
+            reported: Vec::new(),
         }
+    }
+
+    fn record(&mut self, findings: &[Finding]) {
+        self.reported = findings
+            .iter()
+            .map(|finding| ReportedFinding {
+                path: display_path(&self.root, &finding_path(&self.root, &finding.path)),
+                line: finding.line,
+                rule_id: finding.rule_id.clone(),
+                kind: finding.kind,
+            })
+            .collect();
     }
 
     fn is_suppressed(&mut self, finding: &Finding) -> bool {
@@ -94,8 +120,32 @@ impl SuppressionState {
         self.directives
             .iter()
             .filter(|(key, _)| !self.used.contains(key))
-            .map(|(key, directive)| stale_finding(key, directive))
+            .map(|(key, directive)| {
+                stale_finding(key, directive, self.nearest_match(key, directive))
+            })
             .collect()
+    }
+
+    /// Where the directive's own rules still fire in the same file. A clone
+    /// group anchors on the common token run, so a directive can miss the line
+    /// it was written for while the finding it names is very much alive.
+    fn nearest_match(
+        &self,
+        key: &SuppressionKey,
+        directive: &SuppressionDirective,
+    ) -> Option<usize> {
+        self.reported
+            .iter()
+            .filter(|finding| finding.path == key.path)
+            .filter(|finding| {
+                directive.rules.is_empty()
+                    || directive
+                        .rules
+                        .iter()
+                        .any(|rule| rule_matches_kind(rule, &finding.rule_id, finding.kind))
+            })
+            .map(|finding| finding.line)
+            .min_by_key(|line| line.abs_diff(key.line))
     }
 
     fn missing_reason_findings(&self) -> Vec<Finding> {
@@ -125,22 +175,35 @@ fn collect_directives(
                     column: line.find("//").unwrap_or_default(),
                     text: line.trim().to_owned(),
                     has_reason: suppression.has_reason,
+                    rules: suppression.rules,
                 },
             );
         }
     }
 }
 
-fn stale_finding(key: &SuppressionKey, directive: &SuppressionDirective) -> Finding {
+fn stale_finding(
+    key: &SuppressionKey,
+    directive: &SuppressionDirective,
+    nearest: Option<usize>,
+) -> Finding {
+    let message = match nearest {
+        Some(line) => format!(
+            "Suppression covers line {}, but the finding it names is reported on line {line}: {}",
+            key.line + 1,
+            directive.text
+        ),
+        None => format!(
+            "Suppression no longer matches a finding: {}",
+            directive.text
+        ),
+    };
     Finding {
         rule_id: "dart-decimate/stale-suppression".to_owned(),
         fingerprint: Some(format!("stale-suppression:{}:{}", key.path, key.line)),
         kind: FindingKind::StaleSuppression,
         severity: Severity::Error,
-        message: format!(
-            "Suppression no longer matches a finding: {}",
-            directive.text
-        ),
+        message,
         path: key.path.clone(),
         line: key.line,
         column: directive.column,
@@ -259,21 +322,21 @@ fn split_reason(rest: &str) -> (&str, Option<&str>) {
 }
 
 fn rule_matches(rule: &str, finding: &Finding) -> bool {
-    rule == "all"
-        || rule == finding.rule_id
-        || finding
-            .rule_id
-            .rsplit('/')
-            .next()
-            .is_some_and(|rule_id| rule == rule_id)
-        || rule == kind_key(finding.kind)
-        || security_rule_matches(rule, finding)
+    rule_matches_kind(rule, &finding.rule_id, finding.kind)
 }
 
-fn security_rule_matches(rule: &str, finding: &Finding) -> bool {
-    finding.kind == FindingKind::SecurityCandidate
+fn rule_matches_kind(rule: &str, rule_id: &str, kind: FindingKind) -> bool {
+    rule == "all"
+        || rule == rule_id
+        || rule_id.rsplit('/').next().is_some_and(|tail| rule == tail)
+        || rule == kind_key(kind)
+        || security_rule_matches(rule, rule_id, kind)
+}
+
+fn security_rule_matches(rule: &str, rule_id: &str, kind: FindingKind) -> bool {
+    kind == FindingKind::SecurityCandidate
         && (rule == "security-sink"
-            || (rule == "hardcoded-secret" && finding.rule_id.ends_with("hardcoded-secret")))
+            || (rule == "hardcoded-secret" && rule_id.ends_with("hardcoded-secret")))
 }
 
 const fn kind_key(kind: FindingKind) -> &'static str {
