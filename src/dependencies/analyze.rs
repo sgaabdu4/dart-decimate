@@ -186,7 +186,9 @@ fn record_directive(
 
     record_dependency_usage(usage, owner, file_path, &dependency);
 
+    let declared_section = owner.declared_section(specifier);
     if !owner.declares_dependency_for_path(&dependency, file_path)
+        && declared_section != Some(super::DependencySection::DevDependencies)
         && !is_known_generated_internal_import(file_path, specifier)
     {
         usage
@@ -199,7 +201,7 @@ fn record_directive(
                 dependency,
                 specifier: specifier.to_owned(),
                 kind,
-                declared_section: owner.declared_section(specifier),
+                declared_section,
                 location,
             });
     }

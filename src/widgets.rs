@@ -196,6 +196,46 @@ pub fn analyze_widgets(
     })
 }
 
+pub(crate) fn flutter_framework_classes(
+    project: &ScannedProject,
+) -> Result<BTreeSet<(PathBuf, String)>, WidgetAnalysisError> {
+    let paths = widget_analysis_paths(project, None);
+    let file_facts = paths
+        .par_iter()
+        .map(|path| analyze_inheritance_file(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let resolver = DeclarationResolver::new(
+        project,
+        file_facts.iter().flat_map(|file| {
+            file.reachability.class_names.iter().map(|name| ClassKey {
+                path: file.reachability.path.clone(),
+                name: name.clone(),
+            })
+        }),
+    );
+    Ok(inheritance::flutter_framework_classes_across_files(
+        &file_facts,
+        &resolver,
+    ))
+}
+
+fn analyze_inheritance_file(path: &Path) -> Result<WidgetFileFacts, WidgetAnalysisError> {
+    let source = fs::read_to_string(path).map_err(|source| WidgetAnalysisError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let parsed =
+        crate::dart_parser::parse_dart_source_lossy(path, &source).map_err(widget_parse_error)?;
+    let root = parsed.tree().root_node();
+    let mut classes = Vec::new();
+    collect_class_declarations(root, &mut classes);
+    Ok(WidgetFileFacts {
+        findings: FileWidgetFindings::default(),
+        classes: inheritance::class_facts(path, &classes, parsed.source()),
+        reachability: unrendered::reachability_facts(path, root, &classes, parsed.source()),
+    })
+}
+
 fn widget_analysis_paths(
     project: &ScannedProject,
     dead_code: Option<&DeadCodeReport>,

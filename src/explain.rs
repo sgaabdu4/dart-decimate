@@ -1,3 +1,5 @@
+use flutter_style::STYLE_ISSUES;
+use misc::MISC_ISSUES;
 use serde::{Deserialize, Serialize};
 pub const EXPLAIN_SCHEMA_VERSION: &str = "dart-decimate.explain.v1";
 
@@ -30,6 +32,8 @@ pub fn explain_issue(issue_type: &str) -> Result<ExplainReport, ExplainError> {
     let normalized = normalize_issue_type(issue_type);
     let Some(issue) = ISSUES
         .iter()
+        .chain(STYLE_ISSUES)
+        .chain(MISC_ISSUES)
         .copied()
         .find(|issue| issue.aliases.iter().any(|alias| *alias == normalized))
     else {
@@ -143,6 +147,9 @@ macro_rules! file_suppressions {
         &[concat!("// dart-decimate-ignore-file ", $rule)]
     };
 }
+
+mod flutter_style;
+mod misc;
 
 const ISSUES: &[IssueExplanation] = &[
     issue!(
@@ -468,6 +475,22 @@ const ISSUES: &[IssueExplanation] = &[
         &["dart-decimate trace-dependency --format json --dependency <package>"],
     ),
     issue!(
+        "dev-dependency-in-production",
+        "dart-decimate/dev-dependency-in-production",
+        &[
+            "dev-dependency-in-production",
+            "dev-dependencies-in-production",
+            "dev-deps-in-production"
+        ],
+        "Dev dependency used in production",
+        "A package declared under dev_dependencies is imported from the owning package's lib/ or bin/ code.",
+        "Consumers do not receive another package's dev dependencies, so published runtime code can fail to resolve the package.",
+        "lib/main.dart imports package:collection/... while collection is declared only under dev_dependencies.",
+        "Move the package declaration from dev_dependencies to dependencies.",
+        &[],
+        &["dart-decimate trace-dependency --format json --dependency <package>"],
+    ),
+    issue!(
         "test-only-dependency",
         "dart-decimate/test-only-dependency",
         &[
@@ -634,72 +657,5 @@ const ISSUES: &[IssueExplanation] = &[
         "Refactor around the highest-ranked reasons, then rerun health.",
         &[],
         &["dart-decimate health --format json --targets"],
-    ),
-    issue!(
-        "feature-flag",
-        "dart-decimate/feature-flag",
-        &["feature-flag", "feature-flags", "flags"],
-        "Feature flag",
-        "A Dart or Flutter feature flag pattern was detected.",
-        "Flag inventories help find stale rollout logic and risky config gates.",
-        "bool.fromEnvironment('NEW_FLOW') gates production behavior.",
-        "Review owner, rollout state, and dead-code traces before deleting flag branches.",
-        next_line_suppressions!("feature-flag"),
-        &["dart-decimate flags --format json"],
-    ),
-    issue!(
-        "security-candidate",
-        "dart-decimate/security-candidate",
-        &[
-            "security",
-            "security-candidate",
-            "security-candidates",
-            "security-sink",
-            "hardcoded-secret",
-            "firebase-api-key",
-            "insecure-transport",
-            "tls-bypass",
-            "webview-risk",
-            "process-execution",
-            "process-exec",
-            "raw-sql",
-            "plain-secret-storage",
-        ],
-        "Security candidate",
-        "A deterministic local security review candidate was detected.",
-        "Dart Decimate surfaces candidates for agent verification; it does not prove exploitability.",
-        "HttpClient.badCertificateCallback or an http:// URL appears in reachable code.",
-        "Verify source, sink, reachability, and product intent before changing code.",
-        next_line_suppressions!("security-sink"),
-        &["dart-decimate security --format json --surface"],
-    ),
-    issue!(
-        "stale-suppression",
-        "dart-decimate/stale-suppression",
-        &[
-            "stale-suppression",
-            "stale-suppressions",
-            "unused-suppression",
-            "unused-suppressions"
-        ],
-        "Stale suppression",
-        "A Dart Decimate or Fallow inline suppression no longer suppresses any finding.",
-        "Stale suppressions hide historical context and can mask future findings accidentally.",
-        "// dart-decimate-ignore-next-line unused-export remains above live code with no finding.",
-        "Remove the unused suppression comment.",
-        &[],
-        &["dart-decimate check --format json"],
-    ),
-    issue!(
-        "missing-suppression-reason",
-        "dart-decimate/missing-suppression-reason",
-        &["missing-suppression-reason", "missing-suppression-reasons"],
-        "Missing suppression reason",
-        "A Dart Decimate or Fallow inline suppression is missing required justification text.",
-        "Reasoned suppressions make intentional exceptions reviewable and prevent silent cleanup drift.",
-        "// dart-decimate-ignore-next-line unused-export omits why the export is intentionally kept.",
-        "Add a short reason after `--`, `because`, or `reason:`.",
-        &[],
-        &["dart-decimate check --format json"],
     ),
 ];

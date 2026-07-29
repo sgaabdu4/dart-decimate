@@ -131,6 +131,7 @@ fn push_dependency_filters(matches: &ArgMatches, kinds: &mut Vec<FindingKind>) {
         &[
             FindingKind::UnusedDependency,
             FindingKind::UnusedDevDependency,
+            FindingKind::DevDependencyInProduction,
             FindingKind::TestOnlyDependency,
         ],
     );

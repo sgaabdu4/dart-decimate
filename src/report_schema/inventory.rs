@@ -86,6 +86,222 @@ pub(super) fn complexity_contribution_schema() -> Value {
     })
 }
 
+pub(super) fn large_function_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "rule_id",
+            "path",
+            "symbol",
+            "kind",
+            "line",
+            "column",
+            "end_line",
+            "line_count",
+            "max_unit_size",
+            "guidance"
+        ],
+        "properties": {
+            "rule_id": string_schema(),
+            "path": string_schema(),
+            "symbol": string_schema(),
+            "kind": string_schema(),
+            "line": positive_integer_schema(),
+            "column": nonnegative_integer_schema(),
+            "end_line": positive_integer_schema(),
+            "line_count": positive_integer_schema(),
+            "max_unit_size": positive_integer_schema(),
+            "threshold_source": nullable_string_schema(),
+            "threshold_reason": nullable_string_schema(),
+            "guidance": string_schema()
+        }
+    })
+}
+
+pub(super) fn flutter_style_finding_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "rule_id",
+            "kind",
+            "path",
+            "line",
+            "column",
+            "value_kind",
+            "value",
+            "token",
+            "nearest_token",
+            "distance"
+        ],
+        "properties": {
+            "rule_id": string_schema(),
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "raw-flutter-style-value",
+                    "near-duplicate-theme-token",
+                    "unused-theme-extension-token"
+                ]
+            },
+            "path": string_schema(),
+            "line": positive_integer_schema(),
+            "column": nonnegative_integer_schema(),
+            "value_kind": { "type": "string", "enum": ["color", "text-style"] },
+            "value": nullable_string_schema(),
+            "token": nullable_ref_schema("theme_token_evidence"),
+            "nearest_token": nullable_ref_schema("theme_token_evidence"),
+            "distance": nullable_string_schema()
+        }
+    })
+}
+
+pub(super) fn theme_token_evidence_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "name",
+            "path",
+            "line",
+            "column",
+            "value_kind",
+            "value",
+            "custom"
+        ],
+        "properties": {
+            "name": string_schema(),
+            "path": string_schema(),
+            "line": positive_integer_schema(),
+            "column": nonnegative_integer_schema(),
+            "value_kind": { "type": "string", "enum": ["color", "text-style"] },
+            "value": nullable_string_schema(),
+            "custom": { "type": "boolean" }
+        }
+    })
+}
+
+pub(super) fn semantic_report_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "completeness",
+            "reasons",
+            "candidate_count",
+            "processed_candidates",
+            "omitted_candidates",
+            "capacity",
+            "evidence",
+            "type_couplings"
+        ],
+        "properties": {
+            "completeness": semantic_completeness_schema(),
+            "reasons": {
+                "type": "array",
+                "items": semantic_omission_reason_schema()
+            },
+            "candidate_count": nonnegative_integer_schema(),
+            "processed_candidates": nonnegative_integer_schema(),
+            "omitted_candidates": nonnegative_integer_schema(),
+            "capacity": positive_integer_schema(),
+            "evidence": array_ref_schema("semantic_evidence"),
+            "type_couplings": array_ref_schema("semantic_type_coupling")
+        }
+    })
+}
+
+pub(super) fn semantic_identity_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "library_uri",
+            "path",
+            "kind",
+            "name",
+            "start_line",
+            "start_column",
+            "end_line"
+        ],
+        "properties": {
+            "library_uri": string_schema(),
+            "path": string_schema(),
+            "kind": string_schema(),
+            "name": string_schema(),
+            "start_line": positive_integer_schema(),
+            "start_column": nonnegative_integer_schema(),
+            "end_line": positive_integer_schema()
+        }
+    })
+}
+
+pub(super) fn semantic_evidence_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "decision", "reasons"],
+        "properties": {
+            "subject": { "$ref": "#/$defs/semantic_identity" },
+            "decision": semantic_decision_schema(),
+            "reasons": {
+                "type": "array",
+                "items": semantic_omission_reason_schema()
+            }
+        }
+    })
+}
+
+pub(super) fn semantic_type_coupling_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "source",
+            "referenced_type",
+            "target",
+            "line",
+            "column",
+            "decision"
+        ],
+        "properties": {
+            "source": { "$ref": "#/$defs/semantic_identity" },
+            "referenced_type": string_schema(),
+            "target": { "$ref": "#/$defs/semantic_identity" },
+            "line": positive_integer_schema(),
+            "column": nonnegative_integer_schema(),
+            "decision": semantic_decision_schema()
+        }
+    })
+}
+
+fn semantic_completeness_schema() -> Value {
+    json!({ "type": "string", "enum": ["complete", "partial", "unavailable"] })
+}
+
+fn semantic_decision_schema() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["confirmed", "retained-unresolved", "retained-abstained"]
+    })
+}
+
+fn semantic_omission_reason_schema() -> Value {
+    json!({
+        "type": "string",
+        "enum": [
+            "dynamic-access",
+            "generated-code",
+            "framework-registration",
+            "ambiguous-owner",
+            "parse-failure",
+            "capacity",
+            "unsupported-syntax"
+        ]
+    })
+}
+
 pub(super) fn effective_thresholds_schema() -> Value {
     json!({
         "type": "object",
@@ -93,7 +309,8 @@ pub(super) fn effective_thresholds_schema() -> Value {
         "properties": {
             "max_cyclomatic": nonnegative_integer_schema(),
             "max_cognitive": nonnegative_integer_schema(),
-            "max_crap": nonnegative_integer_schema()
+            "max_crap": nonnegative_integer_schema(),
+            "max_unit_size": nonnegative_integer_schema()
         }
     })
 }
@@ -233,11 +450,24 @@ pub(super) fn security_candidate_schema() -> Value {
             "candidate": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["source", "sink", "boundary"],
+                "required": [
+                    "source",
+                    "sink",
+                    "boundary",
+                    "effect",
+                    "evidence_template",
+                    "trace_role"
+                ],
                 "properties": {
                     "source": string_schema(),
                     "sink": string_schema(),
-                    "boundary": string_schema()
+                    "boundary": string_schema(),
+                    "effect": string_schema(),
+                    "evidence_template": string_schema(),
+                    "trace_role": {
+                        "type": "string",
+                        "enum": ["source", "sink", "boundary"]
+                    }
                 }
             },
             "sink": string_schema(),
@@ -310,6 +540,30 @@ fn security_trace_step_schema() -> Value {
     })
 }
 
+pub(super) fn security_blind_spot_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "path", "line", "column", "sink", "reason", "evidence"],
+        "properties": {
+            "category": security_category_schema(),
+            "path": string_schema(),
+            "line": positive_integer_schema(),
+            "column": nonnegative_integer_schema(),
+            "sink": string_schema(),
+            "reason": {
+                "type": "string",
+                "enum": [
+                    "unflattened-random-flow",
+                    "ambiguous-random-provenance",
+                    "unflattened-call"
+                ]
+            },
+            "evidence": string_schema()
+        }
+    })
+}
+
 pub(super) fn attack_surface_schema() -> Value {
     json!({
         "type": "object",
@@ -364,7 +618,8 @@ fn security_category_schema() -> Value {
             "web-view-risk",
             "process-execution",
             "raw-sql",
-            "plain-secret-storage"
+            "plain-secret-storage",
+            "weak-randomness"
         ]
     })
 }
@@ -388,6 +643,15 @@ fn array_ref_schema(definition: &str) -> Value {
     json!({
         "type": "array",
         "items": { "$ref": format!("#/$defs/{definition}") }
+    })
+}
+
+fn nullable_ref_schema(definition: &str) -> Value {
+    json!({
+        "oneOf": [
+            { "$ref": format!("#/$defs/{definition}") },
+            { "type": "null" }
+        ]
     })
 }
 

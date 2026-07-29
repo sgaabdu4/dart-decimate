@@ -15,11 +15,13 @@ mod index;
 mod path_filters;
 mod private_type_leaks;
 mod riverpod;
+mod semantic_evidence;
 use extensions::extend_implicit_extension_references;
 use path_filters::{is_library_source, is_private, is_public_library_entry};
 pub use private_type_leaks::PrivateTypeLeak;
 use private_type_leaks::private_type_leaks;
 use riverpod::extend_generated_provider_owner_references;
+use semantic_evidence::semantic_report;
 
 /// Symbol-level dead-code result.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +34,8 @@ pub struct SymbolReport {
     pub private_type_leaks: Vec<PrivateTypeLeak>,
     /// Public API entries that expose multiple declarations with the same name.
     pub duplicate_exports: Vec<DuplicateExport>,
+    /// Conservative Rust-native semantic evidence for retained candidates and type edges.
+    pub semantic: crate::SemanticReport,
 }
 
 /// Options for symbol-level dead-code analysis.
@@ -137,23 +141,29 @@ pub fn analyze_symbols_with_options(
     } else {
         Vec::new()
     };
-    let Some(dead_code) = dead_code else {
-        return SymbolReport {
-            unused_exports: Vec::new(),
-            unused_members: Vec::new(),
-            private_type_leaks,
-            duplicate_exports,
-        };
+    let (unused_exports, unused_members) = if let Some(dead_code) = dead_code {
+        (
+            unused_exports(project, dead_code, &index, options),
+            unused_members(project, dead_code, &index),
+        )
+    } else {
+        (Vec::new(), Vec::new())
     };
-
-    let unused_exports = unused_exports(project, dead_code, &index, options);
-    let unused_members = unused_members(project, dead_code, &index);
+    let semantic = semantic_report(
+        project,
+        &index,
+        &unused_exports,
+        &unused_members,
+        &private_type_leaks,
+        &duplicate_exports,
+    );
 
     SymbolReport {
         unused_exports,
         unused_members,
         private_type_leaks,
         duplicate_exports,
+        semantic,
     }
 }
 

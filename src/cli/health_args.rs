@@ -5,13 +5,20 @@ use clap::{Arg, ArgAction, ArgMatches, Command, parser::ValueSource, value_parse
 use crate::{HealthOptions, LowTrafficThreshold};
 
 pub(super) fn health_command(command: Command) -> Command {
-    health_command_without_top(command).arg(
-        Arg::new("top")
-            .long("top")
-            .value_name("N")
-            .help("Show only the N highest complexity findings")
-            .value_parser(value_parser!(usize)),
-    )
+    health_command_without_top(command)
+        .arg(
+            Arg::new("top")
+                .long("top")
+                .value_name("N")
+                .help("Show only the N highest complexity findings")
+                .value_parser(value_parser!(usize)),
+        )
+        .arg(
+            Arg::new("flutter-style")
+                .long("flutter-style")
+                .help("Include advisory Flutter theme/style analysis")
+                .action(ArgAction::SetTrue),
+        )
 }
 
 pub(super) fn health_command_without_top(command: Command) -> Command {
@@ -30,6 +37,14 @@ pub(super) fn health_command_without_top(command: Command) -> Command {
                 .value_name("N")
                 .help("Maximum cognitive complexity before reporting")
                 .default_value("15")
+                .value_parser(value_parser!(usize)),
+        )
+        .arg(
+            Arg::new("max-unit-size")
+                .long("max-unit-size")
+                .value_name("N")
+                .help("Maximum inclusive physical lines in one function-like declaration")
+                .default_value("60")
                 .value_parser(value_parser!(usize)),
         )
         .arg(
@@ -142,6 +157,11 @@ pub(super) fn health_options_with_defaults(
             options.max_cognitive = *max_cognitive;
         }
     }
+    if is_command_line(matches, "max-unit-size") {
+        if let Some(max_unit_size) = matches.get_one::<usize>("max-unit-size") {
+            options.max_unit_size = *max_unit_size;
+        }
+    }
     if is_command_line(matches, "top") {
         options.top = matches.get_one::<usize>("top").copied();
     }
@@ -186,6 +206,15 @@ pub(super) fn health_options_with_defaults(
     }
     if is_command_line(matches, "ownership") {
         options.ownership = matches.get_flag("ownership").into();
+    }
+    if matches
+        .try_get_one::<bool>("flutter-style")
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or_default()
+    {
+        options.flutter_style = true.into();
     }
     if is_command_line(matches, "min-score") {
         if let Some(min_score) = matches.get_one::<usize>("min-score") {

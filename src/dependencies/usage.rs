@@ -28,6 +28,10 @@ pub(super) fn allows_dev_dependency(package_root: &Path, path: &Path) -> bool {
     let relative = path.strip_prefix(package_root).unwrap_or(path);
     !matches!(
         relative.components().next(),
-        Some(std::path::Component::Normal(name)) if name == "lib" || name == "bin"
+        Some(std::path::Component::Normal(name))
+            if matches!(
+                name.to_str(),
+                Some("lib" | "bin" | "web" | "hook")
+            )
     )
 }

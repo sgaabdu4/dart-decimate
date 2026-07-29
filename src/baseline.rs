@@ -424,6 +424,10 @@ fn filter_detail_sections(report: &mut JsonReport) {
     report
         .complexity
         .retain(|finding| complexity_live(finding, &remaining));
+    report.flutter_style.retain(|finding| {
+        style_kind(&finding.kind)
+            .is_some_and(|kind| detail_path_live(kind, &finding.path, &remaining))
+    });
     report
         .hotspots
         .retain(|hotspot| detail_path_live(FindingKind::HealthHotspot, &hotspot.path, &remaining));
@@ -439,6 +443,15 @@ fn filter_detail_sections(report: &mut JsonReport) {
     report
         .attack_surface
         .retain(|entry| attack_surface_live(entry, &report.security_candidates));
+}
+
+fn style_kind(kind: &str) -> Option<FindingKind> {
+    match kind {
+        "raw-flutter-style-value" => Some(FindingKind::RawFlutterStyleValue),
+        "near-duplicate-theme-token" => Some(FindingKind::NearDuplicateThemeToken),
+        "unused-theme-extension-token" => Some(FindingKind::UnusedThemeExtensionToken),
+        _ => None,
+    }
 }
 
 fn clone_group_live(
@@ -547,6 +560,8 @@ fn recompute_summary(report: &mut JsonReport) {
     report.summary.unused_dependencies = dependency_count(&report.findings);
     report.summary.unused_dev_dependencies =
         kind_count(&report.findings, FindingKind::UnusedDevDependency);
+    report.summary.dev_dependencies_in_production =
+        kind_count(&report.findings, FindingKind::DevDependencyInProduction);
     report.summary.test_only_dependencies =
         kind_count(&report.findings, FindingKind::TestOnlyDependency);
     report.summary.dependency_overrides = dependency_override_count(&report.findings);
@@ -587,6 +602,19 @@ fn recompute_summary(report: &mut JsonReport) {
     );
     report.summary.code_duplications = report.clone_groups.len();
     report.summary.complex_functions = report.complexity.len();
+    report.summary.large_functions = report.large_functions.len();
+    report.summary.raw_flutter_style_values = style_count(report, "raw-flutter-style-value");
+    report.summary.near_duplicate_theme_tokens = style_count(report, "near-duplicate-theme-token");
+    report.summary.unused_theme_extension_tokens =
+        style_count(report, "unused-theme-extension-token");
+    report.summary.semantic_evidence = report
+        .semantic
+        .as_ref()
+        .map_or(0, |semantic| semantic.evidence.len());
+    report.summary.type_couplings = report
+        .semantic
+        .as_ref()
+        .map_or(0, |semantic| semantic.type_couplings.len());
     report.summary.coverage_gaps = kind_count(&report.findings, FindingKind::CoverageGap);
     report.summary.crap_functions = kind_count(&report.findings, FindingKind::HighCrapScore);
     report.summary.file_scores = report.file_scores.len();
@@ -604,6 +632,7 @@ fn recompute_summary(report: &mut JsonReport) {
         .iter()
         .map(|candidate| candidate.occurrences.len())
         .sum();
+    report.summary.security_blind_spots = report.security_blind_spots.len();
     report.summary.attack_surface = report.attack_surface.len();
     report.summary.missing_entry_points =
         kind_count(&report.findings, FindingKind::MissingEntryPoint);
@@ -618,6 +647,14 @@ fn recompute_summary(report: &mut JsonReport) {
     report.summary.missing_suppression_reasons =
         kind_count(&report.findings, FindingKind::MissingSuppressionReason);
     report.summary.findings = report.findings.len();
+}
+
+fn style_count(report: &JsonReport, kind: &str) -> usize {
+    report
+        .flutter_style
+        .iter()
+        .filter(|finding| finding.kind == kind)
+        .count()
 }
 
 fn kind_count(findings: &[Finding], kind: FindingKind) -> usize {
@@ -644,6 +681,7 @@ const fn is_dependency_hygiene_kind(kind: FindingKind) -> bool {
         kind,
         FindingKind::UnusedDependency
             | FindingKind::UnusedDevDependency
+            | FindingKind::DevDependencyInProduction
             | FindingKind::TestOnlyDependency
             | FindingKind::UnusedDependencyOverride
     )
