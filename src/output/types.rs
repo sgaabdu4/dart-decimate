@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+use crate::SemanticReport;
+
 use super::{
     JsonAttackSurfaceEntry, JsonCloneGroup, JsonComplexityFinding, JsonFeatureFlag,
-    JsonFileHealthScore, JsonHealthHotspot, JsonRefactoringTarget, JsonRuntimeCoverage,
-    JsonSecurityCandidate, JsonThresholdOverride,
+    JsonFileHealthScore, JsonFlutterStyleFinding, JsonHealthHotspot, JsonLargeFunction,
+    JsonRefactoringTarget, JsonRuntimeCoverage, JsonSecurityBlindSpot, JsonSecurityCandidate,
+    JsonThresholdOverride,
 };
 
 /// Command that produced a report.
@@ -147,6 +150,13 @@ pub struct JsonReport {
     pub clone_groups: Vec<JsonCloneGroup>,
     /// Complexity findings, populated by `check` and `health`.
     pub complexity: Vec<JsonComplexityFinding>,
+    /// Advisory large functions, populated by `check` and `health`.
+    pub large_functions: Vec<JsonLargeFunction>,
+    /// Opt-in advisory Flutter style rows.
+    pub flutter_style: Vec<JsonFlutterStyleFinding>,
+    /// Conservative Rust-native symbol evidence, populated when symbol analysis runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic: Option<SemanticReport>,
     /// File health scores, populated by `health --file-scores`.
     pub file_scores: Vec<JsonFileHealthScore>,
     /// Health hotspots, populated by `health --hotspots`.
@@ -159,6 +169,8 @@ pub struct JsonReport {
     pub feature_flags: Vec<JsonFeatureFlag>,
     /// Security review candidates, populated by `security`.
     pub security_candidates: Vec<JsonSecurityCandidate>,
+    /// Bounded sink-shaped expressions the security analyzer could not verify.
+    pub security_blind_spots: Vec<JsonSecurityBlindSpot>,
     /// Attack-surface inventory, populated by `security --surface`.
     pub attack_surface: Vec<JsonAttackSurfaceEntry>,
     /// Runtime coverage intelligence, populated by `--runtime-coverage`.
@@ -190,6 +202,8 @@ pub struct ReportSummary {
     pub unused_dependencies: usize,
     /// Declared dev dependencies not imported by Dart files.
     pub unused_dev_dependencies: usize,
+    /// Declared dev dependencies imported from production-owned Dart code.
+    pub dev_dependencies_in_production: usize,
     /// Runtime dependencies imported only from dev/test files.
     pub test_only_dependencies: usize,
     /// Dependency override findings across all override hygiene classes.
@@ -251,6 +265,18 @@ pub struct ReportSummary {
     pub functions: usize,
     /// Functions exceeding complexity thresholds.
     pub complex_functions: usize,
+    /// Function-like declarations exceeding the effective unit-size threshold.
+    pub large_functions: usize,
+    /// Raw Flutter style values with resolvable theme tokens.
+    pub raw_flutter_style_values: usize,
+    /// Near-duplicate custom theme token pairs.
+    pub near_duplicate_theme_tokens: usize,
+    /// Unused custom `ThemeExtension` fields.
+    pub unused_theme_extension_tokens: usize,
+    /// Retained symbol candidates with semantic reconciliation evidence.
+    pub semantic_evidence: usize,
+    /// Resolved advisory public-signature type edges.
+    pub type_couplings: usize,
     /// Highest cyclomatic complexity.
     pub max_cyclomatic_complexity: usize,
     /// Highest cognitive complexity.
@@ -277,6 +303,8 @@ pub struct ReportSummary {
     pub security_candidates: usize,
     /// Total security candidate occurrences detected before `--top` truncation.
     pub security_candidate_occurrences: usize,
+    /// Bounded sink-shaped expressions the security analyzer could not verify.
+    pub security_blind_spots: usize,
     /// Attack-surface inventory entries.
     pub attack_surface: usize,
     /// Missing requested entry points.
@@ -391,6 +419,8 @@ pub enum FindingKind {
     UnusedDependency,
     /// Declared dev dependency has no Dart import/export usage.
     UnusedDevDependency,
+    /// Declared dev dependency is imported from production-owned Dart code.
+    DevDependencyInProduction,
     /// Runtime dependency is imported only from dev/test files.
     TestOnlyDependency,
     /// Dependency override is absent from the resolved lockfile package graph.
@@ -417,6 +447,12 @@ pub enum FindingKind {
     HealthHotspot,
     /// File is a prioritized refactoring target.
     RefactoringTarget,
+    /// Raw Flutter style value with a resolvable theme token.
+    RawFlutterStyleValue,
+    /// Near-duplicate custom theme token pair.
+    NearDuplicateThemeToken,
+    /// Custom `ThemeExtension` field with no observed member access.
+    UnusedThemeExtensionToken,
     /// Feature flag reference.
     FeatureFlag,
     /// Security review candidate.

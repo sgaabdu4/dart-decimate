@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,6 +9,7 @@ use crate::graph::normalize_against;
 use crate::{Location, ScannedProject};
 
 mod coverage;
+mod large_units;
 mod ownership;
 mod runtime_coverage;
 mod runtime_intelligence;
@@ -16,6 +18,7 @@ mod threshold_types;
 mod thresholds;
 mod types;
 use coverage::{CoverageMap, coverage_gap_findings, crap_findings, load_lcov};
+use large_units::large_functions;
 use runtime_coverage::load_runtime_coverage;
 pub use runtime_intelligence::{
     RuntimeBlastRadius, RuntimeBlastRisk, RuntimeCoverageAction, RuntimeCoverageIntelligence,
@@ -31,8 +34,8 @@ use thresholds::ThresholdContext;
 pub use types::{
     ComplexityContribution, ComplexityFinding, ComplexityFunctionKind, ComplexityRule,
     CoverageGapFinding, CoverageGapReason, CrapFinding, FileCoverageStatus, FileHealthScore,
-    HealthError, HealthHotspot, HealthOptions, HealthReport, HealthToggle, LowTrafficThreshold,
-    RefactoringTarget, RuntimeCoverageConfidence, RuntimeCoverageFinding,
+    HealthError, HealthHotspot, HealthOptions, HealthReport, HealthToggle, LargeFunction,
+    LowTrafficThreshold, RefactoringTarget, RuntimeCoverageConfidence, RuntimeCoverageFinding,
     RuntimeCoverageFindingKind, RuntimeCoverageFormat, RuntimeCoverageReport, RuntimeHotPath,
     SourceMapConfidence,
 };
@@ -42,6 +45,7 @@ struct FunctionMetrics {
     pub(super) path: PathBuf,
     pub(super) symbol: String,
     pub(super) kind: ComplexityFunctionKind,
+    owner_class: Option<String>,
     pub(super) location: Location,
     pub(super) end_line: usize,
     pub(super) cyclomatic: usize,
@@ -71,6 +75,12 @@ pub fn analyze_health(
     let runtime_coverage = load_runtime_coverage(project, options, &functions)?;
     let coverage_files = coverage.as_ref().map_or(0, CoverageMap::file_count);
     let complexity = complexity_findings(&functions, options, &mut threshold_context);
+    let large_functions = large_functions(&functions, &mut threshold_context);
+    let flutter_style = options
+        .flutter_style
+        .is_enabled()
+        .then(|| crate::analyze_flutter_style(project))
+        .transpose()?;
     let coverage_gaps = coverage
         .as_ref()
         .filter(|_| options.coverage_gaps.is_enabled())
@@ -123,6 +133,8 @@ pub fn analyze_health(
         coverage_files,
         max_crap_score: max_crap_score(&crap),
         complexity,
+        large_functions,
+        flutter_style,
         coverage_gaps,
         crap,
         threshold_overrides,
@@ -137,6 +149,10 @@ fn collect_project_functions(
     project: &ScannedProject,
 ) -> Result<(Vec<FunctionMetrics>, usize), HealthError> {
     let mut functions = Vec::new();
+    let mut widget_facts = Vec::new();
+    let mut widget_paths = crate::widgets::widget_analysis_paths(project, None)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
     let mut analyzed_files = 0;
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
@@ -150,13 +166,32 @@ fn collect_project_functions(
         })?;
         let parsed = crate::dart_parser::parse_dart_source_lossy(&path, &source)
             .map_err(health_parse_error)?;
-        collect_functions(
+        let root = parsed.tree().root_node();
+        if widget_paths.remove(&path) {
+            widget_facts.push(crate::widgets::inheritance_file_facts(
+                &path,
+                root,
+                parsed.source(),
+            ));
+        }
+        collect_functions(root, parsed.source(), &path, &mut functions);
+    }
+    for path in widget_paths {
+        let source = fs::read_to_string(&path).map_err(|source| HealthError::ReadFile {
+            path: path.clone(),
+            source,
+        })?;
+        let parsed = crate::dart_parser::parse_dart_source_lossy(&path, &source)
+            .map_err(health_parse_error)?;
+        widget_facts.push(crate::widgets::inheritance_file_facts(
+            &path,
             parsed.tree().root_node(),
             parsed.source(),
-            &path,
-            &mut functions,
-        );
+        ));
     }
+    let flutter_classes =
+        crate::widgets::flutter_framework_classes_from_facts(project, &widget_facts);
+    classify_flutter_build_methods(&mut functions, &flutter_classes);
 
     Ok((functions, analyzed_files))
 }
@@ -289,18 +324,49 @@ fn function_from_node(node: Node<'_>, source: &str, path: &Path) -> Option<Funct
         ),
         _ => return None,
     };
+    let owner_class = (symbol == "build" && kind == ComplexityFunctionKind::Method)
+        .then(|| enclosing_class_name(node, source))
+        .flatten();
 
     let state = score_body(body);
     Some(FunctionMetrics {
         path: path.to_path_buf(),
         symbol,
         kind,
+        owner_class,
         location: node.start_position().into(),
         end_line: node.end_position().row + 1,
         cyclomatic: state.cyclomatic,
         cognitive: state.cognitive,
         contributions: state.contributions,
     })
+}
+
+fn enclosing_class_name(node: Node<'_>, source: &str) -> Option<String> {
+    let mut ancestor = node.parent();
+    while let Some(candidate) = ancestor {
+        if candidate.kind() == "class_declaration" {
+            return field_text(candidate, "name", source);
+        }
+        ancestor = candidate.parent();
+    }
+    None
+}
+
+fn classify_flutter_build_methods(
+    functions: &mut [FunctionMetrics],
+    flutter_classes: &BTreeSet<(PathBuf, String)>,
+) {
+    for function in functions {
+        if function.symbol == "build"
+            && function.kind == ComplexityFunctionKind::Method
+            && function.owner_class.as_ref().is_some_and(|owner| {
+                flutter_classes.contains(&(function.path.clone(), owner.clone()))
+            })
+        {
+            function.kind = ComplexityFunctionKind::FlutterBuildMethod;
+        }
+    }
 }
 
 fn named_function<'tree>(

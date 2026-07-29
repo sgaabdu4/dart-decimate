@@ -239,10 +239,18 @@ Dart Decimate finds:
 - high cognitive complexity
 - high combined complexity
 - high CRAP score
+- advisory large functions
 - coverage gaps
 - low health score files
 - hotspots
 - refactoring targets
+- opt-in Flutter raw-style, near-duplicate theme-token, and unused
+  `ThemeExtension` evidence
+
+Flutter large-function classification uses the Flutter threshold for `build`
+methods owned by `StatelessWidget`, `AnimatedWidget`, `State`, and
+`ConsumerState`. Color matching follows the documented `Color` constructor
+aliases, integer masking, and floating-component clamping.
 
 Useful commands:
 
@@ -250,6 +258,7 @@ Useful commands:
 dart-decimate health . --format json
 dart-decimate health . --complexity-breakdown --top 10 --format json
 dart-decimate health . --file-scores --hotspots --targets --format json
+dart-decimate health . --flutter-style --format json
 ```
 
 ### 3. Duplicated Code
@@ -330,6 +339,7 @@ Dart Decimate finds:
 
 - unused runtime dependencies
 - unused dev dependencies
+- dev dependencies imported by production-owned `lib/` or `bin/` code
 - runtime dependencies used only by tests
 - imports missing from `pubspec.yaml`
 - unused dependency overrides
@@ -400,18 +410,33 @@ Dart Decimate finds candidates for:
 - raw SQL
 - Firebase client API keys in `FirebaseOptions`
 - plain local storage of secret-like material
+- predictable `dart:math Random()` output used by token-, secret-, nonce-,
+  salt-, OTP-, session-, key-, password-, or auth-shaped declarations/calls
 
 Firebase client API keys are warning-level by default because FlutterFire
 generates client config. To make them fail a gate, set
 `"dart-decimate/security-firebase-api-key" = "error"` in `[rules]`. Common
-authentication copy such as password reset and password requirement text is
-filtered before reporting hardcoded-secret candidates unless it is bound to a
-secret-like name or contains a concrete token-like segment. OAuth authorization
-and token endpoint URLs are excluded from secret candidates as public metadata,
-while cleartext endpoint transport remains an insecure-transport candidate. Stripe secret-key names
-and `sk_test_`/`sk_live_` values remain review candidates even when they look
-like placeholders. A fixed `Process.start` of `Platform.resolvedExecutable`
-with fixed list arguments is not classified as shell command injection.
+authentication copy is filtered unless bound to a secret-like name or concrete
+token-like segment. OAuth endpoints are metadata only without userinfo
+credentials or secret-like query/fragment data; cleartext transport remains a
+candidate. Stripe secret-key names and `sk_test_`/`sk_live_` values remain
+candidates even as placeholders. Fixed `dart:io` process calls and typed
+`package:process` command lists are excluded; dynamic elements or shell
+execution remain candidates.
+Remote `Uri.http(...)` and `Uri(scheme: 'http', ...)` construction is covered,
+while documented local targets and debug/private-host-only branches are
+excluded. TLS candidates require a callback that can accept an invalid
+certificate; false-only callbacks are excluded and unresolved tear-offs become
+blind spots. `HttpOverrides.global` or an empty `SecurityContext` alone is not a
+bypass. Raw SQL analysis distinguishes literal dollar signs from interpolation
+and retains unresolved runtime queries for review.
+`Random.secure()` and confirmed secure factory flows are excluded. Imports from
+a uniquely resolved Dart library owner apply to its parts; ambiguous process
+provenance, process tear-offs, orphaned or multiply owned part-file calls, and
+indirect Random factory flows are reported as redacted `security_blind_spots`
+instead of being called clean. The embedded matcher
+catalogue owns rule IDs, callee shapes, import provenance, CWE/effect metadata,
+and evidence templates.
 
 Useful commands:
 
@@ -598,58 +623,9 @@ ask what is safest to do next.
 
 ## Config
 
-Dart Decimate reads config from:
-
-1. `.dart-decimaterc`
-2. `.dart-decimaterc.json`
-3. `.dart-decimaterc.jsonc`
-4. `dart-decimate.toml`
-5. `.dart-decimate.toml`
-
-Example:
-
-```toml
-[cli]
-format = "json"
-entry = ["lib/main.dart"]
-production = true
-
-[health]
-max_cyclomatic = 20
-max_cognitive = 15
-coverage_gaps = true
-fileScores = true
-hotspots = true
-targets = true
-
-[dupes]
-mode = "semantic"
-min_tokens = 80
-threshold = 5
-ignore_mapper_pairs = true
-
-[flags]
-allow = ["SKIP_PERMISSION_PROMPT"]
-
-[boundaries]
-presets = ["layered"]
-rules = ["lib/domain:lib/ui"]
-
-[security]
-surface = true
-categories = ["hardcoded-secret", "firebase-api-key", "insecure-transport", "tls-bypass"]
-
-[rules]
-unused-files = "error"
-unused-exports = "warn"
-security-candidate = "warn"
-"dart-decimate/security-firebase-api-key" = "error"
-```
-
-Allowed feature flags remain visible in the inventory but do not create
-`feature-flag` findings. Inline suppressions can document intent after `--`,
-`because`, or `reason:`, for example
-`// dart-decimate-ignore-next-line feature-flag -- required by E2E startup`.
+See [docs/configuration.md](docs/configuration.md) for config discovery,
+health/style settings, rule levels, security categories, and suppression
+examples.
 
 ## Full Issue List
 

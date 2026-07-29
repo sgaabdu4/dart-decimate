@@ -5,9 +5,11 @@ use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 
 use super::format::display_path;
+use super::scope::{scope_attack_surface, scope_security_blind_spots, scope_security_candidates};
 use super::{Finding, FindingAction, FindingKind, Severity};
 use crate::{
-    AttackSurfaceEntry, SecurityCandidate, SecurityCategory, SecurityConfidence, SecurityReport,
+    AttackSurfaceEntry, SecurityBlindSpot, SecurityBlindSpotReason, SecurityCandidate,
+    SecurityCategory, SecurityConfidence, SecurityDefaultSeverity, SecurityReport,
     SecurityTaintConfidence,
 };
 
@@ -63,7 +65,10 @@ impl Serialize for JsonSecurityCandidate {
                 occurrences: &self.occurrences,
             },
         )?;
-        state.serialize_field("trace", &trace_steps(self.category, &self.occurrences))?;
+        state.serialize_field(
+            "trace",
+            &trace_steps(&self.candidate.trace_role, &self.occurrences),
+        )?;
         state.end()
     }
 }
@@ -77,6 +82,12 @@ pub struct JsonSecurityCandidateDetails {
     pub sink: String,
     /// Trust or platform boundary involved.
     pub boundary: String,
+    /// Expected security impact if the candidate is confirmed.
+    pub effect: String,
+    /// Evidence contract used to create this candidate.
+    pub evidence_template: String,
+    /// Trace role from the embedded matcher catalogue.
+    pub trace_role: String,
 }
 
 /// One security candidate occurrence serialized in JSON reports.
@@ -117,7 +128,7 @@ struct JsonSecurityEvidence<'a> {
 
 #[derive(Serialize)]
 struct JsonSecurityTraceStep<'a> {
-    role: &'static str,
+    role: &'a str,
     path: &'a str,
     line: usize,
     column: usize,
@@ -140,6 +151,52 @@ pub struct JsonAttackSurfaceEntry {
     pub surface: String,
     /// Verification prompt for downstream agents.
     pub verification_prompt: String,
+}
+
+/// Bounded security-analysis blind spot serialized in JSON reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonSecurityBlindSpot {
+    /// Candidate category whose verification was incomplete.
+    pub category: SecurityCategory,
+    /// Dart file path, root-relative where possible.
+    pub path: String,
+    /// 1-based line.
+    pub line: usize,
+    /// 0-based byte column.
+    pub column: usize,
+    /// Sink or context family.
+    pub sink: String,
+    /// Stable bounded omission reason.
+    pub reason: SecurityBlindSpotReason,
+    /// Redacted source-line evidence.
+    pub evidence: String,
+}
+
+pub(super) struct JsonSecurityInventories {
+    pub(super) candidates: Vec<JsonSecurityCandidate>,
+    pub(super) blind_spots: Vec<JsonSecurityBlindSpot>,
+    pub(super) attack_surface: Vec<JsonAttackSurfaceEntry>,
+}
+
+pub(super) fn json_security_inventories(
+    root: &Path,
+    report: Option<&SecurityReport>,
+    scope: Option<&BTreeSet<String>>,
+) -> JsonSecurityInventories {
+    JsonSecurityInventories {
+        candidates: scope_security_candidates(
+            report.map_or_else(Vec::new, |report| json_security_candidates(root, report)),
+            scope,
+        ),
+        blind_spots: scope_security_blind_spots(
+            report.map_or_else(Vec::new, |report| json_security_blind_spots(root, report)),
+            scope,
+        ),
+        attack_surface: scope_attack_surface(
+            report.map_or_else(Vec::new, |report| json_attack_surface(root, report)),
+            scope,
+        ),
+    }
 }
 
 pub(super) fn add_security_findings(
@@ -192,15 +249,15 @@ pub(super) fn json_security_candidates(
                 finding_id: fingerprint.clone(),
                 fingerprint,
                 category: candidate.category,
-                cwe: cwe_ids(candidate.category)
-                    .iter()
-                    .map(|cwe| (*cwe).to_owned())
-                    .collect(),
-                severity: security_severity(candidate.category),
+                cwe: candidate.cwe.clone(),
+                severity: security_severity(candidate.default_severity),
                 candidate: JsonSecurityCandidateDetails {
-                    source: source_label(candidate.category).to_owned(),
+                    source: candidate.source.clone(),
                     sink: candidate.sink.clone(),
-                    boundary: boundary_label(candidate.category).to_owned(),
+                    boundary: candidate.boundary.clone(),
+                    effect: candidate.effect.clone(),
+                    evidence_template: candidate.evidence_template.clone(),
+                    trace_role: candidate.trace_role.clone(),
                 },
                 sink: candidate.sink.clone(),
                 confidence: candidate.confidence,
@@ -209,6 +266,29 @@ pub(super) fn json_security_candidates(
             }
         })
         .collect()
+}
+
+pub(super) fn json_security_blind_spots(
+    root: &Path,
+    report: &SecurityReport,
+) -> Vec<JsonSecurityBlindSpot> {
+    report
+        .blind_spots
+        .iter()
+        .map(|blind_spot| json_security_blind_spot(root, blind_spot))
+        .collect()
+}
+
+fn json_security_blind_spot(root: &Path, blind_spot: &SecurityBlindSpot) -> JsonSecurityBlindSpot {
+    JsonSecurityBlindSpot {
+        category: blind_spot.category,
+        path: display_path(root, &blind_spot.path),
+        line: blind_spot.location.line,
+        column: blind_spot.location.column,
+        sink: blind_spot.sink.clone(),
+        reason: blind_spot.reason,
+        evidence: blind_spot.evidence.clone(),
+    }
 }
 
 fn candidate_reachability(
@@ -261,7 +341,7 @@ fn security_finding(root: &Path, candidate: &SecurityCandidate) -> Finding {
         rule_id: candidate.rule_id.clone(),
         fingerprint: Some(security_fingerprint(candidate)),
         kind: FindingKind::SecurityCandidate,
-        severity: security_severity(candidate.category),
+        severity: security_severity(candidate.default_severity),
         message: format!(
             "Security review candidate for {} via {}",
             category_name(candidate.category),
@@ -284,19 +364,6 @@ fn security_finding(root: &Path, candidate: &SecurityCandidate) -> Finding {
             .with_dart_decimate_args(["inspect", "--format", "json", "--file", path.as_str()])
             .with_suppression_comment("// dart-decimate-ignore-next-line security-sink"),
         ],
-    }
-}
-
-const fn security_severity(category: SecurityCategory) -> Severity {
-    match category {
-        SecurityCategory::FirebaseApiKey => Severity::Warning,
-        SecurityCategory::HardcodedSecret
-        | SecurityCategory::InsecureTransport
-        | SecurityCategory::TlsBypass
-        | SecurityCategory::WebViewRisk
-        | SecurityCategory::ProcessExecution
-        | SecurityCategory::RawSql
-        | SecurityCategory::PlainSecretStorage => Severity::Error,
     }
 }
 
@@ -326,14 +393,14 @@ fn security_fingerprint(candidate: &SecurityCandidate) -> String {
     format!("sec:{:08x}", hash & 0xffff_ffff)
 }
 
-fn trace_steps(
-    category: SecurityCategory,
-    occurrences: &[JsonSecurityOccurrence],
-) -> Vec<JsonSecurityTraceStep<'_>> {
+fn trace_steps<'a>(
+    role: &'a str,
+    occurrences: &'a [JsonSecurityOccurrence],
+) -> Vec<JsonSecurityTraceStep<'a>> {
     occurrences
         .iter()
         .map(|occurrence| JsonSecurityTraceStep {
-            role: trace_role(category),
+            role,
             path: &occurrence.path,
             line: occurrence.line,
             column: occurrence.column,
@@ -343,53 +410,10 @@ fn trace_steps(
         .collect()
 }
 
-const fn cwe_ids(category: SecurityCategory) -> &'static [&'static str] {
-    match category {
-        SecurityCategory::HardcodedSecret => &["CWE-798"],
-        SecurityCategory::FirebaseApiKey => &["CWE-200"],
-        SecurityCategory::InsecureTransport => &["CWE-319"],
-        SecurityCategory::TlsBypass => &["CWE-295"],
-        SecurityCategory::WebViewRisk => &["CWE-749"],
-        SecurityCategory::ProcessExecution => &["CWE-78"],
-        SecurityCategory::RawSql => &["CWE-89"],
-        SecurityCategory::PlainSecretStorage => &["CWE-922"],
-    }
-}
-
-const fn source_label(category: SecurityCategory) -> &'static str {
-    match category {
-        SecurityCategory::HardcodedSecret => "source-code-literal",
-        SecurityCategory::FirebaseApiKey => "firebase-options-api-key",
-        SecurityCategory::InsecureTransport => "http-url-literal",
-        SecurityCategory::TlsBypass => "tls-callback-or-context",
-        SecurityCategory::WebViewRisk => "webview-configuration",
-        SecurityCategory::ProcessExecution => "process-call-arguments",
-        SecurityCategory::RawSql => "query-text",
-        SecurityCategory::PlainSecretStorage => "secret-named-value",
-    }
-}
-
-const fn boundary_label(category: SecurityCategory) -> &'static str {
-    match category {
-        SecurityCategory::HardcodedSecret => "source-control",
-        SecurityCategory::FirebaseApiKey => "firebase-client-config",
-        SecurityCategory::InsecureTransport => "network-transport",
-        SecurityCategory::TlsBypass => "tls-validation",
-        SecurityCategory::WebViewRisk => "embedded-webview",
-        SecurityCategory::ProcessExecution => "operating-system-process",
-        SecurityCategory::RawSql => "database",
-        SecurityCategory::PlainSecretStorage => "local-storage",
-    }
-}
-
-const fn trace_role(category: SecurityCategory) -> &'static str {
-    match category {
-        SecurityCategory::HardcodedSecret | SecurityCategory::FirebaseApiKey => "source",
-        SecurityCategory::TlsBypass | SecurityCategory::WebViewRisk => "boundary",
-        SecurityCategory::InsecureTransport
-        | SecurityCategory::ProcessExecution
-        | SecurityCategory::RawSql
-        | SecurityCategory::PlainSecretStorage => "sink",
+const fn security_severity(severity: SecurityDefaultSeverity) -> Severity {
+    match severity {
+        SecurityDefaultSeverity::Warning => Severity::Warning,
+        SecurityDefaultSeverity::Error => Severity::Error,
     }
 }
 
@@ -403,5 +427,6 @@ const fn category_name(category: SecurityCategory) -> &'static str {
         SecurityCategory::ProcessExecution => "process execution",
         SecurityCategory::RawSql => "raw SQL",
         SecurityCategory::PlainSecretStorage => "plain secret storage",
+        SecurityCategory::WeakRandomness => "weak randomness",
     }
 }

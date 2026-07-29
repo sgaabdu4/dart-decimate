@@ -211,6 +211,60 @@ fn config_schema_includes_health_threshold_overrides() -> Result<(), Box<dyn std
             ["type"][1],
         "null"
     );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["maxUnitSize"]["minimum"],
+        1
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["thresholdOverrides"]["items"]["properties"]["maxUnitSize"]
+            ["minimum"],
+        1
+    );
+
+    Ok(())
+}
+
+#[test]
+fn max_unit_size_config_and_override_aliases_apply() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        ".dart-decimaterc",
+        "[cli]
+format = \"json\"
+
+[health]
+maxUnitSize = 60
+
+[[health.thresholdOverrides]]
+files = [\"lib/main.dart\"]
+functions = [\"legacyRoute\"]
+maxUnitSize = 120
+reason = \"framework adapter\"
+",
+    )?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        &large_function_source("legacyRoute", 61),
+    )?;
+
+    let json = run_health_json(&fixture)?;
+
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["large_functions"], 0);
+    assert!(
+        json["large_functions"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    );
+    assert_eq!(json["threshold_overrides"][0]["max_unit_size"], 120);
+    assert_eq!(json["threshold_overrides"][0]["active"], true);
+    assert_eq!(
+        json["threshold_overrides"][0]["matched_functions"][0],
+        "lib/main.dart:legacyRoute"
+    );
 
     Ok(())
 }
@@ -230,6 +284,12 @@ fn report_schema_includes_threshold_override_contract() -> Result<(), Box<dyn st
     assert_eq!(
         json["$defs"]["threshold_override"]["properties"]["active"]["type"],
         "boolean"
+    );
+    assert!(array_contains(&json["required"], "large_functions"));
+    assert_eq!(json["properties"]["large_functions"]["type"], "array");
+    assert_eq!(
+        json["$defs"]["large_function"]["properties"]["line_count"]["minimum"],
+        1
     );
 
     Ok(())
@@ -330,6 +390,15 @@ fn very_complex_route_source(name: &str) -> String {
 }}
 "
     )
+}
+
+fn large_function_source(name: &str, lines: usize) -> String {
+    let mut source = vec![format!("void {name}() {{")];
+    source.extend(
+        (0..lines.saturating_sub(2)).map(|index| format!("  final value{index} = {index};")),
+    );
+    source.push("}".to_owned());
+    source.join("\n")
 }
 
 fn coverage_source() -> String {

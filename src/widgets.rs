@@ -196,7 +196,33 @@ pub fn analyze_widgets(
     })
 }
 
-fn widget_analysis_paths(
+pub(crate) fn flutter_framework_classes_from_facts(
+    project: &ScannedProject,
+    file_facts: &[WidgetFileFacts],
+) -> BTreeSet<(PathBuf, String)> {
+    let resolver = DeclarationResolver::new(
+        project,
+        file_facts.iter().flat_map(|file| {
+            file.reachability.class_names.iter().map(|name| ClassKey {
+                path: file.reachability.path.clone(),
+                name: name.clone(),
+            })
+        }),
+    );
+    inheritance::flutter_framework_classes_across_files(file_facts, &resolver)
+}
+
+pub(crate) fn inheritance_file_facts(path: &Path, root: Node<'_>, source: &str) -> WidgetFileFacts {
+    let mut classes = Vec::new();
+    collect_class_declarations(root, &mut classes);
+    WidgetFileFacts {
+        findings: FileWidgetFindings::default(),
+        classes: inheritance::class_facts(path, &classes, source),
+        reachability: unrendered::reachability_facts(path, root, &classes, source),
+    }
+}
+
+pub(crate) fn widget_analysis_paths(
     project: &ScannedProject,
     dead_code: Option<&DeadCodeReport>,
 ) -> Vec<PathBuf> {
@@ -215,8 +241,12 @@ fn widget_analysis_paths(
         .map(|file| normalize_against(&project.root, &file.path))
         .filter(|path| path.starts_with(&project.root))
         .filter(|path| !dead_files.contains(path))
-        .filter(|path| !is_generated_dart_path(path) && !is_test_path(path))
+        .filter(|path| is_widget_analysis_path(path))
         .collect()
+}
+
+pub(crate) fn is_widget_analysis_path(path: &Path) -> bool {
+    !is_generated_dart_path(path) && !is_test_path(path)
 }
 
 fn merge_file_widget_findings(file_findings: Vec<FileWidgetFindings>) -> FileWidgetFindings {
@@ -352,7 +382,7 @@ struct FileWidgetFindings {
 }
 
 #[derive(Debug)]
-struct WidgetFileFacts {
+pub(crate) struct WidgetFileFacts {
     findings: FileWidgetFindings,
     classes: Vec<inheritance::ProjectClassFact>,
     reachability: unrendered::FileReachabilityFacts,

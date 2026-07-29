@@ -10,6 +10,8 @@ It analyzes repositories as module graphs, not as a linter or type checker.
 - Do not evaluate variables, types, or inner function logic.
 - Keep outputs deterministic and agent-readable.
 - Prefer fast structural parsing over semantic analysis.
+- When semantic identity can be reconciled from the local Dart graph, enrich
+  syntactic candidates without removing unresolved findings.
 
 ## AI Drift Goal
 
@@ -88,12 +90,18 @@ Phase 3 runs graph intelligence algorithms:
 - architecture boundary rules over graph edges
 - structural Dart health analysis for cyclomatic and cognitive function
   complexity
+- advisory large-function inventory with Flutter `build` classification
+- opt-in advisory Flutter style evidence for raw values, near-duplicate theme
+  colors, and unused custom `ThemeExtension` fields
+- bounded semantic identity evidence and public-signature type coupling for
+  dead-code, private-leak, trace, and inspect surfaces
 - feature flag inventory for Dart compile-time environment reads, native
   process-environment gates, Firebase Remote Config calls, and LaunchDarkly-style
   variation calls
 - unverified security candidate inventory for hardcoded secrets, Firebase client
   API keys, cleartext transport, TLS bypasses, risky WebView surfaces, process
-  execution, dynamic SQL, and plain secret storage
+  execution, dynamic SQL, plain secret storage, and predictable
+  `dart:math Random()` output used as security-shaped material
 
 Phase 4 exposes the CLI and agent output contract:
 
@@ -208,7 +216,8 @@ Parity areas:
 - Dead code: unused files, exports, types, enum members, class members, stale
   suppressions, private type leak checks, traces, and safe fix actions.
 - Dependency hygiene: unused dependencies, unlisted dependencies, dev/test-only
-  placement, dependency overrides, and workspace placement.
+  placement, production imports from `dev_dependencies`, dependency overrides,
+  and workspace placement.
 - Graph issues: unresolved imports/exports/parts/augmentations, invalid Dart
   `part of` relationships, circular dependencies, re-export cycles, duplicate
   exports, and architecture boundary violations.
@@ -218,8 +227,9 @@ Parity areas:
 - Duplication: strict, mild, weak, and semantic clone detection with variable
   clone windows that satisfy configured line/token thresholds, traceable
   fingerprints, top-N filtering, and clone tracing.
-- Health: cyclomatic/cognitive/CRAP complexity, file scores, hotspots,
-  ownership, refactoring targets, coverage gaps, and explanations.
+- Health: cyclomatic/cognitive/CRAP complexity, advisory large functions,
+  opt-in Flutter style evidence, file scores, hotspots, ownership, refactoring
+  targets, coverage gaps, and explanations.
 - Audit: changed-code gates, baselines, regression tolerance, CI review
   envelopes, and next-step suggestions.
 - Feature flags: env gates, SDK/config flag calls, stale-flag evidence,
@@ -229,8 +239,9 @@ Parity areas:
   broader rule-pack controls.
 - Onboarding: local init flows for config, CI, and agent instructions.
 - Security candidates: deterministic local review candidates for Dart/Flutter
-  sinks, Firebase client keys, and hardcoded secrets, never verified
-  vulnerability claims.
+  sinks, Firebase client keys, hardcoded secrets, and security-shaped weak
+  randomness, plus explicit bounded blind spots; never verified vulnerability
+  claims.
 - Runtime coverage: local Dart/Flutter coverage ingestion for hot paths,
   cleanup confidence, coverage gaps, and read-only MCP runtime slices;
   cloud/runtime agent capture remains future work.
@@ -342,7 +353,9 @@ Current implemented parity:
   dependencies imported only from dev/test files, and `dev_dependencies`
   imported from `lib/` or `bin/`
 - typed dependency finding kinds and summary counts for
-  `dart-decimate/unused-dev-dependency`, `dart-decimate/test-only-dependency`, and
+  `dart-decimate/unused-dev-dependency`,
+  `dart-decimate/dev-dependency-in-production`,
+  `dart-decimate/test-only-dependency`, and
   `dart-decimate/unused-dependency-override`,
   `dart-decimate/misconfigured-dependency-override`
 - conservative non-Dart tooling usage for dependency traces and unused-dev
@@ -369,6 +382,26 @@ Current implemented parity:
 - code health findings for high cyclomatic and cognitive complexity, including
   `--complexity-breakdown`, `--max-cyclomatic`, `--max-cognitive`, `--top`, and
   read-only `complexity-breakdown` next steps
+- advisory `large_functions` evidence using `health.maxUnitSize` and local
+  threshold overrides; Flutter `build` methods are classified only for
+  framework bases that own `build`, including `StatelessWidget`,
+  `AnimatedWidget`, and `State` families, while `StatefulWidget` containers
+  remain ordinary methods; large-function evidence never changes complexity or
+  CRAP gates
+- opt-in `dart-decimate health . --flutter-style` evidence for AST-confirmed
+  raw `Color`/`TextStyle` values, including `Color.new`, `Color.from`,
+  `Color.fromARGB`, and `Color.fromRGBO`, near-duplicate configured theme
+  colors, and unused custom `ThemeExtension` fields; literal component
+  normalization follows Flutter's masking and clamping behavior; direct
+  extension reads, lexically resolved local aliases, and factory methods proven
+  to return one extension owner count as field use, while construction inputs,
+  unrelated same-name properties, and ambiguous factories do not; theme
+  definers, generated code, tests, and examples are excluded, unresolved
+  nearest-token lookup abstains, and findings remain warning-level by default
+- bounded `semantic` report evidence with normalized library/declaration
+  identity, explicit complete/partial/unavailable state, stable omission
+  reasons, retained unresolved candidates, public-signature type couplings,
+  targeted test-path suggestions, and trace/inspect enrichment
 - LCOV-backed health findings for `dart-decimate/coverage-gap` and
   `dart-decimate/high-crap-score`, including `--coverage`, `--coverage-gaps`,
   `--max-crap`, config defaults, rule controls, baselines, regression counts,
@@ -411,7 +444,8 @@ Current implemented parity:
   `FirebaseOptions.apiKey` client keys, remote `http://` network sinks,
   certificate-validation bypasses, unrestricted or file-backed WebView surfaces,
   shell/dynamic process execution, dynamic raw SQL, JavaScript password autofill
-  literals, and secret-like writes to plain local storage, with `--top`,
+  literals, secret-like writes to plain local storage, and direct
+  `dart:math Random()` use in security-shaped declarations/calls, with `--top`,
   `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,
   `--summary`, `--gate new|newly-reachable`, `--changed-since REF`,
   `--compare REF`, `--diff-file PATCH`, `--diff-stdin`, grouped
@@ -419,13 +453,48 @@ Current implemented parity:
   evidence, benign password-route/copy filtering unless copy is bound to a
   secret-like name or contains concrete token-like material, and non-autofixable
   `dart-decimate/security-*` findings; OAuth authorization/token endpoint URLs
-  are excluded from secret candidates as public metadata while cleartext endpoint
-  transport remains a security candidate, Firebase client API keys are warning-level by
-  default, Stripe key names and `sk_test_`/`sk_live_` placeholders remain secret
-  review candidates, and fixed Dart-runtime `Process.start` calls with fixed
-  list arguments are not treated as shell injection; exact rule config
-  can promote warnings and security gates exit `8` when new review-required
+  are excluded from secret candidates as public metadata only when the URI has
+  no userinfo credentials or secret-like query/fragment data, while cleartext
+  endpoint transport remains a security candidate, Firebase client API keys are
+  warning-level by default, Stripe key names and `sk_test_`/`sk_live_`
+  placeholders remain secret review candidates, and fixed `dart:io`
+  `Process.run`, `Process.runSync`, and
+  `Process.start` calls with fixed executable and list arguments are not treated
+  as shell injection; typed `package:process` `ProcessManager` and
+  `LocalProcessManager` calls use their single command-list shape, while dynamic
+  command elements and shell execution remain candidates; exact rule config can
+  promote warnings and security gates exit `8` when new review-required
   candidates are present
+- cleartext transport covers remote `Uri.http(...)` and `Uri(scheme: 'http',
+  ...)` construction as well as network-bound `http://` literals; documented
+  localhost/emulator authorities and debug/private-host-only branches remain
+  clean
+- TLS bypass candidates require a certificate callback that can accept an
+  invalid certificate; inline predicates, cascade assignments, conditional
+  callback arguments, and uniquely resolved local tear-offs are analyzed,
+  callbacks proven to return only `false` stay clean, and ambiguous tear-offs
+  become blind spots; assigning `HttpOverrides.global` or creating a
+  `SecurityContext` without trusted roots is configuration evidence, not by
+  itself a bypass
+- raw SQL treats Dart raw strings and escaped dollar signs as literal text,
+  resolves lexical constants and fixed string choices, and accepts proven
+  placeholder builders and parameter arguments while retaining unresolved
+  runtime query values as review candidates
+- security matcher facts are owned by one embedded TOML catalogue containing
+  segment-aware callee patterns, sink shape, argument index, literal/context
+  predicates, import provenance, CWE, effect, and evidence templates; existing
+  rule IDs, redaction, reachability, gates, and SARIF contracts stay stable
+- `Random.secure()` and confirmed secure factory flows remain clean; imports
+  from a uniquely resolved Dart library owner apply to its parts, while
+  ambiguous provenance, process tear-offs, orphaned or multiply owned part-file
+  calls, and indirect random factory flows are emitted as deterministic,
+  redacted `security_blind_spots`, and zero candidates with nonzero blind spots
+  is never described as clean security proof
+- generated-source exclusions cover standard protobuf companions, Flutter
+  `gen-l10n` output names read from `l10n.yaml`, and versioned Drift
+  `generated/schema_vN.dart` snapshots; configuration lookup and security
+  per-file detection are cached/parallelized while final output remains
+  path-sorted and byte-deterministic
 - `dart-decimate check` and `dart-decimate audit` include feature flag and security
   candidate findings in the same report envelope, with focused commands still
   available for targeted inventories

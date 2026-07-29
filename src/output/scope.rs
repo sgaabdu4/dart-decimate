@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use super::format;
 use super::{
     Finding, JsonAttackSurfaceEntry, JsonCloneGroup, JsonComplexityFinding, JsonFeatureFlag,
-    JsonFileHealthScore, JsonHealthHotspot, JsonRefactoringTarget, JsonSecurityCandidate,
+    JsonFileHealthScore, JsonFlutterStyleFinding, JsonHealthHotspot, JsonLargeFunction,
+    JsonRefactoringTarget, JsonSecurityCandidate,
 };
-use crate::{HealthReport, scan::ScannedProject};
+use crate::{HealthReport, SemanticOmissionReason, SemanticReport, scan::ScannedProject};
 
 pub(super) fn file_scope(
     project: &ScannedProject,
@@ -55,6 +56,55 @@ pub(super) fn scope_complexity(
         .into_iter()
         .filter(|finding| scope.is_none_or(|scope| scope.contains(&finding.path)))
         .collect()
+}
+
+pub(super) fn scope_large_functions(
+    functions: Vec<JsonLargeFunction>,
+    scope: Option<&BTreeSet<String>>,
+) -> Vec<JsonLargeFunction> {
+    functions
+        .into_iter()
+        .filter(|function| scope.is_none_or(|scope| scope.contains(&function.path)))
+        .collect()
+}
+
+pub(super) fn scope_flutter_style(
+    findings: Vec<JsonFlutterStyleFinding>,
+    scope: Option<&BTreeSet<String>>,
+) -> Vec<JsonFlutterStyleFinding> {
+    findings
+        .into_iter()
+        .filter(|finding| scope.is_none_or(|scope| scope.contains(&finding.path)))
+        .collect()
+}
+
+pub(super) fn scope_semantic(
+    mut semantic: Option<SemanticReport>,
+    scope: Option<&BTreeSet<String>>,
+) -> Option<SemanticReport> {
+    let Some(scope) = scope else {
+        return semantic;
+    };
+    let report = semantic.as_mut()?;
+    report
+        .evidence
+        .retain(|evidence| scope.contains(&evidence.subject.path));
+    report
+        .type_couplings
+        .retain(|coupling| scope.contains(&coupling.source.path));
+    report.processed_candidates = report
+        .evidence
+        .len()
+        .saturating_add(report.type_couplings.len());
+    report.candidate_count = report
+        .processed_candidates
+        .saturating_add(report.omitted_candidates);
+    if report.omitted_candidates == 0 {
+        report
+            .reasons
+            .retain(|reason| *reason != SemanticOmissionReason::Capacity);
+    }
+    semantic
 }
 
 pub(super) fn scope_file_scores(
@@ -117,6 +167,16 @@ pub(super) fn scope_security_candidates(
             }
             (!candidate.occurrences.is_empty()).then_some(candidate)
         })
+        .collect()
+}
+
+pub(super) fn scope_security_blind_spots(
+    blind_spots: Vec<super::JsonSecurityBlindSpot>,
+    scope: Option<&BTreeSet<String>>,
+) -> Vec<super::JsonSecurityBlindSpot> {
+    blind_spots
+        .into_iter()
+        .filter(|blind_spot| scope.is_none_or(|scope| scope.contains(&blind_spot.path)))
         .collect()
 }
 

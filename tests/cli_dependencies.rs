@@ -125,17 +125,19 @@ dev_dependencies:\n  collection: ^1.0.0\n",
     let Some(finding) = json["findings"].as_array().and_then(|findings| {
         findings
             .iter()
-            .find(|finding| finding["rule_id"] == "dart-decimate/unlisted-dependency")
+            .find(|finding| finding["rule_id"] == "dart-decimate/dev-dependency-in-production")
     }) else {
-        panic!("unlisted dependency finding");
+        panic!("dev dependency in production finding");
     };
-    assert_eq!(code, 1);
-    assert_eq!(json["summary"]["unlisted_dependencies"], 1);
-    assert!(
-        finding["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("declares it only in dev_dependencies"))
-    );
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["dev_dependencies_in_production"], 1);
+    assert_eq!(json["summary"]["unlisted_dependencies"], 0);
+    assert!(finding["message"].as_str().is_some_and(|message| {
+        message.contains("imports dev dependency collection from production code")
+    }));
+    assert_eq!(finding["kind"], "dev-dependency-in-production");
+    assert_eq!(finding["severity"], "warning");
+    assert_eq!(finding["safe_to_delete"], false);
     assert_eq!(
         finding["actions"][0]["action"],
         "move-pubspec-dependency-to-dependencies"

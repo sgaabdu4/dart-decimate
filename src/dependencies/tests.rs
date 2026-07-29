@@ -4,7 +4,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use super::*;
-use crate::{DependencyKind, scan_project};
+use crate::scan_project;
 
 #[test]
 fn parses_pubspec_dependency_keys_from_source() {
@@ -91,7 +91,7 @@ void main() {}\n",
 }
 
 #[test]
-fn reports_lib_import_declared_only_as_dev_dependency_as_unlisted()
+fn reports_dev_dependency_used_from_lib_as_production_usage()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
@@ -109,13 +109,78 @@ dev_dependencies:\n  collection: ^1.0.0\n",
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert_eq!(report.unlisted_dependencies.len(), 1);
-    assert_eq!(report.unlisted_dependencies[0].dependency, "collection");
-    assert_eq!(report.unlisted_dependencies[0].kind, DependencyKind::Import);
+    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies.len(), 1);
+    assert_eq!(report.unused_dependencies[0].dependency, "collection");
     assert_eq!(
-        report.unlisted_dependencies[0].declared_section,
-        Some(DependencySection::DevDependencies)
+        report.unused_dependencies[0].issue,
+        DependencyIssue::DevDependencyInProduction
     );
+    assert!(!report.unused_dependencies[0].safe_to_delete);
+
+    Ok(())
+}
+
+#[test]
+fn reports_dev_dependency_used_from_bin_as_production_usage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\n\
+dev_dependencies:\n  args: ^2.0.0\n",
+    )?;
+    write(
+        &fixture,
+        "bin/app.dart",
+        "import 'package:args/args.dart';\nvoid main() {}\n",
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_dependency_hygiene(&project)?;
+
+    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies.len(), 1);
+    assert_eq!(
+        report.unused_dependencies[0].issue,
+        DependencyIssue::DevDependencyInProduction
+    );
+
+    Ok(())
+}
+
+#[test]
+fn reports_dev_dependencies_used_from_dart_runtime_entrypoints()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (path, dependency) in [
+        ("web/main.dart", "web"),
+        ("hook/build.dart", "hooks"),
+        ("hook/link.dart", "native_toolchain_c"),
+    ] {
+        let fixture = tempfile::tempdir()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            &format!("name: app\ndev_dependencies:\n  {dependency}: ^1.0.0\n"),
+        )?;
+        write(
+            &fixture,
+            path,
+            &format!("import 'package:{dependency}/{dependency}.dart';\nvoid main() {{}}\n"),
+        )?;
+        let project = scan_project(fixture.path())?;
+
+        let report = analyze_dependency_hygiene(&project)?;
+
+        assert!(report.unlisted_dependencies.is_empty(), "{path}");
+        assert_eq!(report.unused_dependencies.len(), 1, "{path}");
+        assert_eq!(
+            report.unused_dependencies[0].issue,
+            DependencyIssue::DevDependencyInProduction,
+            "{path}"
+        );
+    }
 
     Ok(())
 }
@@ -559,6 +624,45 @@ fn analyzes_workspace_packages_independently() -> Result<(), Box<dyn std::error:
             .unused_dependencies
             .iter()
             .all(|dependency| dependency.dependency != "shared")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn reports_dev_dependency_in_production_for_owning_workspace_package()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: root\nworkspace:\n  - packages/*\n",
+    )?;
+    write(
+        &fixture,
+        "packages/app/pubspec.yaml",
+        "name: app\ndev_dependencies:\n  collection: ^1.0.0\n",
+    )?;
+    write(
+        &fixture,
+        "packages/app/lib/main.dart",
+        "import 'package:collection/collection.dart';\nvoid main() {}\n",
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_dependency_hygiene(&project)?;
+
+    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies.len(), 1);
+    assert_eq!(report.unused_dependencies[0].package, "app");
+    assert!(
+        report.unused_dependencies[0]
+            .pubspec_path
+            .ends_with("packages/app/pubspec.yaml")
+    );
+    assert_eq!(
+        report.unused_dependencies[0].issue,
+        DependencyIssue::DevDependencyInProduction
     );
 
     Ok(())

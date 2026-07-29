@@ -8,6 +8,7 @@ fn report_schema_types_inventory_arrays() -> Result<(), Box<dyn std::error::Erro
     for (property, definition) in [
         ("clone_groups", "clone_group"),
         ("complexity", "complexity_finding"),
+        ("flutter_style", "flutter_style_finding"),
         ("file_scores", "file_health_score"),
         ("hotspots", "health_hotspot"),
         ("refactoring_targets", "refactoring_target"),

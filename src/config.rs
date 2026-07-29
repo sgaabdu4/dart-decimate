@@ -624,7 +624,8 @@ fn security_schema() -> Value {
                         "web-view-risk",
                         "process-execution",
                         "raw-sql",
-                        "plain-secret-storage"
+                        "plain-secret-storage",
+                        "weak-randomness"
                     ]
                 },
                 "uniqueItems": true

@@ -1,0 +1,172 @@
+version = 1
+
+[[matchers]]
+category = "hardcoded-secret"
+rule_id = "dart-decimate/security-hardcoded-secret"
+detector = "hardcoded-secret"
+sink_shape = "literal-or-binding"
+argument_index = 0
+literal_predicate = "secret-shaped-or-secret-context"
+context_predicate = "secret-named-binding"
+import_provenance = "dart:io-or-package:process"
+callees = []
+cwe = ["CWE-798"]
+effect = "credential-disclosure"
+evidence_template = "secret-shaped source literal or binding"
+source = "source-code-literal"
+boundary = "source-control"
+trace_role = "source"
+default_severity = "error"
+verification_prompt = "Verify whether this literal is a real secret and rotate it if confirmed."
+
+[[matchers]]
+category = "firebase-api-key"
+rule_id = "dart-decimate/security-firebase-api-key"
+detector = "firebase-api-key"
+sink_shape = "named-argument"
+argument_index = 0
+literal_predicate = "firebase-api-key"
+context_predicate = "FirebaseOptions.apiKey"
+import_provenance = "dart:io-or-package:process"
+callees = ["FirebaseOptions"]
+cwe = ["CWE-200"]
+effect = "client-configuration-disclosure"
+evidence_template = "FirebaseOptions apiKey literal"
+source = "firebase-options-api-key"
+boundary = "firebase-client-config"
+trace_role = "source"
+default_severity = "warning"
+verification_prompt = "Verify it is Firebase-provisioned, restricted to Firebase APIs, and covered by Security Rules and App Check."
+
+[[matchers]]
+category = "insecure-transport"
+rule_id = "dart-decimate/security-insecure-transport"
+detector = "insecure-transport"
+sink_shape = "network-url"
+argument_index = 0
+literal_predicate = "remote-http-url"
+context_predicate = "network-call-or-oauth-endpoint"
+import_provenance = "any"
+callees = ["Uri.parse", "Uri.http", "http.get", "http.post", "Dio.get", "Dio.post"]
+cwe = ["CWE-319"]
+effect = "cleartext-network-disclosure"
+evidence_template = "remote http URL in network context"
+source = "http-url-literal"
+boundary = "network-transport"
+trace_role = "sink"
+default_severity = "error"
+verification_prompt = "Verify whether this remote HTTP endpoint can expose sensitive traffic."
+
+[[matchers]]
+category = "tls-bypass"
+rule_id = "dart-decimate/security-tls-bypass"
+detector = "tls-bypass"
+sink_shape = "callback-assignment"
+argument_index = 0
+literal_predicate = "accepts-invalid-certificate"
+context_predicate = "certificate-validation"
+import_provenance = "any"
+callees = ["badCertificateCallback", "validateCertificate"]
+cwe = ["CWE-295"]
+effect = "certificate-validation-bypass"
+evidence_template = "TLS validation callback accepts an invalid certificate"
+source = "tls-validation-callback"
+boundary = "tls-validation"
+trace_role = "boundary"
+default_severity = "error"
+verification_prompt = "Verify whether certificate validation can be bypassed outside trusted development code."
+
+[[matchers]]
+category = "web-view-risk"
+rule_id = "dart-decimate/security-webview-risk"
+detector = "webview-risk"
+sink_shape = "configuration-or-call"
+argument_index = 0
+literal_predicate = "unrestricted-or-file-url"
+context_predicate = "webview"
+import_provenance = "any"
+callees = ["JavaScriptMode.unrestricted", "javaScriptEnabled", "allowFileAccess", "allowFileAccessFromFileURLs", "allowUniversalAccessFromFileURLs", "loadUrl", "loadRequest"]
+cwe = ["CWE-749"]
+effect = "untrusted-web-content-capability"
+evidence_template = "WebView capability or local-file exposure"
+source = "webview-configuration"
+boundary = "embedded-webview"
+trace_role = "boundary"
+default_severity = "error"
+verification_prompt = "Verify whether untrusted content can execute JavaScript or access local files."
+
+[[matchers]]
+category = "process-execution"
+rule_id = "dart-decimate/security-process-execution"
+detector = "process-execution"
+sink_shape = "call"
+argument_index = 0
+literal_predicate = "dynamic-command-or-shell"
+context_predicate = "process-execution"
+import_provenance = "any"
+callees = ["Process.run", "Process.runSync", "Process.start", "processManager.run", "processManager.runSync", "processManager.start"]
+cwe = ["CWE-78"]
+effect = "operating-system-command-execution"
+evidence_template = "process call arguments or shell configuration"
+source = "process-call-arguments"
+boundary = "operating-system-process"
+trace_role = "sink"
+default_severity = "error"
+verification_prompt = "Verify whether attacker-controlled input can influence the executable, arguments, or shell."
+
+[[matchers]]
+category = "raw-sql"
+rule_id = "dart-decimate/security-raw-sql"
+detector = "raw-sql"
+sink_shape = "call"
+argument_index = 0
+literal_predicate = "dynamic-query-text"
+context_predicate = "sql-call-or-where"
+import_provenance = "any"
+callees = [".rawQuery", ".rawInsert", ".rawUpdate", ".rawDelete", ".execute", ".customSelect", ".customStatement", "where:"]
+cwe = ["CWE-89"]
+effect = "query-text-injection"
+evidence_template = "dynamic SQL text without parameter evidence"
+source = "query-text"
+boundary = "database"
+trace_role = "sink"
+default_severity = "error"
+verification_prompt = "Verify whether untrusted input can alter SQL text instead of using parameters."
+
+[[matchers]]
+category = "plain-secret-storage"
+rule_id = "dart-decimate/security-plain-secret-storage"
+detector = "plain-secret-storage"
+sink_shape = "call"
+argument_index = 1
+literal_predicate = "secret-named-value"
+context_predicate = "plain-local-storage"
+import_provenance = "any"
+callees = [".setString", ".setStringList", ".put", ".writeAsString", ".writeAsBytes"]
+cwe = ["CWE-922"]
+effect = "plaintext-secret-persistence"
+evidence_template = "secret-shaped value written to non-secure local storage"
+source = "secret-named-value"
+boundary = "local-storage"
+trace_role = "sink"
+default_severity = "error"
+verification_prompt = "Verify whether secret material is persisted outside secure storage."
+
+[[matchers]]
+category = "weak-randomness"
+rule_id = "dart-decimate/security-weak-randomness"
+detector = "weak-randomness"
+sink_shape = "initializer-or-call-argument"
+argument_index = 0
+literal_predicate = "non-secure-random-constructor"
+context_predicate = "security-shaped-name"
+import_provenance = "dart:math"
+callees = ["Random", "Random.secure"]
+cwe = ["CWE-338"]
+effect = "predictable-security-material"
+evidence_template = "dart:math Random() directly feeds a security-shaped declaration or call"
+source = "dart-math-random"
+boundary = "security-token-generation"
+trace_role = "source"
+default_severity = "error"
+verification_prompt = "Verify whether predictable pseudo-random output can become authentication or secret material; use Random.secure when cryptographic unpredictability is required."
