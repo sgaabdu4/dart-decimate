@@ -1381,7 +1381,7 @@ Future<ProcessResult> sshRun(String host) {
         .unwrap_or_else(|| panic!("security_candidates array"));
     let process = candidate(candidates, "process-execution");
 
-    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(3));
+    assert_eq!(process["occurrences"].as_array().map(Vec::len), Some(4));
     Ok(())
 }
 
@@ -1549,9 +1549,10 @@ Future<ProcessResult> sshWithCipher(String cipher) {
         .as_array()
         .unwrap_or_else(|| panic!("process occurrences: {json:#}"));
 
-    assert_eq!(occurrences.len(), 2, "{json:#}");
+    assert_eq!(occurrences.len(), 3, "{json:#}");
     assert_eq!(occurrences[0]["line"], 9);
     assert_eq!(occurrences[1]["line"], 13);
+    assert_eq!(occurrences[2]["line"], 17);
     Ok(())
 }
 

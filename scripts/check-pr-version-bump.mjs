@@ -3,6 +3,58 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 
+const gitEnvironmentVariables = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_CONFIG",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_INDEX_VERSION",
+  "GIT_NAMESPACE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_QUARANTINE_PATH",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+];
+
+function sanitizedGitEnv() {
+  const env = { ...process.env };
+  removeGitEnvironmentVariables(env, gitEnvironmentVariables);
+  try {
+    const reported = execFileSync("git", ["rev-parse", "--local-env-vars"], {
+      encoding: "utf8",
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    removeGitEnvironmentVariables(env, parseGitEnvironmentVariables(reported));
+  } catch {
+    // The baseline still covers Git's hook-scoped repository variables.
+  }
+  return env;
+}
+
+function parseGitEnvironmentVariables(output) {
+  return output
+    .split("\n")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function removeGitEnvironmentVariables(env, names) {
+  for (const name of names) {
+    delete env[name];
+  }
+}
+
+const gitEnv = sanitizedGitEnv();
+
 function exitWithError(message) {
   console.error(message);
   process.exit(1);
@@ -12,15 +64,20 @@ function readBaseFile(baseRef, path) {
   try {
     return execFileSync("git", ["show", `${baseRef}:${path}`], {
       encoding: "utf8",
+      env: gitEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`.trim();
-    if (output) {
-      console.error(output);
-    }
-    exitWithError(`could not read ${path} from ${baseRef}`);
+    reportBaseFileError(error, baseRef, path);
   }
+}
+
+function reportBaseFileError(error, baseRef, path) {
+  const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`.trim();
+  if (output) {
+    console.error(output);
+  }
+  exitWithError(`could not read ${path} from ${baseRef}`);
 }
 
 function readCargoVersion(contents, label) {
@@ -76,51 +133,55 @@ function isNumericIdentifier(value) {
 }
 
 function comparePrerelease(left, right) {
-  if (left.length === 0 && right.length === 0) {
-    return 0;
+  const presence = comparePrereleasePresence(left, right);
+  if (presence !== 0 || left.length === 0) {
+    return presence;
   }
-  if (left.length === 0) {
-    return 1;
-  }
-  if (right.length === 0) {
-    return -1;
-  }
+  return comparePrereleaseParts(left, right);
+}
 
+function comparePrereleaseParts(left, right) {
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
-    const leftPart = left[index];
-    const rightPart = right[index];
-    if (leftPart === undefined) {
-      return -1;
-    }
-    if (rightPart === undefined) {
-      return 1;
-    }
-
-    const leftNumeric = isNumericIdentifier(leftPart);
-    const rightNumeric = isNumericIdentifier(rightPart);
-    if (leftNumeric && rightNumeric) {
-      const compared = compareNumber(BigInt(leftPart), BigInt(rightPart));
-      if (compared !== 0) {
-        return compared;
-      }
-      continue;
-    }
-    if (leftNumeric) {
-      return -1;
-    }
-    if (rightNumeric) {
-      return 1;
-    }
-    if (leftPart < rightPart) {
-      return -1;
-    }
-    if (leftPart > rightPart) {
-      return 1;
+    const compared = comparePrereleaseIdentifier(left[index], right[index]);
+    if (compared !== 0) {
+      return compared;
     }
   }
 
   return 0;
+}
+
+function comparePrereleasePresence(left, right) {
+  return Number(left.length === 0) - Number(right.length === 0);
+}
+
+function comparePrereleaseIdentifier(left, right) {
+  if (left === right) {
+    return 0;
+  }
+  const kindComparison = compareNumber(
+    identifierKind(left),
+    identifierKind(right),
+  );
+  if (kindComparison !== 0) {
+    return kindComparison;
+  }
+  return comparePresentPrereleaseIdentifier(left, right);
+}
+
+function identifierKind(value) {
+  if (value === undefined) {
+    return 0;
+  }
+  return isNumericIdentifier(value) ? 1 : 2;
+}
+
+function comparePresentPrereleaseIdentifier(left, right) {
+  if (isNumericIdentifier(left)) {
+    return compareNumber(BigInt(left), BigInt(right));
+  }
+  return compareNumber(left, right);
 }
 
 function compareSemver(left, right, leftLabel, rightLabel) {

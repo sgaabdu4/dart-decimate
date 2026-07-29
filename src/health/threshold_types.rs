@@ -18,6 +18,9 @@ pub struct HealthThresholdOverride {
     /// Local CRAP ceiling.
     #[serde(default, alias = "maxCrap")]
     pub max_crap: Option<usize>,
+    /// Local inclusive physical-line ceiling.
+    #[serde(default, alias = "maxUnitSize")]
+    pub max_unit_size: Option<usize>,
     /// Reason shown to agents when this override is active.
     #[serde(default)]
     pub reason: Option<String>,
@@ -27,7 +30,10 @@ impl HealthThresholdOverride {
     /// Whether this override contains at least one local ceiling.
     #[must_use]
     pub const fn has_threshold(&self) -> bool {
-        self.max_cyclomatic.is_some() || self.max_cognitive.is_some() || self.max_crap.is_some()
+        self.max_cyclomatic.is_some()
+            || self.max_cognitive.is_some()
+            || self.max_crap.is_some()
+            || self.max_unit_size.is_some()
     }
 
     pub(super) const fn has_static_threshold(&self) -> bool {
@@ -36,6 +42,10 @@ impl HealthThresholdOverride {
 
     pub(super) const fn has_crap_threshold(&self) -> bool {
         self.max_crap.is_some()
+    }
+
+    pub(super) const fn has_unit_size_threshold(&self) -> bool {
+        self.max_unit_size.is_some()
     }
 }
 
@@ -66,6 +76,8 @@ pub struct HealthThresholdOverrideReport {
     pub max_cognitive: Option<usize>,
     /// Local CRAP ceiling.
     pub max_crap: Option<usize>,
+    /// Local inclusive physical-line ceiling.
+    pub max_unit_size: Option<usize>,
     /// Configured reason.
     pub reason: Option<String>,
     /// Override status.
@@ -83,6 +95,8 @@ pub struct EffectiveThresholds {
     pub max_cognitive: Option<usize>,
     /// CRAP ceiling used for this function.
     pub max_crap: Option<usize>,
+    /// Inclusive physical-line ceiling used for this function.
+    pub max_unit_size: Option<usize>,
 }
 
 /// Source of the effective thresholds.
@@ -110,6 +124,7 @@ impl AppliedThresholds {
                 max_cyclomatic: Some(max_cyclomatic),
                 max_cognitive: Some(max_cognitive),
                 max_crap: None,
+                max_unit_size: None,
             },
         }
     }
@@ -122,6 +137,20 @@ impl AppliedThresholds {
                 max_cyclomatic: None,
                 max_cognitive: None,
                 max_crap: Some(max_crap),
+                max_unit_size: None,
+            },
+        }
+    }
+
+    pub(super) fn default_unit_size(max_unit_size: usize) -> Self {
+        Self {
+            source: None,
+            reason: None,
+            effective: EffectiveThresholds {
+                max_cyclomatic: None,
+                max_cognitive: None,
+                max_crap: None,
+                max_unit_size: Some(max_unit_size),
             },
         }
     }
@@ -140,6 +169,7 @@ pub(super) fn override_report(
         max_cyclomatic: rule.max_cyclomatic,
         max_cognitive: rule.max_cognitive,
         max_crap: rule.max_crap,
+        max_unit_size: rule.max_unit_size,
         reason: rule.reason.clone(),
         status,
         matched_functions,

@@ -127,6 +127,8 @@ pub enum DependencyIssue {
     UnusedRuntimeDependency,
     /// Development dependency has no Dart import/export usage.
     UnusedDevDependency,
+    /// Development dependency is imported from production-owned Dart code.
+    DevDependencyInProduction,
     /// Runtime dependency is imported only from development-only files.
     TestOnlyDependency,
     /// Dependency override is absent from the resolved lockfile package graph.
@@ -328,9 +330,11 @@ fn dependency_issue(
             Some(usage) if usage.development => Some(DependencyIssue::TestOnlyDependency),
             Some(_) | None => Some(DependencyIssue::UnusedRuntimeDependency),
         },
-        DependencySection::DevDependencies => usage
-            .is_none()
-            .then_some(DependencyIssue::UnusedDevDependency),
+        DependencySection::DevDependencies => match usage {
+            Some(usage) if usage.production => Some(DependencyIssue::DevDependencyInProduction),
+            Some(_) => None,
+            None => Some(DependencyIssue::UnusedDevDependency),
+        },
         DependencySection::DependencyOverrides => locked_packages.and_then(|locked| {
             (!locked.contains(&dependency.name))
                 .then_some(DependencyIssue::UnusedDependencyOverride)

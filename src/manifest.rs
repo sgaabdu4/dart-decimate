@@ -147,14 +147,14 @@ fn analysis_commands() -> Value {
             "kind": "combined",
             "description": "Run all enabled graph, symbol, dependency, duplicate, health, flag, and security checks.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--compare", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks", "--unused-files", "--unused-exports", "--unused-types", "--unused-deps", "--unlisted-deps", "--private-src-imports", "--duplicate-exports", "--circular-deps", "--re-export-cycles", "--boundary-violations", "--unused-enum-members", "--unused-class-members", "--unresolved-imports", "--stale-suppressions", "--unused-dependency-overrides", "--misconfigured-dependency-overrides"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--compare", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--max-unit-size", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks", "--unused-files", "--unused-exports", "--unused-types", "--unused-deps", "--unlisted-deps", "--private-src-imports", "--duplicate-exports", "--circular-deps", "--re-export-cycles", "--boundary-violations", "--unused-enum-members", "--unused-class-members", "--unresolved-imports", "--stale-suppressions", "--unused-dependency-overrides", "--misconfigured-dependency-overrides"]
         },
         {
             "name": "audit",
             "kind": "audit",
             "description": "Run changed-code graph checks scoped from a Git base ref.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--brief", "--base", "--gate", "--dead-code-baseline", "--health-baseline", "--dupes-baseline", "--max-decisions", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--compare", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks"]
+            "flags": ["--root", "--brief", "--base", "--gate", "--dead-code-baseline", "--health-baseline", "--dupes-baseline", "--max-decisions", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--compare", "--boundary", "--boundary-coverage", "--boundary-call", "--policy-pack", "--policy-violations", "--max-cyclomatic", "--max-cognitive", "--max-unit-size", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--mode", "--min-tokens", "--min-lines", "--min-occurrences", "--top", "--threshold", "--cross-language", "--skip-local", "--ignore-imports", "--no-ignore-imports", "--include-entry-exports", "--private-type-leaks"]
         },
         {
             "name": "review",
@@ -196,7 +196,7 @@ fn analysis_commands() -> Value {
             "kind": "health",
             "description": "Find complex functions, coverage gaps, hotspots, and refactoring targets.",
             "schema": SCHEMA_VERSION,
-            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--compare", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--max-cyclomatic", "--max-cognitive", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--top"]
+            "flags": ["--root", "--format", "--open", "--config", "--entry", "--dart-platform", "--production", "--no-production", "--file", "--workspace", "--changed-workspaces", "--changed-since", "--compare", "--regression-baseline", "--save-regression-baseline", "--fail-on-regression", "--tolerance", "--baseline", "--save-baseline", "--max-cyclomatic", "--max-cognitive", "--max-unit-size", "--complexity-breakdown", "--coverage", "--coverage-gaps", "--max-crap", "--runtime-coverage", "--min-invocations-hot", "--min-observation-volume", "--low-traffic-threshold", "--file-scores", "--hotspots", "--targets", "--ownership", "--min-score", "--top", "--flutter-style"]
         },
         {
             "name": "flags",
@@ -478,6 +478,7 @@ fn issue_types() -> Value {
         "part-of-violation",
         "unused-dependency",
         "unused-dev-dependency",
+        "dev-dependency-in-production",
         "test-only-dependency",
         "unused-dependency-override",
         "misconfigured-dependency-override",
@@ -491,6 +492,9 @@ fn issue_types() -> Value {
         "high-crap-score",
         "health-hotspot",
         "refactoring-target",
+        "raw-flutter-style-value",
+        "near-duplicate-theme-token",
+        "unused-theme-extension-token",
         "feature-flag",
         "security-candidate",
         "stale-suppression",

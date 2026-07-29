@@ -44,6 +44,18 @@ fn private_type_leak_is_opt_in_and_agent_actionable() -> Result<(), Box<dyn std:
         finding["actions"][0]["suppression_comment"],
         "// dart-decimate-ignore-next-line private-type-leak"
     );
+    assert_eq!(json["summary"]["semantic_evidence"], 1);
+    assert_eq!(json["summary"]["type_couplings"], 1);
+    assert_eq!(json["semantic"]["completeness"], "partial");
+    assert_eq!(json["semantic"]["evidence"][0]["decision"], "confirmed");
+    assert_eq!(
+        json["semantic"]["evidence"][0]["subject"]["library_uri"],
+        "lib/package.dart"
+    );
+    assert_eq!(
+        json["semantic"]["type_couplings"][0]["target"]["name"],
+        "_Hidden"
+    );
 
     Ok(())
 }
@@ -102,6 +114,39 @@ class _Hidden {}
     assert_eq!(code, 0);
     assert_eq!(json["summary"]["private_type_leaks"], 0);
     assert_eq!(json["summary"]["findings"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn semantic_completeness_reports_dynamic_access_without_inventing_a_finding()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: package\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "void main() {\n  dynamic service;\n  service.call();\n}\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "check",
+        fixture.path().to_str().unwrap_or("."),
+        "--format",
+        "json",
+        "--entry",
+        "lib/main.dart",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["findings"], 0);
+    assert_eq!(json["semantic"]["completeness"], "partial");
+    assert!(
+        json["semantic"]["reasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.iter().any(|reason| reason == "dynamic-access"))
+    );
 
     Ok(())
 }

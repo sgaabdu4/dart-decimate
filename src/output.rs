@@ -4,9 +4,11 @@ mod audit_risk;
 mod dependency_findings;
 mod duplication_findings;
 mod feature_flag_findings;
+mod flutter_style;
 mod format;
 mod graph_findings;
 mod health_findings;
+mod health_inventory;
 mod html;
 mod human;
 mod human_details;
@@ -20,6 +22,7 @@ mod security_sarif;
 mod suppressions;
 mod symbol_findings;
 mod types;
+mod verdict;
 mod widget_findings;
 
 use crate::{
@@ -34,6 +37,7 @@ pub use duplication_findings::{JsonCloneGroup, JsonCloneInstance};
 use duplication_findings::{add_duplication_findings, json_clone_groups};
 pub use feature_flag_findings::{JsonFeatureFlag, JsonFeatureFlagOccurrence};
 use feature_flag_findings::{add_feature_flag_findings, json_feature_flags};
+pub use flutter_style::{JsonFlutterStyleFinding, JsonThemeTokenEvidence};
 use graph_findings::{
     add_boundary_call_findings, add_boundary_findings, add_cycle_findings, add_dead_code_findings,
     add_part_of_findings, add_policy_findings, add_re_export_cycle_findings,
@@ -41,11 +45,16 @@ use graph_findings::{
 };
 pub use health_findings::{
     JsonComplexityContribution, JsonComplexityFinding, JsonEffectiveThresholds,
-    JsonFileHealthScore, JsonHealthHotspot, JsonRefactoringTarget, JsonThresholdOverride,
+    JsonFileHealthScore, JsonHealthHotspot, JsonLargeFunction, JsonRefactoringTarget,
+    JsonThresholdOverride,
 };
 use health_findings::{
-    add_health_findings, json_complexity, json_file_scores, json_hotspots,
-    json_refactoring_targets, json_threshold_overrides,
+    add_health_findings, json_file_scores, json_hotspots, json_refactoring_targets,
+};
+use health_inventory::{
+    apply_aux_inventory_summary, apply_flutter_style_summary, apply_health_inventory_summary,
+    apply_semantic_summary, health_and_semantic_inventories, json_runtime_coverage_for,
+    json_threshold_overrides_for,
 };
 pub use html::{render_decision_surface_html_report, render_html_report};
 pub use human::render_human_report;
@@ -59,14 +68,14 @@ pub use runtime_coverage::{
 };
 use scope::{
     file_scope, finding_in_scope, health_file_score_count, project_file_scope_count,
-    scope_attack_surface, scope_clone_groups, scope_complexity, scope_feature_flags,
-    scope_file_scores, scope_hotspots, scope_refactoring_targets, scope_security_candidates,
-    scoped_quality_score,
+    scope_clone_groups, scope_feature_flags, scope_file_scores, scope_hotspots,
+    scope_refactoring_targets, scoped_quality_score,
 };
 pub use security_findings::{
-    JsonAttackSurfaceEntry, JsonSecurityCandidate, JsonSecurityOccurrence, JsonSecurityReachability,
+    JsonAttackSurfaceEntry, JsonSecurityBlindSpot, JsonSecurityCandidate, JsonSecurityOccurrence,
+    JsonSecurityReachability,
 };
-use security_findings::{add_security_findings, json_attack_surface, json_security_candidates};
+use security_findings::{add_security_findings, json_security_inventories};
 pub(crate) use security_sarif::render_sarif_report;
 use suppressions::filter_suppressed_findings;
 use symbol_findings::add_symbol_findings;
@@ -74,6 +83,7 @@ pub use types::{
     AuditAttribution, AuditAttributionCounts, AuditRiskLevel, Finding, FindingAction, FindingEdge,
     FindingKind, JsonReport, NextStep, ReportCommand, ReportSummary, Severity, Verdict,
 };
+use verdict::report_verdict;
 use widget_findings::add_widget_findings;
 
 /// Stable JSON schema version for agent consumers.
@@ -127,13 +137,11 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
             .map_or_else(Vec::new, |report| json_clone_groups(&project.root, report)),
         scope.as_ref(),
     );
-    let complexity = scope_complexity(
-        results
-            .health
-            .as_ref()
-            .map_or_else(Vec::new, |report| json_complexity(&project.root, report)),
-        scope.as_ref(),
-    );
+    let (complexity, large_functions, flutter_style, semantic) =
+        health_and_semantic_inventories(project, results, scope.as_ref());
+    summary.large_functions = large_functions.len();
+    apply_flutter_style_summary(&mut summary, &flutter_style);
+    apply_semantic_summary(&mut summary, semantic.as_ref());
     let file_scores = scope_file_scores(
         results
             .health
@@ -163,39 +171,28 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
             .map_or_else(Vec::new, |report| json_feature_flags(&project.root, report)),
         scope.as_ref(),
     );
-    let security_candidates = scope_security_candidates(
-        results.security.as_ref().map_or_else(Vec::new, |report| {
-            json_security_candidates(&project.root, report)
-        }),
-        scope.as_ref(),
-    );
-    let attack_surface = scope_attack_surface(
-        results.security.as_ref().map_or_else(Vec::new, |report| {
-            json_attack_surface(&project.root, report)
-        }),
-        scope.as_ref(),
-    );
+    let security =
+        json_security_inventories(&project.root, results.security.as_ref(), scope.as_ref());
     let next_steps = if scope.is_some() {
         Vec::new()
     } else {
         next_steps(&project.root, results)
     };
     if scope.is_some() {
-        summary.code_duplications = clone_groups.len();
-        summary.file_scores = file_scores.len();
-        summary.hotspots = hotspots.len();
-        summary.refactoring_targets = refactoring_targets.len();
-        summary.feature_flags = feature_flags.len();
-        summary.feature_flag_occurrences = feature_flags
-            .iter()
-            .map(|flag| flag.occurrences.len())
-            .sum();
-        summary.security_candidates = security_candidates.len();
-        summary.security_candidate_occurrences = security_candidates
-            .iter()
-            .map(|candidate| candidate.occurrences.len())
-            .sum();
-        summary.attack_surface = attack_surface.len();
+        apply_health_inventory_summary(
+            &mut summary,
+            &clone_groups,
+            &file_scores,
+            &hotspots,
+            &refactoring_targets,
+        );
+        apply_aux_inventory_summary(
+            &mut summary,
+            &feature_flags,
+            &security.candidates,
+            &security.blind_spots,
+            &security.attack_surface,
+        );
     }
 
     JsonReport {
@@ -208,13 +205,17 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
         findings,
         clone_groups,
         complexity,
+        large_functions,
+        flutter_style,
+        semantic,
         file_scores,
         hotspots,
         refactoring_targets,
         threshold_overrides,
         feature_flags,
-        security_candidates,
-        attack_surface,
+        security_candidates: security.candidates,
+        security_blind_spots: security.blind_spots,
+        attack_surface: security.attack_surface,
         runtime_coverage,
         next_steps,
     }
@@ -233,53 +234,46 @@ pub fn filter_report_findings(report: &mut JsonReport, allowed: &[FindingKind]) 
     }
     if !allowed.iter().any(|kind| is_complexity_kind(*kind)) {
         report.complexity.clear();
+        report.large_functions.clear();
         report.file_scores.clear();
         report.hotspots.clear();
         report.refactoring_targets.clear();
         report.threshold_overrides.clear();
         report.runtime_coverage = None;
     }
+    if !allowed.iter().any(|kind| {
+        matches!(
+            kind,
+            FindingKind::RawFlutterStyleValue
+                | FindingKind::NearDuplicateThemeToken
+                | FindingKind::UnusedThemeExtensionToken
+        )
+    }) {
+        report.flutter_style.clear();
+    }
     if !allowed.contains(&FindingKind::FeatureFlag) {
         report.feature_flags.clear();
     }
     if !allowed.contains(&FindingKind::SecurityCandidate) {
         report.security_candidates.clear();
+        report.security_blind_spots.clear();
         report.attack_surface.clear();
+        report.summary.security_blind_spots = 0;
     }
     report.next_steps.clear();
     report.summary.findings = report.findings.len();
     apply_scoped_counts(&mut report.summary, &report.findings);
-    report.verdict = report_verdict(&report.findings);
-}
-
-fn json_runtime_coverage_for(
-    project: &ScannedProject,
-    results: &AnalysisResults,
-) -> Option<JsonRuntimeCoverage> {
-    results.health.as_ref().and_then(|report| {
-        report
-            .runtime_coverage
-            .as_ref()
-            .map(|runtime| json_runtime_coverage(&project.root, runtime))
-    })
-}
-
-fn json_threshold_overrides_for(results: &AnalysisResults) -> Vec<JsonThresholdOverride> {
-    results
-        .health
+    report.summary.large_functions = report.large_functions.len();
+    apply_flutter_style_summary(&mut report.summary, &report.flutter_style);
+    report.summary.semantic_evidence = report
+        .semantic
         .as_ref()
-        .map_or_else(Vec::new, json_threshold_overrides)
-}
-
-fn report_verdict(findings: &[Finding]) -> Verdict {
-    if findings
-        .iter()
-        .any(|finding| finding.severity == Severity::Error)
-    {
-        Verdict::Fail
-    } else {
-        Verdict::Pass
-    }
+        .map_or(0, |semantic| semantic.evidence.len());
+    report.summary.type_couplings = report
+        .semantic
+        .as_ref()
+        .map_or(0, |semantic| semantic.type_couplings.len());
+    report.verdict = report_verdict(&report.findings);
 }
 
 fn report_findings(
@@ -409,6 +403,8 @@ fn apply_dependency_summary(
         .as_ref()
         .map_or(0, |report| report.unused_dependencies.len());
     summary.unused_dev_dependencies = kind_count(findings, FindingKind::UnusedDevDependency);
+    summary.dev_dependencies_in_production =
+        kind_count(findings, FindingKind::DevDependencyInProduction);
     summary.test_only_dependencies = kind_count(findings, FindingKind::TestOnlyDependency);
     summary.dependency_overrides = dependency_override_count(findings);
     summary.unused_dependency_overrides =
@@ -509,6 +505,10 @@ fn apply_security_summary(summary: &mut ReportSummary, results: &AnalysisResults
         .security
         .as_ref()
         .map_or(0, |report| report.total_occurrences);
+    summary.security_blind_spots = results
+        .security
+        .as_ref()
+        .map_or(0, |report| report.blind_spots.len());
     summary.attack_surface = results
         .security
         .as_ref()
@@ -582,6 +582,8 @@ fn apply_scoped_counts(summary: &mut ReportSummary, findings: &[Finding]) {
     summary.part_of_violations = kind_count(findings, FindingKind::PartOfViolation);
     summary.unused_dependencies = dependency_count(findings);
     summary.unused_dev_dependencies = kind_count(findings, FindingKind::UnusedDevDependency);
+    summary.dev_dependencies_in_production =
+        kind_count(findings, FindingKind::DevDependencyInProduction);
     summary.test_only_dependencies = kind_count(findings, FindingKind::TestOnlyDependency);
     summary.dependency_overrides = dependency_override_count(findings);
     summary.unused_dependency_overrides =
@@ -651,6 +653,7 @@ const fn is_dependency_hygiene_kind(kind: FindingKind) -> bool {
         kind,
         FindingKind::UnusedDependency
             | FindingKind::UnusedDevDependency
+            | FindingKind::DevDependencyInProduction
             | FindingKind::TestOnlyDependency
             | FindingKind::UnusedDependencyOverride
     )

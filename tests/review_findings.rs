@@ -60,6 +60,42 @@ class Platform {\n\
 }
 
 #[test]
+fn part_library_without_shadow_preserves_fixed_dart_runtime_exemption()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'dart:io';\n\
+part 'support.dart';\n\
+final dartExe = Platform.resolvedExecutable;\n\
+Future<Process> start() => Process.start(dartExe, const ['/path/to/snapshot']);\n",
+    )?;
+    write(
+        &fixture,
+        "lib/support.dart",
+        "part of 'main.dart';\n\
+String describe() => 'support';\n",
+    )?;
+
+    let json = security(&fixture)?;
+    assert!(
+        json["security_candidates"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "{json:#}"
+    );
+    assert!(
+        json["security_blind_spots"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "{json:#}"
+    );
+    Ok(())
+}
+
+#[test]
 fn mixin_member_shadow_is_a_process_candidate() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
@@ -112,6 +148,224 @@ Future<ProcessResult> variable(String command) {\n\
             .map(Vec::len),
         Some(2)
     );
+    Ok(())
+}
+
+#[test]
+fn synchronous_dynamic_process_execution_is_a_candidate() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'dart:io';\n\
+ProcessResult run(String bin, List<String> args) =>\n\
+    Process.runSync(bin, args, runInShell: true);\n",
+    )?;
+
+    let json = security(&fixture)?;
+    assert_eq!(
+        candidate(&json, "process-execution")["occurrences"]
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+    Ok(())
+}
+
+#[test]
+fn process_detection_requires_real_dart_io_provenance_and_tracks_dynamic_arguments()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'dart:io' as io;
+
+const documentation = 'Process.runSync(command, arguments)';
+
+class Process {
+  static void runSync(String executable, List<String> arguments) {}
+}
+
+io.ProcessResult runReal(List<String> arguments) =>
+    io.Process.runSync('/usr/bin/tool', arguments, runInShell: false);
+
+io.ProcessResult runSafe() =>
+    io.Process.runSync('/bin/echo', const ['ok']);
+
+const shellDisabled = false;
+
+io.ProcessResult runSafeWithConstShellFlag() =>
+    io.Process.runSync('/bin/echo', const ['ok'], runInShell: shellDisabled);
+
+void runLocal(List<String> arguments) =>
+    Process.runSync('/usr/bin/tool', arguments);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let occurrences = candidate(&json, "process-execution")["occurrences"]
+        .as_array()
+        .ok_or("process occurrences")?;
+    assert_eq!(occurrences.len(), 1, "{json:#}");
+    assert_eq!(occurrences[0]["expression"], "Process.runSync");
+    assert!(
+        occurrences[0]["evidence"]
+            .as_str()
+            .is_some_and(|evidence| evidence.contains("io.Process.runSync"))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn process_manager_detection_resolves_typed_receivers() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\ndependencies:\n  process: ^5.0.5\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'package:process/process.dart';
+import 'package:flutter/material.dart';
+
+final ProcessManager localManager = LocalProcessManager();
+
+Future<void> invoke(
+  ProcessManager injectedManager,
+  List<Object> command,
+) async {
+  localManager.runSync(command);
+  await injectedManager.start(const ['git', 'status']);
+  await localManager.run(const ['sh', '-c', 'echo safe']);
+}
+
+class FakeRunner {
+  void run(List<Object> command) {}
+}
+
+void unrelated(FakeRunner runner, List<Object> command) => runner.run(command);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let occurrences = candidate(&json, "process-execution")["occurrences"]
+        .as_array()
+        .ok_or("process occurrences")?;
+    assert_eq!(occurrences.len(), 2, "{json:#}");
+    assert!(occurrences.iter().any(|occurrence| {
+        occurrence["evidence"]
+            .as_str()
+            .is_some_and(|evidence| evidence.contains("localManager.runSync(command)"))
+    }));
+    assert!(occurrences.iter().any(|occurrence| {
+        occurrence["evidence"]
+            .as_str()
+            .is_some_and(|evidence| evidence.contains("localManager.run(const"))
+    }));
+    assert!(
+        json["security_blind_spots"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "{json:#}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn process_tearoffs_and_unresolved_part_provenance_are_explicit_blind_spots()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'dart:io';
+import 'package:process/process.dart';
+part 'runner.dart';
+
+final runProcess = Process.run;
+final ProcessManager localManager = LocalProcessManager();
+final runManagedProcess = localManager.run;
+dynamic processManager;
+
+Future<ProcessResult> invoke(String executable, List<String> arguments) =>
+    runProcess(executable, arguments);
+
+void invokeManager(List<Object> command) =>
+    processManager.runSync(command);
+
+Future<ProcessResult> invokeManaged(List<Object> command) =>
+    runManagedProcess(command);
+",
+    )?;
+    write(
+        &fixture,
+        "lib/runner.dart",
+        r"
+part of 'main.dart';
+
+Future<ProcessResult> invokeFromPart(
+  String executable,
+  List<String> arguments,
+) => Process.run(executable, arguments);
+",
+    )?;
+    write(
+        &fixture,
+        "lib/orphan.dart",
+        r"
+part of 'missing.dart';
+
+Future<ProcessResult> invokeFromOrphan(
+  String executable,
+  List<String> arguments,
+) => Process.run(executable, arguments);
+",
+    )?;
+
+    let json = security(&fixture)?;
+    let process_occurrences = candidate(&json, "process-execution")["occurrences"]
+        .as_array()
+        .ok_or("process occurrences")?;
+    assert_eq!(process_occurrences.len(), 1, "{json:#}");
+    assert_eq!(process_occurrences[0]["path"], "lib/runner.dart");
+    let blind_spots = json["security_blind_spots"]
+        .as_array()
+        .ok_or("security blind spots")?;
+    assert_eq!(blind_spots.len(), 4, "{json:#}");
+    assert!(blind_spots.iter().any(|spot| {
+        spot["reason"] == "unflattened-call"
+            && spot["evidence"]
+                .as_str()
+                .is_some_and(|evidence| evidence.contains("runProcess("))
+    }));
+    assert!(blind_spots.iter().any(|spot| {
+        spot["reason"] == "unflattened-call"
+            && spot["evidence"]
+                .as_str()
+                .is_some_and(|evidence| evidence.contains("runManagedProcess("))
+    }));
+    assert!(blind_spots.iter().any(|spot| {
+        spot["reason"] == "ambiguous-call-provenance" && spot["path"] == "lib/orphan.dart"
+    }));
+    assert!(blind_spots.iter().any(|spot| {
+        spot["reason"] == "ambiguous-call-provenance"
+            && spot["evidence"]
+                .as_str()
+                .is_some_and(|evidence| evidence.contains("processManager.runSync"))
+    }));
+
     Ok(())
 }
 

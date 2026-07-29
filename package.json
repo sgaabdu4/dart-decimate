@@ -1,6 +1,6 @@
 {
   "name": "dart-decimate",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "Rust-native codebase intelligence for Dart and Flutter module graphs.",
   "license": "MIT",
   "bin": {
@@ -27,7 +27,8 @@
   ],
   "scripts": {
     "postinstall": "node npm/scripts/postinstall.js",
-    "test": "node --test tests/js/npm-wrapper.test.mjs",
+    "test": "node --test tests/js/*.test.mjs",
+    "typecheck": "node scripts/typecheck-js.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "lint": "npm run version:check && npm run migration:check && npm run lint:js && npm run format:check",
     "lint:js": "oxlint .",

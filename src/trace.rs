@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -11,10 +10,17 @@ use crate::dependencies::{
 use crate::dependency_scripts::package_used_in_tooling;
 use crate::graph::normalize_against;
 use crate::output::TRACE_SCHEMA_VERSION;
+use crate::semantic::{SemanticDecision, SemanticIdentity};
 use crate::{
     DartCombinatorKind, DeadCodeReport, DeclarationKind, DependencyHygieneError, DependencyKind,
     DependencySection, ScannedProject, TopLevelDeclaration,
 };
+
+mod rendering;
+mod semantic;
+pub use rendering::{render_dependency_trace, render_file_trace, render_symbol_trace};
+use semantic::symbol_semantic_evidence;
+pub use semantic::{TraceImpactPath, TraceSemanticCompleteness, TraceTestSuggestion};
 
 /// File trace JSON envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,10 +78,20 @@ pub struct SymbolTraceReport {
     pub entry_point: bool,
     /// Matched top-level declaration, if any.
     pub declaration: Option<TraceDeclaration>,
+    /// Stable declaration identity when the requested owner is unambiguous.
+    pub identity: Option<SemanticIdentity>,
+    /// Conservative reconciliation decision for this trace.
+    pub semantic_decision: SemanticDecision,
+    /// Completeness and omission reasons for semantic trace evidence.
+    pub completeness: TraceSemanticCompleteness,
     /// Syntactic references to the symbol.
     pub direct_references: Vec<TraceReference>,
     /// Export chains that expose this file through barrels.
     pub re_export_chains: Vec<Vec<String>>,
+    /// Resolved import/export/part paths from referencing files to this declaration.
+    pub impact_paths: Vec<TraceImpactPath>,
+    /// Existing test-owned importers that are evidence-backed test suggestions.
+    pub suggested_tests: Vec<TraceTestSuggestion>,
     /// Short trace interpretation.
     pub reason: String,
 }
@@ -282,12 +298,16 @@ pub fn trace_symbol(
         .iter()
         .cloned()
         .collect::<BTreeSet<_>>();
-    let declaration = find_declaration(project, &path, symbol);
+    let declarations = find_declarations(project, &path, symbol);
+    let declaration = declarations
+        .first()
+        .map(|declaration| trace_declaration(declaration));
     let found = declaration.is_some();
     let reachable_file = reachable_files.contains(&path);
     let entry_point = dead_code.entry_points.iter().any(|file| file == &path);
     let direct_references = direct_references(project, &reachable_files, symbol);
     let re_export_chains = re_export_chains(project, &path, symbol);
+    let semantic = symbol_semantic_evidence(project, &path, &declarations, &direct_references);
 
     SymbolTraceReport {
         schema_version: TRACE_SCHEMA_VERSION.to_owned(),
@@ -300,9 +320,14 @@ pub fn trace_symbol(
         reachable_file,
         entry_point,
         declaration,
+        identity: semantic.identity,
+        semantic_decision: semantic.decision,
+        completeness: semantic.completeness,
         reason: symbol_reason(found, reachable_file, entry_point, &direct_references),
         direct_references,
         re_export_chains,
+        impact_paths: semantic.impact_paths,
+        suggested_tests: semantic.suggested_tests,
     }
 }
 
@@ -366,49 +391,6 @@ pub fn trace_dependency(
         is_used,
         reason: dependency_reason(declared, is_used, used_in_codegen),
     })
-}
-
-/// Render a concise human file trace.
-#[must_use]
-pub fn render_file_trace(report: &FileTraceReport) -> String {
-    let mut rendered = String::new();
-    let _ = writeln!(
-        rendered,
-        "trace-file {}: found={} reachable={} entry_point={}",
-        report.path, report.found, report.reachable, report.entry_point
-    );
-    let _ = writeln!(rendered, "{}", report.reason);
-    rendered
-}
-
-/// Render a concise human symbol trace.
-#[must_use]
-pub fn render_symbol_trace(report: &SymbolTraceReport) -> String {
-    let mut rendered = String::new();
-    let _ = writeln!(
-        rendered,
-        "trace-symbol {}:{}: found={} reachable_file={} references={}",
-        report.path,
-        report.symbol,
-        report.found,
-        report.reachable_file,
-        report.direct_references.len()
-    );
-    let _ = writeln!(rendered, "{}", report.reason);
-    rendered
-}
-
-/// Render a concise human dependency trace.
-#[must_use]
-pub fn render_dependency_trace(report: &DependencyTraceReport) -> String {
-    let mut rendered = String::new();
-    let _ = writeln!(
-        rendered,
-        "trace-dependency {}: found={} declared={} used={} imports={}",
-        report.dependency, report.found, report.declared, report.is_used, report.total_import_count
-    );
-    let _ = writeln!(rendered, "{}", report.reason);
-    rendered
 }
 
 fn declarations(declarations: &[TopLevelDeclaration]) -> Vec<TraceDeclaration> {
@@ -499,25 +481,35 @@ fn dependency_directives(
         .collect()
 }
 
-fn find_declaration(
-    project: &ScannedProject,
+fn find_declarations<'a>(
+    project: &'a ScannedProject,
     path: &Path,
     symbol: &str,
-) -> Option<TraceDeclaration> {
-    project.files.iter().find_map(|file| {
-        if normalize_against(&project.root, &file.path) != path {
-            return None;
-        }
-        file.declarations
-            .iter()
-            .find(|declaration| declaration.name == symbol)
-            .map(|declaration| TraceDeclaration {
-                kind: declaration.kind,
-                name: declaration.name.clone(),
-                line: declaration.location.line,
-                column: declaration.location.column,
-            })
-    })
+) -> Vec<&'a TopLevelDeclaration> {
+    project
+        .files
+        .iter()
+        .find_map(|file| {
+            if normalize_against(&project.root, &file.path) != path {
+                return None;
+            }
+            Some(
+                file.declarations
+                    .iter()
+                    .filter(|declaration| declaration.name == symbol)
+                    .collect(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn trace_declaration(declaration: &TopLevelDeclaration) -> TraceDeclaration {
+    TraceDeclaration {
+        kind: declaration.kind,
+        name: declaration.name.clone(),
+        line: declaration.location.line,
+        column: declaration.location.column,
+    }
 }
 
 fn direct_references(

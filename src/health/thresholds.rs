@@ -16,6 +16,7 @@ pub(super) struct ThresholdContext {
     max_cyclomatic: usize,
     max_cognitive: usize,
     max_crap: Option<usize>,
+    max_unit_size: usize,
     overrides: Vec<CompiledOverride>,
     states: Vec<OverrideState>,
 }
@@ -32,6 +33,7 @@ impl ThresholdContext {
             max_cyclomatic: options.max_cyclomatic,
             max_cognitive: options.max_cognitive,
             max_crap: options.max_crap,
+            max_unit_size: options.max_unit_size,
             states: vec![OverrideState::default(); overrides.len()],
             overrides,
         }
@@ -54,6 +56,7 @@ impl ThresholdContext {
                     max_cyclomatic: Some(max_cyclomatic),
                     max_cognitive: Some(max_cognitive),
                     max_crap: None,
+                    max_unit_size: None,
                 },
             };
             if self.static_active(function, &thresholds) {
@@ -89,6 +92,7 @@ impl ThresholdContext {
                     max_cyclomatic: None,
                     max_cognitive: None,
                     max_crap: Some(max_crap),
+                    max_unit_size: None,
                 },
             };
             if self.crap_active(crap_score, max_crap) {
@@ -103,6 +107,40 @@ impl ThresholdContext {
         }
 
         applied
+    }
+
+    pub(super) fn unit_size_thresholds(
+        &mut self,
+        function: &FunctionMetrics,
+        line_count: usize,
+    ) -> AppliedThresholds {
+        let global = AppliedThresholds::default_unit_size(self.max_unit_size);
+        let mut applied = None;
+
+        for index in self.unit_size_matches(function) {
+            let rule = &self.overrides[index].rule;
+            let max_unit_size = rule.max_unit_size.unwrap_or(self.max_unit_size);
+            let reason = rule.reason.clone();
+            self.mark_matched(index, function);
+            let thresholds = AppliedThresholds {
+                source: Some(ThresholdSource::Override),
+                reason,
+                effective: EffectiveThresholds {
+                    max_cyclomatic: None,
+                    max_cognitive: None,
+                    max_crap: None,
+                    max_unit_size: Some(max_unit_size),
+                },
+            };
+            if line_count > self.max_unit_size || line_count > max_unit_size {
+                self.states[index].active = true;
+            }
+            if applied.is_none() {
+                applied = Some(thresholds);
+            }
+        }
+
+        applied.unwrap_or(global)
     }
 
     pub(super) fn reports(&self) -> Vec<HealthThresholdOverrideReport> {
@@ -138,6 +176,17 @@ impl ThresholdContext {
             .enumerate()
             .filter(|(_, compiled)| {
                 compiled.rule.has_crap_threshold() && compiled.matches(&self.root, function)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    fn unit_size_matches(&self, function: &FunctionMetrics) -> Vec<usize> {
+        self.overrides
+            .iter()
+            .enumerate()
+            .filter(|(_, compiled)| {
+                compiled.rule.has_unit_size_threshold() && compiled.matches(&self.root, function)
             })
             .map(|(index, _)| index)
             .collect()

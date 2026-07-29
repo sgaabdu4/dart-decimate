@@ -3,22 +3,34 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
-use super::{DetectedSecurityCandidate, SecurityCategory, SecurityConfidence, SecurityOccurrence};
+use super::catalogue::MatcherCatalogue;
+use super::{
+    DetectedSecurityCandidate, DetectionResult, LibraryImportContext, SecurityBlindSpot,
+    SecurityBlindSpotReason, SecurityCategory, SecurityConfidence, SecurityOccurrence,
+};
 use crate::Location;
 use crate::dart_parser::parse_dart_source_lossy;
 use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
 
-pub(super) fn detect_in_source(path: &Path, source: &str) -> Vec<DetectedSecurityCandidate> {
-    let mut candidates = Vec::new();
-    detect_firebase_api_keys(path, source, &mut candidates);
-    detect_hardcoded_secrets(path, source, &mut candidates);
-    detect_insecure_transport(path, source, &mut candidates);
-    detect_tls_bypass(path, source, &mut candidates);
-    detect_webview_risk(path, source, &mut candidates);
-    detect_process_execution(path, source, &mut candidates);
-    detect_raw_sql(path, source, &mut candidates);
-    detect_plain_secret_storage(path, source, &mut candidates);
-    candidates
+mod weak_randomness;
+
+pub(super) fn detect_in_source(
+    path: &Path,
+    source: &str,
+    catalogue: &MatcherCatalogue,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> DetectionResult {
+    let mut result = DetectionResult::default();
+    detect_firebase_api_keys(path, source, &mut result.candidates);
+    detect_hardcoded_secrets(path, source, &mut result.candidates);
+    detect_insecure_transport(path, source, &mut result.candidates);
+    detect_tls_bypass(path, source, catalogue, &mut result);
+    detect_webview_risk(path, source, catalogue, &mut result.candidates);
+    detect_process_execution(path, source, catalogue, inherited_imports, &mut result);
+    detect_raw_sql(path, source, catalogue, &mut result);
+    detect_plain_secret_storage(path, source, catalogue, &mut result.candidates);
+    weak_randomness::detect(path, source, catalogue, &mut result);
+    result
 }
 
 pub(super) fn is_ignored_path(path: &Path) -> bool {
@@ -62,18 +74,23 @@ fn detect_hardcoded_secrets(
             continue;
         }
         let line = line_at(source, literal.index);
+        let binding_name = literal_binding_name(source, literal.index);
         let secret_value = has_secret_shape(&literal.value);
         let firebase_options_literal = firebase_options_context(source, literal.index);
         let secret_name = if firebase_options_literal {
             firebase_secret_name_context(source, literal.index)
         } else {
-            has_secret_like_name(line)
+            binding_name
+                .as_deref()
+                .is_some_and(secret_binding_identifier)
         };
-        let secret_binding_name = if firebase_options_literal {
-            secret_name
-        } else {
-            literal_secret_binding_context(source, literal.index)
-        };
+        let secret_binding_name = secret_name;
+        let digest_literal = binding_name
+            .as_deref()
+            .is_some_and(non_secret_digest_identifier)
+            && long_hex(&literal.value);
+        let oauth_endpoint_credential = binding_name.as_deref().is_some_and(oauth_endpoint_name)
+            && literal_has_embedded_url_credentials(&literal.value);
         if stripe_secret && !is_module_uri_directive_line(line) {
             candidates.push(detected(
                 path,
@@ -98,6 +115,7 @@ fn detect_hardcoded_secrets(
             || (!secret_value && literal_looks_like_storage_key(&literal.value))
             || (!secret_value && diagnostic_context(source, literal.index))
             || (!secret_value && literal.value.contains('$'))
+            || digest_literal
         {
             continue;
         }
@@ -106,6 +124,9 @@ fn detect_hardcoded_secrets(
                 && (literal_has_concrete_token_like_segment(&literal.value)
                     || literal_has_embedded_url_credentials(&literal.value))))
             && literal.value.len() >= 12)
+            || (literal_looks_like_operational_copy(&literal.value)
+                && literal_has_concrete_token_like_segment(&literal.value))
+            || oauth_endpoint_credential
             || secret_value
         {
             candidates.push(detected(
@@ -180,25 +201,95 @@ fn detect_insecure_transport(
             ));
         }
     }
+    for index in segment_indices(source, "Uri.http") {
+        if debug_or_local_only_http_context(source, index) {
+            continue;
+        }
+        let Some(open) = call_open_after(source, index + "Uri.http".len()) else {
+            continue;
+        };
+        let Some(call) = call_inside_after(source, open + 1) else {
+            continue;
+        };
+        let Some(authority) = top_level_call_arguments(&call)
+            .first()
+            .map(|value| value.trim())
+        else {
+            continue;
+        };
+        if fixed_literal_value(authority)
+            .is_some_and(|value| value.is_empty() || is_local_http_authority(&value))
+        {
+            continue;
+        }
+        candidates.push(detected(
+            path,
+            source,
+            index,
+            SecurityCategory::InsecureTransport,
+            "cleartext-http",
+            SecurityConfidence::High,
+            "Uri.http",
+        ));
+    }
+    for index in segment_indices(source, "Uri") {
+        if source[index + "Uri".len()..].starts_with('.') {
+            continue;
+        }
+        let Some(open) = call_open_after(source, index + "Uri".len()) else {
+            continue;
+        };
+        let Some(call) = call_inside_after(source, open + 1) else {
+            continue;
+        };
+        if named_call_argument(&call, "scheme")
+            .and_then(fixed_literal_value)
+            .as_deref()
+            != Some("http")
+        {
+            continue;
+        }
+        let Some(host) = named_call_argument(&call, "host") else {
+            continue;
+        };
+        if fixed_literal_value(host)
+            .is_some_and(|value| value.is_empty() || is_local_http_authority(&value))
+        {
+            continue;
+        }
+        candidates.push(detected(
+            path,
+            source,
+            index,
+            SecurityCategory::InsecureTransport,
+            "cleartext-http",
+            SecurityConfidence::High,
+            "Uri",
+        ));
+    }
 }
 
-fn detect_tls_bypass(path: &Path, source: &str, candidates: &mut Vec<DetectedSecurityCandidate>) {
-    for pattern in [
-        "badCertificateCallback",
-        "HttpOverrides.global",
-        "SecurityContext(withTrustedRoots: false",
-        "validateCertificate",
-    ] {
-        for index in match_indices(source, pattern) {
-            let window = following_window(source, index, 4);
-            let risky = match pattern {
-                "badCertificateCallback" | "validateCertificate" => {
-                    returns_true(window) && !returns_false(window)
-                }
-                _ => true,
+fn detect_tls_bypass(
+    path: &Path,
+    source: &str,
+    catalogue: &MatcherCatalogue,
+    result: &mut DetectionResult,
+) {
+    let Ok(parsed) = parse_dart_source_lossy(path, source) else {
+        return;
+    };
+    let root = parsed.tree().root_node();
+    let mut seen = BTreeSet::new();
+    for pattern in &catalogue.by_detector("tls-bypass").callees {
+        for index in segment_indices(source, pattern) {
+            let Some((value, assignment)) = tls_callback_value(root, source, index, pattern) else {
+                continue;
             };
-            if risky {
-                candidates.push(detected(
+            if !seen.insert((pattern.as_str(), assignment)) {
+                continue;
+            }
+            match tls_callback_verdict(root, value, source) {
+                TlsCallbackVerdict::Risky => result.candidates.push(detected(
                     path,
                     source,
                     index,
@@ -206,21 +297,312 @@ fn detect_tls_bypass(path: &Path, source: &str, candidates: &mut Vec<DetectedSec
                     pattern,
                     SecurityConfidence::High,
                     pattern,
-                ));
+                )),
+                TlsCallbackVerdict::Unknown => result.blind_spots.push(blind_spot(
+                    path,
+                    source,
+                    index,
+                    SecurityCategory::TlsBypass,
+                    pattern,
+                    SecurityBlindSpotReason::AmbiguousTlsCallback,
+                )),
+                TlsCallbackVerdict::AlwaysFalse => {}
             }
         }
     }
 }
 
-fn detect_webview_risk(path: &Path, source: &str, candidates: &mut Vec<DetectedSecurityCandidate>) {
-    for pattern in [
-        "JavaScriptMode.unrestricted",
-        "javaScriptEnabled: true",
-        "allowFileAccess: true",
-        "allowFileAccessFromFileURLs: true",
-        "allowUniversalAccessFromFileURLs: true",
-    ] {
-        for index in match_indices(source, pattern) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TlsCallbackVerdict {
+    AlwaysFalse,
+    Risky,
+    Unknown,
+}
+
+fn tls_callback_value<'tree>(
+    root: Node<'tree>,
+    source: &str,
+    index: usize,
+    pattern: &str,
+) -> Option<(Node<'tree>, usize)> {
+    let mut node = root.descendant_for_byte_range(index, index.saturating_add(pattern.len()))?;
+    loop {
+        if node.kind() == "assignment_expression" {
+            let left = node.child_by_field_name("left")?;
+            let operator = node
+                .child_by_field_name("operator")?
+                .utf8_text(source.as_bytes())
+                .ok()?;
+            if operator == "="
+                && segment_indices(left.utf8_text(source.as_bytes()).ok()?, pattern)
+                    .into_iter()
+                    .next()
+                    .is_some()
+            {
+                return node
+                    .child_by_field_name("right")
+                    .map(|value| (value, node.start_byte()));
+            }
+        }
+        if node.kind() == "named_argument"
+            && named_argument_label(node, source).as_deref() == Some(pattern)
+        {
+            return named_argument_value(node).map(|value| (value, node.start_byte()));
+        }
+        if node.kind() == "cascade_section" {
+            let mut cursor = node.walk();
+            return node
+                .named_children(&mut cursor)
+                .filter(|child| child.kind() != "cascade_selector")
+                .last()
+                .map(|value| (value, node.start_byte()));
+        }
+        node = node.parent()?;
+    }
+}
+
+fn tls_callback_verdict(root: Node<'_>, value: Node<'_>, source: &str) -> TlsCallbackVerdict {
+    let text = value
+        .utf8_text(source.as_bytes())
+        .unwrap_or_default()
+        .trim();
+    if text == "null" {
+        return TlsCallbackVerdict::AlwaysFalse;
+    }
+    if value.kind() == "function_expression" {
+        return callable_boolean_verdict(root, value, source);
+    }
+    if is_identifier(text) {
+        return resolved_callable_boolean_verdict(root, value, text, source);
+    }
+    let mut callbacks = Vec::new();
+    collect_direct_descendants(value, "function_expression", &mut callbacks);
+    if !callbacks.is_empty() {
+        return combine_tls_verdicts(
+            callbacks
+                .into_iter()
+                .map(|callback| callable_boolean_verdict(root, callback, source)),
+        );
+    }
+    TlsCallbackVerdict::Unknown
+}
+
+fn resolved_callable_boolean_verdict(
+    root: Node<'_>,
+    value: Node<'_>,
+    name: &str,
+    source: &str,
+) -> TlsCallbackVerdict {
+    if let Some(callable) = enclosing_node(
+        value,
+        &[
+            "function_declaration",
+            "local_function_declaration",
+            "method_declaration",
+        ],
+    ) && let Some(body) = direct_descendant(callable, &["function_body"])
+    {
+        let mut local = Vec::new();
+        collect_named_callables(
+            body,
+            &["local_function_declaration"],
+            name,
+            source,
+            &mut local,
+        );
+        if !local.is_empty() {
+            return single_callable_boolean_verdict(root, &local, source);
+        }
+    }
+    if let Some(class) = enclosing_node(value, &["class_declaration"]) {
+        let mut methods = Vec::new();
+        collect_named_callables(class, &["method_declaration"], name, source, &mut methods);
+        if !methods.is_empty() {
+            return single_callable_boolean_verdict(root, &methods, source);
+        }
+    }
+    let mut top_level = Vec::new();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        if child.kind() == "function_declaration"
+            && member_signature_name(child, source).as_deref() == Some(name)
+        {
+            top_level.push(child);
+        }
+    }
+    single_callable_boolean_verdict(root, &top_level, source)
+}
+
+fn single_callable_boolean_verdict(
+    root: Node<'_>,
+    declarations: &[Node<'_>],
+    source: &str,
+) -> TlsCallbackVerdict {
+    let [declaration] = declarations else {
+        return TlsCallbackVerdict::Unknown;
+    };
+    callable_boolean_verdict(root, *declaration, source)
+}
+
+fn collect_named_callables<'tree>(
+    node: Node<'tree>,
+    kinds: &[&str],
+    name: &str,
+    source: &str,
+    declarations: &mut Vec<Node<'tree>>,
+) {
+    if matches!(
+        node.kind(),
+        "function_declaration" | "local_function_declaration" | "method_declaration"
+    ) {
+        if kinds.contains(&node.kind())
+            && member_signature_name(node, source).as_deref() == Some(name)
+        {
+            declarations.push(node);
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_named_callables(child, kinds, name, source, declarations);
+    }
+}
+
+fn enclosing_node<'tree>(mut node: Node<'tree>, kinds: &[&str]) -> Option<Node<'tree>> {
+    while let Some(parent) = node.parent() {
+        if kinds.contains(&parent.kind()) {
+            return Some(parent);
+        }
+        node = parent;
+    }
+    None
+}
+
+fn callable_boolean_verdict(
+    root: Node<'_>,
+    callable: Node<'_>,
+    source: &str,
+) -> TlsCallbackVerdict {
+    let Some(body) = direct_descendant(callable, &["function_body", "function_expression_body"])
+    else {
+        return TlsCallbackVerdict::Unknown;
+    };
+    let mut returns = Vec::new();
+    collect_callable_returns(body, &mut returns);
+    if !returns.is_empty() {
+        return combine_tls_verdicts(returns.into_iter().map(|statement| {
+            let mut cursor = statement.walk();
+            let expression = statement.named_children(&mut cursor).next();
+            expression.map_or(TlsCallbackVerdict::Unknown, |expression| {
+                boolean_expression_verdict(root, expression, source)
+            })
+        }));
+    }
+    let mut cursor = body.walk();
+    body.named_children(&mut cursor)
+        .last()
+        .map_or(TlsCallbackVerdict::Unknown, |expression| {
+            boolean_expression_verdict(root, expression, source)
+        })
+}
+
+fn boolean_expression_verdict(
+    root: Node<'_>,
+    expression: Node<'_>,
+    source: &str,
+) -> TlsCallbackVerdict {
+    let value = expression
+        .utf8_text(source.as_bytes())
+        .unwrap_or_default()
+        .trim();
+    match resolved_boolean_value(root, source, expression.start_byte(), value) {
+        Some(false) => TlsCallbackVerdict::AlwaysFalse,
+        Some(true) | None => TlsCallbackVerdict::Risky,
+    }
+}
+
+fn collect_callable_returns<'tree>(node: Node<'tree>, returns: &mut Vec<Node<'tree>>) {
+    if node.kind() == "return_statement" {
+        returns.push(node);
+        return;
+    }
+    if matches!(
+        node.kind(),
+        "function_declaration"
+            | "function_expression"
+            | "local_function_declaration"
+            | "method_declaration"
+    ) {
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_callable_returns(child, returns);
+    }
+}
+
+fn collect_direct_descendants<'tree>(
+    node: Node<'tree>,
+    kind: &str,
+    descendants: &mut Vec<Node<'tree>>,
+) {
+    if node.kind() == kind {
+        descendants.push(node);
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_direct_descendants(child, kind, descendants);
+    }
+}
+
+fn direct_descendant<'tree>(node: Node<'tree>, kinds: &[&str]) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor).find_map(|child| {
+        kinds
+            .contains(&child.kind())
+            .then_some(child)
+            .or_else(|| direct_descendant(child, kinds))
+    })
+}
+
+fn combine_tls_verdicts(
+    verdicts: impl IntoIterator<Item = TlsCallbackVerdict>,
+) -> TlsCallbackVerdict {
+    let mut saw_value = false;
+    let mut saw_unknown = false;
+    for verdict in verdicts {
+        saw_value = true;
+        match verdict {
+            TlsCallbackVerdict::Risky => return TlsCallbackVerdict::Risky,
+            TlsCallbackVerdict::Unknown => saw_unknown = true,
+            TlsCallbackVerdict::AlwaysFalse => {}
+        }
+    }
+    if !saw_value || saw_unknown {
+        TlsCallbackVerdict::Unknown
+    } else {
+        TlsCallbackVerdict::AlwaysFalse
+    }
+}
+
+fn detect_webview_risk(
+    path: &Path,
+    source: &str,
+    catalogue: &MatcherCatalogue,
+    candidates: &mut Vec<DetectedSecurityCandidate>,
+) {
+    for pattern in catalogue
+        .by_detector("webview-risk")
+        .callees
+        .iter()
+        .filter(|pattern| !matches!(pattern.as_str(), "loadUrl" | "loadRequest"))
+    {
+        for index in segment_indices(source, pattern) {
+            let line = line_at(source, index);
+            if pattern != "JavaScriptMode.unrestricted" && !setting_is_true(line, pattern) {
+                continue;
+            }
             candidates.push(detected(
                 path,
                 source,
@@ -253,97 +635,329 @@ fn detect_webview_risk(path: &Path, source: &str, candidates: &mut Vec<DetectedS
 fn detect_process_execution(
     path: &Path,
     source: &str,
-    candidates: &mut Vec<DetectedSecurityCandidate>,
+    catalogue: &MatcherCatalogue,
+    inherited_imports: Option<&LibraryImportContext>,
+    result: &mut DetectionResult,
 ) {
-    let parsed = [
-        "Process.run(",
-        "Process.start(",
-        "processManager.run(",
-        "processManager.start(",
-    ]
-    .iter()
-    .any(|pattern| source.contains(pattern))
-    .then(|| parse_dart_source_lossy(path, source))
-    .and_then(Result::ok);
-    let syntax = parsed
-        .as_ref()
-        .map(|parsed| (parsed.tree().root_node(), parsed.source()));
-    for pattern in [
-        "Process.run(",
-        "Process.start(",
-        "processManager.run(",
-        "processManager.start(",
-    ] {
-        for index in match_indices(source, pattern) {
-            let args = call_inside_after(source, index + pattern.len());
-            let run_in_shell_disabled = syntax.as_ref().is_some_and(|(root, parsed_source)| {
-                parsed_run_in_shell_is_disabled(*root, parsed_source, index)
-            });
-            let safe_dart_runtime_start = run_in_shell_disabled
-                && pattern == "Process.start("
-                && args
-                    .as_deref()
-                    .is_some_and(|call| resolved_dart_runtime_start(syntax, index, call));
-            let risky = args.as_deref().is_some_and(|call| {
-                syntax.as_ref().is_some_and(|(root, parsed_source)| {
-                    call_invokes_command_shell(*root, parsed_source, index, call)
-                })
-            }) || !run_in_shell_disabled
-                || args.as_deref().is_some_and(|call| {
-                    !safe_dart_runtime_start
-                        && (!first_call_arg_is_fixed_literal(call) || has_dynamic_text(call))
-                });
-            if risky {
-                candidates.push(detected(
-                    path,
-                    source,
-                    index,
-                    SecurityCategory::ProcessExecution,
-                    "process-exec",
-                    SecurityConfidence::High,
-                    pattern.trim_end_matches('('),
-                ));
-            }
+    let matcher = catalogue.by_detector("process-execution");
+    let Ok(parsed) = parse_dart_source_lossy(path, source) else {
+        return;
+    };
+    let root = parsed.tree().root_node();
+    let parsed_source = parsed.source();
+    visit_named(root, &mut |node| {
+        detect_process_call(
+            path,
+            root,
+            parsed_source,
+            matcher,
+            inherited_imports,
+            node,
+            result,
+        );
+    });
+}
+
+fn detect_process_call(
+    path: &Path,
+    root: Node<'_>,
+    source: &str,
+    matcher: &super::catalogue::SecurityMatcher,
+    inherited_imports: Option<&LibraryImportContext>,
+    node: Node<'_>,
+    result: &mut DetectionResult,
+) {
+    if node.kind() != "call_expression" {
+        return;
+    }
+    let Some(function_node) = node.child_by_field_name("function") else {
+        return;
+    };
+    let Ok(function) = function_node.utf8_text(source.as_bytes()) else {
+        return;
+    };
+    let index = function_node.start_byte();
+    let pattern = matcher
+        .callees
+        .iter()
+        .find(|pattern| process_callee_matches(function, pattern))
+        .map(String::as_str)
+        .or_else(|| {
+            resolved_package_process_pattern(root, source, index, function, inherited_imports)
+        });
+    let Some(pattern) = pattern else {
+        if resolved_process_tearoff_pattern(
+            root,
+            source,
+            index,
+            function,
+            matcher,
+            inherited_imports,
+        )
+        .is_some()
+        {
+            push_process_blind_spot(
+                path,
+                source,
+                index,
+                SecurityBlindSpotReason::UnflattenedCall,
+                result,
+            );
         }
+        return;
+    };
+    if !process_call_has_provenance(root, source, index, function, pattern, inherited_imports) {
+        if is_part_file(root) || pattern.starts_with("processManager.") {
+            push_process_blind_spot(
+                path,
+                source,
+                index,
+                SecurityBlindSpotReason::AmbiguousCallProvenance,
+                result,
+            );
+        }
+        return;
+    }
+    let Some((call, arguments)) = flattened_process_arguments(node, source) else {
+        push_process_blind_spot(
+            path,
+            source,
+            index,
+            SecurityBlindSpotReason::UnflattenedCall,
+            result,
+        );
+        return;
+    };
+    let package_process = pattern.starts_with("processManager.");
+    let minimum_arguments = if package_process { 1 } else { 2 };
+    if arguments.len() < minimum_arguments {
+        push_process_blind_spot(
+            path,
+            source,
+            index,
+            SecurityBlindSpotReason::UnflattenedCall,
+            result,
+        );
+        return;
+    }
+    let risky = if package_process {
+        !parsed_run_in_shell_is_disabled(root, source, index)
+            || process_manager_invokes_command_shell(root, source, index, arguments[0])
+            || !fixed_argument_list(root, source, index, arguments[0])
+    } else {
+        let fixed_executable =
+            resolved_fixed_literal_value(root, source, index, arguments[0]).is_some();
+        let fixed_arguments = fixed_argument_list(root, source, index, arguments[1]);
+        let fixed_dart_runtime = pattern == "Process.start"
+            && resolved_dart_runtime_start(Some((root, source)), index, call, inherited_imports);
+        !parsed_run_in_shell_is_disabled(root, source, index)
+            || call_invokes_command_shell(root, source, index, call)
+            || (!fixed_executable && !fixed_dart_runtime)
+            || !fixed_arguments
+    };
+    if risky {
+        result.candidates.push(detected(
+            path,
+            source,
+            index,
+            SecurityCategory::ProcessExecution,
+            "process-exec",
+            SecurityConfidence::High,
+            pattern,
+        ));
     }
 }
 
-fn detect_raw_sql(path: &Path, source: &str, candidates: &mut Vec<DetectedSecurityCandidate>) {
-    for pattern in [
-        ".rawQuery(",
-        ".rawInsert(",
-        ".rawUpdate(",
-        ".rawDelete(",
-        ".execute(",
-        ".customSelect(",
-        ".customStatement(",
-    ] {
-        for index in match_indices(source, pattern) {
-            let Some(call) = call_inside_after(source, index + pattern.len()) else {
+fn flattened_process_arguments<'source>(
+    node: Node<'_>,
+    source: &'source str,
+) -> Option<(&'source str, Vec<&'source str>)> {
+    let arguments = node
+        .child_by_field_name("arguments")?
+        .utf8_text(source.as_bytes())
+        .ok()?
+        .strip_prefix('(')?
+        .strip_suffix(')')?;
+    Some((arguments, top_level_call_arguments(arguments)))
+}
+
+fn push_process_blind_spot(
+    path: &Path,
+    source: &str,
+    index: usize,
+    reason: SecurityBlindSpotReason,
+    result: &mut DetectionResult,
+) {
+    result.blind_spots.push(blind_spot(
+        path,
+        source,
+        index,
+        SecurityCategory::ProcessExecution,
+        "process-exec",
+        reason,
+    ));
+}
+
+fn resolved_process_tearoff_pattern(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    function: &str,
+    matcher: &super::catalogue::SecurityMatcher,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> Option<String> {
+    if !is_identifier(function) {
+        return None;
+    }
+    let value = lexical_binding_value(root, source, index, function)?.trim();
+    let pattern = matcher
+        .callees
+        .iter()
+        .find(|pattern| process_callee_matches(value, pattern))
+        .map(String::as_str)
+        .or_else(|| {
+            resolved_package_process_pattern(root, source, index, value, inherited_imports)
+        })?;
+    process_call_has_provenance(root, source, index, value, pattern, inherited_imports)
+        .then(|| pattern.to_owned())
+}
+
+fn process_callee_matches(function: &str, pattern: &str) -> bool {
+    function == pattern
+        || pattern.starts_with("Process.")
+            && function
+                .strip_suffix(pattern)
+                .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+fn resolved_package_process_pattern(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    function: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> Option<&'static str> {
+    let (receiver, method) = function.rsplit_once('.')?;
+    if !is_identifier(receiver) || !matches!(method, "run" | "runSync" | "start") {
+        return None;
+    }
+    let declared_type = lexical_binding_declared_type(root, source, index, receiver);
+    let initializer_type =
+        lexical_binding_value(root, source, index, receiver).and_then(constructor_reference);
+    let process_manager = declared_type
+        .as_deref()
+        .or(initializer_type)
+        .is_some_and(|type_name| {
+            is_package_process_type_reference(root, source, index, type_name, inherited_imports)
+        });
+    if !process_manager {
+        return None;
+    }
+    match method {
+        "run" => Some("processManager.run"),
+        "runSync" => Some("processManager.runSync"),
+        "start" => Some("processManager.start"),
+        _ => None,
+    }
+}
+
+fn constructor_reference(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let value = value
+        .strip_prefix("const ")
+        .or_else(|| value.strip_prefix("new "))
+        .unwrap_or(value)
+        .trim_start();
+    let constructor = value.split_once('(')?.0.trim();
+    (!constructor.is_empty()).then_some(constructor)
+}
+
+fn process_call_has_provenance(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    function: &str,
+    pattern: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
+    if pattern.starts_with("Process.") {
+        let Some(method) = pattern.strip_prefix("Process") else {
+            return false;
+        };
+        let Some(process) = function.strip_suffix(method) else {
+            return false;
+        };
+        return is_dart_io_type_reference(
+            root,
+            source,
+            index,
+            process,
+            "Process",
+            inherited_imports,
+        );
+    }
+    pattern.starts_with("processManager.")
+        && resolved_package_process_pattern(root, source, index, function, inherited_imports)
+            == Some(pattern)
+}
+
+fn detect_raw_sql(
+    path: &Path,
+    source: &str,
+    catalogue: &MatcherCatalogue,
+    result: &mut DetectionResult,
+) {
+    let matcher = catalogue.by_detector("raw-sql");
+    let parsed = parse_dart_source_lossy(path, source).ok();
+    let root = parsed.as_ref().map(|parsed| parsed.tree().root_node());
+    for pattern in matcher
+        .callees
+        .iter()
+        .filter(|pattern| pattern.as_str() != "where:")
+    {
+        for index in segment_indices(source, pattern) {
+            let Some(open) = call_open_after(source, index + pattern.len()) else {
                 continue;
             };
-            if sql_call_is_parameterized(&call) {
+            let Some(call) = call_inside_after(source, open + 1) else {
+                result.blind_spots.push(blind_spot(
+                    path,
+                    source,
+                    index,
+                    SecurityCategory::RawSql,
+                    "raw-sql",
+                    SecurityBlindSpotReason::UnflattenedCall,
+                ));
+                continue;
+            };
+            let dynamic_text = root.map_or_else(
+                || has_dynamic_text(&call),
+                |root| sql_text_has_dynamic_input(root, source, index, &call),
+            );
+            if sql_call_is_parameterized(&call) && !dynamic_text {
                 continue;
             }
-            let risky = has_dynamic_text(&call) || !first_call_arg_is_fixed_literal(&call);
-            let broad_execute = pattern == ".execute(";
+            let risky = dynamic_text || !first_call_arg_is_fixed_literal(&call);
+            let broad_execute = pattern == ".execute";
             if risky && (!broad_execute || sql_like_text(&call)) {
-                candidates.push(detected(
+                result.candidates.push(detected(
                     path,
                     source,
                     index,
                     SecurityCategory::RawSql,
                     "raw-sql",
                     SecurityConfidence::High,
-                    pattern.trim_start_matches('.').trim_end_matches('('),
+                    pattern.trim_start_matches('.'),
                 ));
             }
         }
     }
-    for index in match_indices(source, "where:") {
+    for index in segment_indices(source, "where:") {
         let line = line_at(source, index);
-        if (line.contains('$') || line.contains('+')) && !line.contains("whereArgs") {
-            candidates.push(detected(
+        let has_where_args =
+            root.is_some_and(|root| call_has_named_argument(root, source, index, "whereArgs"));
+        if has_dynamic_text(line) && !line.contains("whereArgs") && !has_where_args {
+            result.candidates.push(detected(
                 path,
                 source,
                 index,
@@ -359,26 +973,42 @@ fn detect_raw_sql(path: &Path, source: &str, candidates: &mut Vec<DetectedSecuri
 fn detect_plain_secret_storage(
     path: &Path,
     source: &str,
+    catalogue: &MatcherCatalogue,
     candidates: &mut Vec<DetectedSecurityCandidate>,
 ) {
-    for pattern in [
-        ".setString(",
-        ".setStringList(",
-        ".put(",
-        ".writeAsString(",
-        ".writeAsBytes(",
-    ] {
-        for index in match_indices(source, pattern) {
+    for pattern in &catalogue.by_detector("plain-secret-storage").callees {
+        for index in segment_indices(source, pattern) {
             let line = line_at(source, index);
             if line.contains("FlutterSecureStorage") || line.contains(".write(") {
                 continue;
             }
-            let storage_context = match pattern {
-                ".setString(" | ".setStringList(" => true,
-                ".put(" => line.contains("Hive") || line.contains("box."),
+            let storage_context = match pattern.as_str() {
+                ".setString" | ".setStringList" => plain_string_storage_receiver(source, index),
+                ".put" => line.contains("Hive") || line.contains("box."),
                 _ => line.contains("File(") || line.contains(".writeAs"),
             };
-            if storage_context && has_secret_like_name(line) && !line.contains("HiveAesCipher") {
+            let Some(open) = call_open_after(source, index + pattern.len()) else {
+                continue;
+            };
+            let Some(call) = call_inside_after(source, open + 1) else {
+                continue;
+            };
+            let arguments = top_level_call_arguments(&call);
+            let (key, value) = match pattern.as_str() {
+                ".writeAsString" | ".writeAsBytes" => {
+                    ("", arguments.first().copied().unwrap_or(""))
+                }
+                _ => (
+                    arguments.first().copied().unwrap_or(""),
+                    arguments.get(1).copied().unwrap_or(""),
+                ),
+            };
+            let secret_context = has_secret_like_name(key) || has_secret_like_name(value);
+            if storage_context
+                && secret_context
+                && !benign_secret_storage_metadata(key, value)
+                && !line.contains("HiveAesCipher")
+            {
                 candidates.push(detected(
                     path,
                     source,
@@ -386,7 +1016,7 @@ fn detect_plain_secret_storage(
                     SecurityCategory::PlainSecretStorage,
                     "plain-local-storage",
                     SecurityConfidence::Medium,
-                    pattern.trim_start_matches('.').trim_end_matches('('),
+                    pattern.trim_start_matches('.'),
                 ));
             }
         }
@@ -413,6 +1043,24 @@ fn detected(
             evidence: redact_line(line_at(source, index)),
             reachability: None,
         },
+    }
+}
+
+fn blind_spot(
+    path: &Path,
+    source: &str,
+    index: usize,
+    category: SecurityCategory,
+    sink: &str,
+    reason: SecurityBlindSpotReason,
+) -> SecurityBlindSpot {
+    SecurityBlindSpot {
+        category,
+        path: path.to_path_buf(),
+        location: location_for_index(source, index),
+        sink: sink.to_owned(),
+        reason,
+        evidence: redact_line(line_at(source, index)),
     }
 }
 
@@ -494,6 +1142,48 @@ fn match_indices(source: &str, pattern: &str) -> Vec<usize> {
     matches
 }
 
+fn segment_indices(source: &str, pattern: &str) -> Vec<usize> {
+    match_indices(source, pattern)
+        .into_iter()
+        .filter(|index| {
+            let before = index
+                .checked_sub(1)
+                .and_then(|position| source.as_bytes().get(position))
+                .copied();
+            let after = source.as_bytes().get(index + pattern.len()).copied();
+            let starts_with_member = pattern.starts_with('.');
+            let begins_with_identifier = pattern
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric);
+            let ends_with_identifier = pattern
+                .as_bytes()
+                .last()
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_');
+            (starts_with_member
+                || !begins_with_identifier
+                || before.is_none_or(|byte| !is_identifier_byte(byte)))
+                && (!ends_with_identifier || after.is_none_or(|byte| !is_identifier_byte(byte)))
+        })
+        .collect()
+}
+
+fn call_open_after(source: &str, start: usize) -> Option<usize> {
+    let relative = source
+        .get(start..)?
+        .find(|character: char| !character.is_whitespace())?;
+    let index = start + relative;
+    (source.as_bytes().get(index) == Some(&b'(')).then_some(index)
+}
+
+fn setting_is_true(line: &str, pattern: &str) -> bool {
+    line.find(pattern).is_some_and(|index| {
+        line[index + pattern.len()..]
+            .trim_start()
+            .starts_with(": true")
+    })
+}
+
 fn call_inside_after(source: &str, start: usize) -> Option<String> {
     let bytes = source.as_bytes();
     let mut depth = 1usize;
@@ -519,15 +1209,27 @@ fn call_inside_after(source: &str, start: usize) -> Option<String> {
 }
 
 fn first_call_arg_is_fixed_literal(call: &str) -> bool {
-    let trimmed = call.trim_start();
-    if !matches!(trimmed.as_bytes().first(), Some(b'\'' | b'"')) {
-        return false;
+    let mut rest = call.trim_start();
+    let mut saw_literal = false;
+    loop {
+        let raw = rest
+            .as_bytes()
+            .get(0..2)
+            .is_some_and(|prefix| matches!(prefix, [b'r' | b'R', b'\'' | b'"']));
+        let quote_index = usize::from(raw);
+        if !matches!(rest.as_bytes().get(quote_index), Some(b'\'' | b'"')) {
+            return saw_literal
+                && (rest.is_empty() || rest.starts_with(',') || rest.starts_with(')'));
+        }
+        let Some((_, _, end)) = read_string(rest, quote_index) else {
+            return false;
+        };
+        saw_literal = true;
+        rest = rest[end..].trim_start();
+        if rest.is_empty() || rest.starts_with(',') || rest.starts_with(')') {
+            return true;
+        }
     }
-    let Some((_, _, end)) = read_string(trimmed, 0) else {
-        return false;
-    };
-    let rest = trimmed[end..].trim_start();
-    matches!(rest.as_bytes().first(), Some(b',' | b')'))
 }
 
 fn call_invokes_command_shell(root: Node<'_>, source: &str, index: usize, call: &str) -> bool {
@@ -538,17 +1240,45 @@ fn call_invokes_command_shell(root: Node<'_>, source: &str, index: usize, call: 
     else {
         return false;
     };
-    let executable = executable
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(&executable)
-        .to_ascii_lowercase();
     let Some(shell_arguments) = arguments
         .get(1)
         .and_then(|value| resolved_list_arguments(root, source, index, value))
     else {
         return false;
     };
+    fixed_command_invokes_shell(root, source, index, &executable, &shell_arguments)
+}
+
+fn process_manager_invokes_command_shell(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    command: &str,
+) -> bool {
+    let Some(command) = resolved_list_arguments(root, source, index, command) else {
+        return false;
+    };
+    let Some((executable, arguments)) = command.split_first() else {
+        return false;
+    };
+    let Some(executable) = resolved_fixed_literal_value(root, source, index, executable) else {
+        return false;
+    };
+    fixed_command_invokes_shell(root, source, index, &executable, arguments)
+}
+
+fn fixed_command_invokes_shell(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    executable: &str,
+    shell_arguments: &[String],
+) -> bool {
+    let executable = executable
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(executable)
+        .to_ascii_lowercase();
     let posix_executable = executable.strip_suffix(".exe").unwrap_or(&executable);
     if !matches!(
         executable.as_str(),
@@ -558,7 +1288,7 @@ fn call_invokes_command_shell(root: Node<'_>, source: &str, index: usize, call: 
         return false;
     }
     for argument in shell_arguments {
-        let Some(flag) = resolved_fixed_literal_value(root, source, index, &argument)
+        let Some(flag) = resolved_fixed_literal_value(root, source, index, argument)
             .map(|value| value.to_ascii_lowercase())
         else {
             return true;
@@ -628,7 +1358,12 @@ fn fixed_literal_value(value: &str) -> Option<String> {
         .map(|(literal, _, _)| literal)
 }
 
-fn resolved_dart_runtime_start(syntax: Option<(Node<'_>, &str)>, index: usize, call: &str) -> bool {
+fn resolved_dart_runtime_start(
+    syntax: Option<(Node<'_>, &str)>,
+    index: usize,
+    call: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
     let Some((root, source)) = syntax else {
         return false;
     };
@@ -639,22 +1374,84 @@ fn resolved_dart_runtime_start(syntax: Option<(Node<'_>, &str)>, index: usize, c
     let Some(arguments) = args.get(1).map(|arg| arg.trim()) else {
         return false;
     };
-    (is_dart_io_platform_reference(root, source, index, executable)
+    (is_dart_io_platform_reference(root, source, index, executable, inherited_imports)
         || is_identifier(executable)
             && lexical_binding_value(root, source, index, executable).is_some_and(|value| {
                 value == "Platform.resolvedExecutable"
-                    && is_dart_io_platform_reference(root, source, index, value)
+                    && is_dart_io_platform_reference(root, source, index, value, inherited_imports)
             }))
         && fixed_argument_list(root, source, index, arguments)
 }
 
-fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, value: &str) -> bool {
-    if library_scope_has_parts(root) {
+fn is_dart_io_platform_reference(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
+    if library_declares_parts(root) && inherited_imports.is_none() {
         return false;
     }
-    let qualifier = if value == "Platform.resolvedExecutable" {
+    let Some(platform) = value.strip_suffix(".resolvedExecutable") else {
+        return false;
+    };
+    is_dart_io_type_reference(root, source, index, platform, "Platform", inherited_imports)
+}
+
+fn is_dart_io_type_reference(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    type_name: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
+    is_imported_type_reference(
+        root,
+        source,
+        index,
+        value,
+        type_name,
+        "dart:io",
+        inherited_imports,
+    )
+}
+
+fn is_package_process_type_reference(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
+    ["ProcessManager", "LocalProcessManager"]
+        .into_iter()
+        .any(|type_name| {
+            is_imported_type_reference(
+                root,
+                source,
+                index,
+                value.trim_end_matches('?'),
+                type_name,
+                "package:process/process.dart",
+                inherited_imports,
+            )
+        })
+}
+
+fn is_imported_type_reference(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    value: &str,
+    type_name: &str,
+    import_uri: &str,
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
+    let qualifier = if value == type_name {
         ""
-    } else if let Some(qualifier) = value.strip_suffix(".Platform.resolvedExecutable") {
+    } else if let Some(qualifier) = value.strip_suffix(&format!(".{type_name}")) {
         qualifier
     } else {
         return false;
@@ -664,10 +1461,9 @@ fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, val
         return false;
     }
     if prefix.is_none()
-        && (top_level_declares_name(root, "Platform", source)
-            || lexical_name_shadowed(root, source, index, "Platform")
-            || import_prefix_declares_name(root, source, "Platform")
-            || imported_library_may_expose_name(root, source, "Platform"))
+        && (top_level_declares_name(root, type_name, source)
+            || lexical_name_shadowed(root, source, index, type_name)
+            || import_prefix_declares_name(root, source, type_name))
     {
         return false;
     }
@@ -676,6 +1472,17 @@ fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, val
             || lexical_name_shadowed(root, source, index, prefix)
     }) {
         return false;
+    }
+    if let Some(inherited) = inherited_imports {
+        if prefix.is_none()
+            && (inherited.declared_names.contains(type_name)
+                || inherited.import_prefixes.contains(type_name))
+        {
+            return false;
+        }
+        if prefix.is_some_and(|prefix| inherited.declared_names.contains(prefix)) {
+            return false;
+        }
     }
     let mut found = false;
     visit_named(root, &mut |node| {
@@ -692,7 +1499,7 @@ fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, val
         else {
             return;
         };
-        if uri != "dart:io" {
+        if uri != import_uri {
             return;
         }
         let alias = specification
@@ -701,11 +1508,17 @@ fn is_dart_io_platform_reference(root: Node<'_>, source: &str, index: usize, val
         if alias != prefix {
             return;
         }
-        if import_exposes_name(node, "Platform", source) {
+        if import_exposes_name(node, type_name, source) {
             found = true;
         }
     });
-    found
+    if found {
+        return true;
+    }
+    let Some(inherited) = inherited_imports else {
+        return false;
+    };
+    inherited.exposes(import_uri, type_name, prefix)
 }
 
 fn import_exposes_name(node: Node<'_>, name: &str, source: &str) -> bool {
@@ -806,37 +1619,20 @@ fn top_level_declaration_name(node: Node<'_>, source: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn imported_library_may_expose_name(root: Node<'_>, source: &str, name: &str) -> bool {
-    let mut may_expose = false;
+fn is_part_file(root: Node<'_>) -> bool {
+    let mut is_part = false;
     visit_named(root, &mut |node| {
-        if may_expose || node.kind() != "library_import" {
-            return;
-        }
-        let Some(specification) = first_named_descendant(node, "import_specification") else {
-            return;
-        };
-        if specification.child_by_field_name("alias").is_some() {
-            return;
-        }
-        let uri = specification
-            .child_by_field_name("uri")
-            .and_then(|uri| uri.utf8_text(source.as_bytes()).ok())
-            .and_then(fixed_literal_value);
-        if uri.as_deref() != Some("dart:io") && import_exposes_name(node, name, source) {
-            may_expose = true;
-        }
+        is_part |= node.kind() == "part_of_directive";
     });
-    may_expose
+    is_part
 }
 
-fn library_scope_has_parts(root: Node<'_>) -> bool {
-    let mut has_parts = false;
+fn library_declares_parts(root: Node<'_>) -> bool {
+    let mut declares_parts = false;
     visit_named(root, &mut |node| {
-        if matches!(node.kind(), "part_directive" | "part_of_directive") {
-            has_parts = true;
-        }
+        declares_parts |= node.kind() == "part_directive";
     });
-    has_parts
+    declares_parts
 }
 
 fn import_prefix_declares_name(root: Node<'_>, source: &str, name: &str) -> bool {
@@ -915,6 +1711,29 @@ fn top_level_call_arguments(call: &str) -> Vec<&str> {
     arguments
 }
 
+fn named_call_argument<'call>(call: &'call str, name: &str) -> Option<&'call str> {
+    top_level_call_arguments(call)
+        .into_iter()
+        .find_map(|argument| {
+            let (label, value) = argument.split_once(':')?;
+            (label.trim() == name).then_some(value.trim())
+        })
+}
+
+fn call_has_named_argument(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
+    let Some(call) = call_expression_at(root, index) else {
+        return false;
+    };
+    let Some(arguments) = call.child_by_field_name("arguments") else {
+        return false;
+    };
+    let mut cursor = arguments.walk();
+    arguments.named_children(&mut cursor).any(|argument| {
+        argument.kind() == "named_argument"
+            && named_argument_label(argument, source).as_deref() == Some(name)
+    })
+}
+
 fn parsed_run_in_shell_is_disabled(root: Node<'_>, source: &str, index: usize) -> bool {
     let Some(call) = call_expression_at(root, index) else {
         return false;
@@ -931,9 +1750,26 @@ fn parsed_run_in_shell_is_disabled(root: Node<'_>, source: &str, index: usize) -
         }
         return named_argument_value(argument)
             .and_then(|value| value.utf8_text(source.as_bytes()).ok())
-            .is_some_and(|value| value.trim() == "false");
+            .is_some_and(|value| {
+                resolved_boolean_value(root, source, index, value) == Some(false)
+            });
     }
     true
+}
+
+fn resolved_boolean_value(root: Node<'_>, source: &str, index: usize, value: &str) -> Option<bool> {
+    let mut value = value.trim();
+    let mut visited = BTreeSet::new();
+    loop {
+        match value {
+            "false" => return Some(false),
+            "true" => return Some(true),
+            _ if is_identifier(value) && visited.insert(value.to_owned()) => {
+                value = lexical_binding_value(root, source, index, value)?.trim();
+            }
+            _ => return None,
+        }
+    }
 }
 
 fn call_expression_at(root: Node<'_>, index: usize) -> Option<Node<'_>> {
@@ -1095,6 +1931,109 @@ fn lexical_binding_value<'source>(
     None
 }
 
+fn lexical_binding_declared_type(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    name: &str,
+) -> Option<String> {
+    let mut child = root.descendant_for_byte_range(index, index.saturating_add(1))?;
+    while let Some(parent) = child.parent() {
+        if let Some(type_name) = parameter_binding_type(parent, name, source) {
+            return Some(type_name);
+        }
+        if parent.kind() == "class_body" {
+            let mut cursor = parent.walk();
+            return parent
+                .named_children(&mut cursor)
+                .filter(|member| member.start_byte() != child.start_byte())
+                .find_map(|member| direct_declared_binding_type(member, name, source));
+        }
+        if parent.parent().is_none() {
+            let mut cursor = parent.walk();
+            return parent
+                .named_children(&mut cursor)
+                .find_map(|node| direct_declared_binding_type(node, name, source));
+        }
+        let mut cursor = parent.walk();
+        let mut siblings = parent
+            .named_children(&mut cursor)
+            .take_while(|sibling| sibling.start_byte() < child.start_byte())
+            .collect::<Vec<_>>();
+        while let Some(sibling) = siblings.pop() {
+            if let Some(type_name) = direct_declared_binding_type(sibling, name, source) {
+                return Some(type_name);
+            }
+            if direct_binding(sibling, name, source, false).is_some() {
+                return None;
+            }
+        }
+        child = parent;
+    }
+    None
+}
+
+fn parameter_binding_type(node: Node<'_>, name: &str, source: &str) -> Option<String> {
+    let parameter_lists = match node.kind() {
+        "function_expression" => parameter_field_lists(node),
+        "method_declaration" => node
+            .child_by_field_name("signature")
+            .map_or_else(Vec::new, collect_parameter_lists),
+        "declaration" | "function_declaration" | "local_function_declaration" => {
+            direct_parameterized_signature(node).map_or_else(Vec::new, collect_parameter_lists)
+        }
+        _ => Vec::new(),
+    };
+    for parameters in parameter_lists {
+        let mut candidates = Vec::new();
+        collect_named_descendants(parameters, "formal_parameter", &mut candidates);
+        for parameter in candidates {
+            if formal_parameter_name(parameter, source).as_deref() == Some(name) {
+                return declared_type_before_binding(
+                    parameter.utf8_text(source.as_bytes()).ok()?,
+                    name,
+                );
+            }
+        }
+    }
+    None
+}
+
+fn direct_declared_binding_type(node: Node<'_>, name: &str, source: &str) -> Option<String> {
+    direct_binding(node, name, source, false)?;
+    declared_type_before_binding(node.utf8_text(source.as_bytes()).ok()?, name)
+}
+
+fn declared_type_before_binding(text: &str, name: &str) -> Option<String> {
+    let name_index = segment_indices(text, name).into_iter().next()?;
+    let before_name = text[..name_index].trim();
+    before_name
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|character: char| {
+                !character.is_ascii_alphanumeric()
+                    && !matches!(character, '_' | '$' | '.' | '<' | '>' | '?' | ',')
+            })
+        })
+        .rfind(|token| {
+            !token.is_empty()
+                && !matches!(
+                    *token,
+                    "const"
+                        | "covariant"
+                        | "external"
+                        | "final"
+                        | "late"
+                        | "required"
+                        | "static"
+                        | "super"
+                        | "this"
+                        | "var"
+                )
+        })
+        .map(str::to_owned)
+}
+
 fn top_level_binding<'source>(
     root: Node<'_>,
     name: &str,
@@ -1135,6 +2074,9 @@ fn class_binding<'source>(
     let mut visited = BTreeSet::new();
     let root = root_node(class);
     inherited_class_binding(root, class, name, source, &mut visited).or_else(|| {
+        if name.starts_with('_') && !is_part_file(root) && !library_declares_parts(root) {
+            return None;
+        }
         let mut visited = BTreeSet::new();
         class_hierarchy_is_unresolved(root, class, source, &mut visited)
             .then_some(LexicalBinding::Unknown)
@@ -1609,11 +2551,191 @@ fn is_identifier(value: &str) -> bool {
 }
 
 fn sql_call_is_parameterized(call: &str) -> bool {
-    call.contains('?') && (call.contains('[') || call.contains("whereArgs"))
+    let arguments = top_level_call_arguments(call);
+    arguments.get(1).is_some_and(|argument| {
+        let value = argument.trim();
+        !value.is_empty() && value != "null"
+    }) || arguments.iter().any(|argument| {
+        ["whereArgs", "variables", "parameters", "args"]
+            .iter()
+            .any(|name| {
+                argument
+                    .split_once(':')
+                    .is_some_and(|(label, value)| label.trim() == *name && !value.trim().is_empty())
+            })
+    })
+}
+
+fn sql_text_has_dynamic_input(root: Node<'_>, source: &str, index: usize, call: &str) -> bool {
+    let Some(query) = top_level_call_arguments(call)
+        .first()
+        .map(|query| query.trim())
+    else {
+        return true;
+    };
+    if query.contains(" + ") || query.contains("+ ") || query.contains(" +") {
+        return true;
+    }
+    let Some(expressions) = dart_string_interpolations(query) else {
+        return true;
+    };
+    for expression in expressions {
+        if !sql_interpolation_is_fixed(root, source, index, expression) {
+            return true;
+        }
+    }
+    false
+}
+
+fn sql_interpolation_is_fixed(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    expression: &str,
+) -> bool {
+    let expression = expression.trim();
+    if expression.is_empty() || !is_identifier(expression) {
+        return false;
+    }
+    if resolved_fixed_literal_value(root, source, index, expression).is_some() {
+        return true;
+    }
+    let Some(value) = lexical_binding_value(root, source, index, expression) else {
+        return false;
+    };
+    lexical_binding_is_const(source, value)
+        || fixed_string_choice(value)
+        || fixed_sql_placeholder_builder(value)
+}
+
+fn lexical_binding_is_const(source: &str, value: &str) -> bool {
+    let source_start = source.as_ptr() as usize;
+    let value_start = value.as_ptr() as usize;
+    let Some(offset) = value_start.checked_sub(source_start) else {
+        return false;
+    };
+    let Some(prefix) = source.get(..offset) else {
+        return false;
+    };
+    let statement_start = prefix
+        .rfind([';', '{', '}'])
+        .map_or(0, |delimiter| delimiter + 1);
+    prefix[statement_start..]
+        .split(|character: char| {
+            character != '_' && character != '$' && !character.is_ascii_alphanumeric()
+        })
+        .any(|token| token == "const")
+}
+
+fn fixed_string_choice(value: &str) -> bool {
+    let Some(question) = top_level_delimiter(value, b'?', 0) else {
+        return false;
+    };
+    let Some(colon) = top_level_delimiter(value, b':', question + 1) else {
+        return false;
+    };
+    fixed_literal_value(&value[question + 1..colon]).is_some()
+        && fixed_literal_value(&value[colon + 1..]).is_some()
+}
+
+fn top_level_delimiter(value: &str, delimiter: u8, start: usize) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let mut cursor = start;
+    let mut depth = 0usize;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'\'' | b'"' => {
+                cursor = read_string(value, cursor)?.2;
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            byte if byte == delimiter && depth == 0 => return Some(cursor),
+            _ => {}
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn fixed_sql_placeholder_builder(value: &str) -> bool {
+    let compact = value.split_whitespace().collect::<String>();
+    (compact.contains("List.filled(") || compact.contains("List.generate("))
+        && (compact.contains(",'?'") || compact.contains("=>'?'"))
+        && compact.contains(".join(")
 }
 
 fn has_dynamic_text(text: &str) -> bool {
-    text.contains('$') || text.contains(" + ") || text.contains("+ ") || text.contains(" +")
+    text.contains(" + ")
+        || text.contains("+ ")
+        || text.contains(" +")
+        || dart_string_interpolations(text).is_none_or(|expressions| !expressions.is_empty())
+}
+
+fn dart_string_interpolations(text: &str) -> Option<Vec<&str>> {
+    let bytes = text.as_bytes();
+    let mut expressions = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        let (quote_index, raw) = if matches!(bytes[cursor], b'\'' | b'"') {
+            (cursor, false)
+        } else if matches!(bytes[cursor], b'r' | b'R')
+            && matches!(bytes.get(cursor + 1), Some(b'\'' | b'"'))
+            && cursor
+                .checked_sub(1)
+                .and_then(|index| bytes.get(index))
+                .is_none_or(|byte| !is_identifier_byte(*byte))
+        {
+            (cursor + 1, true)
+        } else {
+            cursor += 1;
+            continue;
+        };
+        let quote = bytes[quote_index];
+        let triple =
+            bytes.get(quote_index..quote_index + 3) == Some([quote, quote, quote].as_slice());
+        cursor = quote_index + if triple { 3 } else { 1 };
+        loop {
+            if cursor >= bytes.len() {
+                return None;
+            }
+            if triple {
+                if bytes.get(cursor..cursor + 3) == Some([quote, quote, quote].as_slice()) {
+                    cursor += 3;
+                    break;
+                }
+            } else if bytes[cursor] == quote {
+                cursor += 1;
+                break;
+            }
+            if !raw && bytes[cursor] == b'\\' {
+                cursor = (cursor + 2).min(bytes.len());
+                continue;
+            }
+            if !raw && bytes[cursor] == b'$' {
+                cursor += 1;
+                let expression = if bytes.get(cursor) == Some(&b'{') {
+                    let start = cursor + 1;
+                    let relative_end = text.get(start..)?.find('}')?;
+                    cursor = start + relative_end + 1;
+                    text.get(start..start + relative_end)?.trim()
+                } else {
+                    let start = cursor;
+                    while bytes
+                        .get(cursor)
+                        .is_some_and(|byte| is_identifier_byte(*byte))
+                    {
+                        cursor += 1;
+                    }
+                    text.get(start..cursor)?
+                };
+                expressions.push(expression);
+                continue;
+            }
+            cursor += 1;
+        }
+    }
+    Some(expressions)
 }
 
 fn sql_like_text(text: &str) -> bool {
@@ -1639,6 +2761,26 @@ fn has_network_context(line: &str) -> bool {
     ]
     .iter()
     .any(|pattern| line.contains(pattern))
+}
+
+fn plain_string_storage_receiver(source: &str, index: usize) -> bool {
+    let receiver = source[..index]
+        .rsplit(|character: char| {
+            !character.is_ascii_alphanumeric() && !matches!(character, '_' | '$')
+        })
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    [
+        "prefs",
+        "preference",
+        "storage",
+        "cache",
+        "settings",
+        "store",
+    ]
+    .iter()
+    .any(|marker| receiver.contains(marker))
 }
 
 fn has_secret_like_name(text: &str) -> bool {
@@ -1684,20 +2826,23 @@ fn firebase_secret_name_context(source: &str, index: usize) -> bool {
     literal_argument_context(source, index).is_some_and(has_secret_like_name)
 }
 
-fn literal_secret_binding_context(source: &str, index: usize) -> bool {
-    literal_binding_name(source, index).is_some_and(|name| secret_binding_identifier(&name))
-}
-
 fn literal_binding_name(source: &str, index: usize) -> Option<String> {
-    let context = literal_context(source, index)?;
-    for separator in ['=', ':'] {
-        let Some((candidate, rest)) = context.rsplit_once(separator) else {
-            continue;
-        };
-        if rest.trim().is_empty() {
-            return trailing_identifier(candidate)
-                .map(str::to_owned)
-                .or_else(|| trailing_string_literal(candidate));
+    for context in [
+        literal_context(source, index),
+        literal_argument_context(source, index),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for separator in ['=', ':'] {
+            let Some((candidate, rest)) = context.rsplit_once(separator) else {
+                continue;
+            };
+            if rest.trim().is_empty() {
+                return trailing_identifier(candidate)
+                    .map(str::to_owned)
+                    .or_else(|| trailing_string_literal(candidate));
+            }
         }
     }
     None
@@ -1715,9 +2860,11 @@ fn trailing_string_literal(text: &str) -> Option<String> {
 
 fn secret_binding_identifier(identifier: &str) -> bool {
     let lower = identifier.to_ascii_lowercase();
-    [
+    let suffixes = [
         "token",
         "secret",
+        "secretkey",
+        "secret_key",
         "jwt",
         "privatekey",
         "private_key",
@@ -1733,9 +2880,46 @@ fn secret_binding_identifier(identifier: &str) -> bool {
         "api_key",
         "signingkey",
         "signing_key",
-    ]
-    .iter()
-    .any(|suffix| lower == *suffix || lower.ends_with(suffix))
+    ];
+    suffixes
+        .iter()
+        .any(|suffix| lower == *suffix || lower.ends_with(suffix))
+        || lower
+            .char_indices()
+            .next_back()
+            .filter(|(_, suffix)| suffix.is_ascii_alphanumeric())
+            .map(|(index, _)| &lower[..index])
+            .is_some_and(|partitioned| {
+                suffixes
+                    .iter()
+                    .any(|suffix| partitioned == *suffix || partitioned.ends_with(suffix))
+            })
+}
+
+fn non_secret_digest_identifier(identifier: &str) -> bool {
+    let normalized = identifier
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    normalized.contains("sha256")
+        || normalized.ends_with("checksum")
+        || normalized.ends_with("digest")
+        || normalized.ends_with("fingerprint")
+}
+
+fn benign_secret_storage_metadata(key: &str, value: &str) -> bool {
+    let normalized_key = key
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    let normalized_value = value.trim().to_ascii_lowercase();
+    (normalized_value.strip_suffix(".name").is_some()
+        && ["type", "kind", "name", "label"]
+            .iter()
+            .any(|marker| normalized_key.contains(marker)))
+        || (normalized_key.contains("showtoken") && !has_secret_like_name(value))
 }
 
 fn stripe_secret_binding_context(source: &str, index: usize) -> bool {
@@ -1779,7 +2963,12 @@ fn oauth_endpoint_name(value: &str) -> bool {
         .collect::<String>();
     matches!(
         normalized.to_ascii_lowercase().as_str(),
-        "authorizationendpoint" | "tokenendpoint"
+        "authorizationendpoint"
+            | "tokenendpoint"
+            | "oauthendpoint"
+            | "oauthtoken"
+            | "oauthtokenurl"
+            | "oauthtokenendpoint"
     )
 }
 
@@ -2543,8 +3732,9 @@ fn has_secret_shape(value: &str) -> bool {
         return false;
     }
     value.contains("-----BEGIN ") && value.contains("PRIVATE KEY-----")
-        || value.starts_with("Bearer ")
-        || value.starts_with("sk_")
+        || value
+            .strip_prefix("Bearer ")
+            .is_some_and(|token| token.trim().len() >= 8)
         || value.starts_with("ghp_")
         || jwt_like(value)
         || long_hex(value)
@@ -2650,25 +3840,55 @@ fn is_local_http_url(value: &str) -> bool {
     .any(|prefix| lower.starts_with(prefix))
 }
 
-fn returns_true(text: &str) -> bool {
-    text.contains("=> true") || text.contains("return true") || text.contains(": true")
+fn is_local_http_authority(value: &str) -> bool {
+    let lower = value
+        .rsplit_once('@')
+        .map_or(value, |(_, authority)| authority)
+        .to_ascii_lowercase();
+    lower == "localhost"
+        || lower.starts_with("localhost:")
+        || lower == "127.0.0.1"
+        || lower.starts_with("127.0.0.1:")
+        || lower == "[::1]"
+        || lower.starts_with("[::1]:")
+        || lower == "::1"
+        || lower.starts_with("::1:")
+        || lower == "10.0.2.2"
+        || lower.starts_with("10.0.2.2:")
+        || lower == "0.0.0.0"
+        || lower.starts_with("0.0.0.0:")
 }
 
-fn returns_false(text: &str) -> bool {
-    text.contains("=> false") || text.contains("return false") || text.contains(": false")
-}
-
-fn following_window(source: &str, index: usize, lines: usize) -> &str {
-    let mut end = index;
-    for _ in 0..lines {
-        end = source[end..]
-            .find('\n')
-            .map_or(source.len(), |relative| end + relative + 1);
-        if end == source.len() {
-            break;
-        }
+fn debug_or_local_only_http_context(source: &str, index: usize) -> bool {
+    let start = source[..index]
+        .rfind('\n')
+        .map_or(0, |line| {
+            let mut start = line;
+            for _ in 0..5 {
+                start = source[..start].rfind('\n').map_or(0, |previous| previous);
+            }
+            start
+        })
+        .max(index.saturating_sub(768));
+    let context = &source[start..index];
+    if context.contains("kDebugMode") {
+        return true;
     }
-    &source[index..end]
+    context.contains('?')
+        && [
+            "startsWith('localhost')",
+            "startsWith(\"localhost\")",
+            "startsWith('127.')",
+            "startsWith(\"127.\")",
+            "startsWith('10.')",
+            "startsWith(\"10.\")",
+            "startsWith('192.168.')",
+            "startsWith(\"192.168.\")",
+            "startsWith('[::1]')",
+            "startsWith(\"[::1]\")",
+        ]
+        .iter()
+        .any(|guard| context.contains(guard))
 }
 
 fn line_at(source: &str, index: usize) -> &str {
@@ -2755,6 +3975,100 @@ class Runner {
             Some((parsed.tree().root_node(), parsed.source())),
             index,
             &call,
+            None,
+        ));
+    }
+
+    #[test]
+    fn fixed_sql_lookup_crosses_nested_transaction_callbacks() {
+        let source = r"const _stylesTable = 'tb_styles';
+class TagDao extends BaseDao {
+  Future<int> insertTag(String name) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final existing = await txn.rawQuery(
+        '''
+        SELECT id FROM $_stylesTable
+        WHERE LOWER(font_family) = LOWER(?)
+        ''',
+        [name],
+      );
+      return existing.length;
+    });
+  }
+}
+";
+        let parsed = parse_dart_source_lossy(Path::new("lib/tag.dart"), source)
+            .unwrap_or_else(|error| panic!("parse fixture: {error}"));
+        let index = source
+            .find(".rawQuery")
+            .unwrap_or_else(|| panic!("raw query call"));
+        let open = call_open_after(source, index + ".rawQuery".len())
+            .unwrap_or_else(|| panic!("call open"));
+        let call = call_inside_after(source, open + 1).unwrap_or_else(|| panic!("query arguments"));
+        assert_eq!(
+            lexical_binding_value(
+                parsed.tree().root_node(),
+                parsed.source(),
+                index,
+                "_stylesTable",
+            ),
+            Some("'tb_styles'")
+        );
+        assert!(!sql_text_has_dynamic_input(
+            parsed.tree().root_node(),
+            parsed.source(),
+            index,
+            &call,
+        ));
+    }
+
+    #[test]
+    fn unresolved_public_inherited_sql_names_remain_dynamic() {
+        let source = r"const table = 'users';
+class Store extends UnknownStore {
+  void query(dynamic db) {
+    db.rawQuery('SELECT * FROM $table');
+  }
+}
+";
+        let parsed = parse_dart_source_lossy(Path::new("lib/store.dart"), source)
+            .unwrap_or_else(|error| panic!("parse fixture: {error}"));
+        let index = source
+            .find(".rawQuery")
+            .unwrap_or_else(|| panic!("raw query call"));
+        let open = call_open_after(source, index + ".rawQuery".len())
+            .unwrap_or_else(|| panic!("call open"));
+        let call = call_inside_after(source, open + 1).unwrap_or_else(|| panic!("query arguments"));
+        assert!(sql_text_has_dynamic_input(
+            parsed.tree().root_node(),
+            parsed.source(),
+            index,
+            &call,
+        ));
+    }
+
+    #[test]
+    fn oauth_metadata_exclusion_preserves_embedded_credentials() {
+        let source = r"const tokenEndpoint =
+    'https://client:concrete-secret@login.acme.com/oauth2/token';
+const metadata = OAuthMetadata(
+  authorizationEndpoint:
+      'https://login.acme.com/oauth2/authorize#code_verifier=concrete-code-verifier',
+);";
+        let literals = string_literals(source);
+        assert_eq!(literals.len(), 2);
+        assert!(literal_has_url_userinfo(&literals[0].value));
+        assert!(literal_has_secret_like_url_parameter(&literals[1].value));
+        assert!(!oauth_endpoint_metadata_context(
+            source,
+            literals[0].index,
+            &literals[0].value,
+        ));
+        assert!(!oauth_endpoint_metadata_context(
+            source,
+            literals[1].index,
+            &literals[1].value,
         ));
     }
 }

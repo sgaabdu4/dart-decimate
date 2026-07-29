@@ -19,6 +19,7 @@ pub(super) fn apply_security_summary(request: &CommandRequest, report: &mut Json
     report.threshold_overrides.clear();
     report.feature_flags.clear();
     report.security_candidates.clear();
+    report.security_blind_spots.clear();
     report.attack_surface.clear();
     report.runtime_coverage = None;
     report.next_steps.clear();

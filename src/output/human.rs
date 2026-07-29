@@ -82,9 +82,24 @@ fn render_human_report_with_style(report: &JsonReport, style: Style) -> String {
     let mut rendered = String::new();
     render_header(&mut rendered, report, style);
     render_issue_summary(&mut rendered, &report.summary, style);
+    render_semantic_evidence(&mut rendered, report, style);
+    render_large_functions(&mut rendered, report, style);
+    render_flutter_style(&mut rendered, report, style);
 
     if report.findings.is_empty() {
-        if report.summary.findings == 0 && report.verdict == Verdict::Pass {
+        if report.summary.findings == 0
+            && report.verdict == Verdict::Pass
+            && report.summary.security_blind_spots > 0
+        {
+            let _ = writeln!(
+                rendered,
+                "\n{}",
+                style.cyan(&format!(
+                    "No verified security candidates, but {} bounded blind spot(s) require review; this is not clean security proof.",
+                    report.summary.security_blind_spots
+                ))
+            );
+        } else if report.summary.findings == 0 && report.verdict == Verdict::Pass {
             let _ = writeln!(
                 rendered,
                 "\n{}",
@@ -123,6 +138,71 @@ fn render_human_report_with_style(report: &JsonReport, style: Style) -> String {
     }
 
     rendered
+}
+
+fn render_semantic_evidence(rendered: &mut String, report: &JsonReport, style: Style) {
+    let Some(semantic) = report.semantic.as_ref() else {
+        return;
+    };
+    if semantic.candidate_count == 0 {
+        return;
+    }
+    let status = semantic.completeness.as_str();
+    let _ = writeln!(rendered, "\n{}", style.bold("Semantic Evidence"));
+    let _ = writeln!(
+        rendered,
+        "  Status: {status} | Processed: {}/{} | Omitted: {} | Capacity: {}",
+        semantic.processed_candidates,
+        semantic.candidate_count,
+        semantic.omitted_candidates,
+        semantic.capacity
+    );
+}
+
+fn render_large_functions(rendered: &mut String, report: &JsonReport, style: Style) {
+    if report.large_functions.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(rendered, "\n{}", style.bold("Large Functions (advisory)"));
+    for function in &report.large_functions {
+        let _ = writeln!(
+            rendered,
+            "  {}:{} {} [{}] — {} lines (max {})",
+            terminal_text(&function.path),
+            function.line,
+            terminal_text(&function.symbol),
+            function.kind,
+            function.line_count,
+            function.max_unit_size
+        );
+        let _ = writeln!(
+            rendered,
+            "    Guidance: {}",
+            terminal_text(&function.guidance)
+        );
+    }
+}
+
+fn render_flutter_style(rendered: &mut String, report: &JsonReport, style: Style) {
+    if report.flutter_style.is_empty() {
+        return;
+    }
+    let _ = writeln!(rendered, "\n{}", style.bold("Flutter Style (advisory)"));
+    for finding in &report.flutter_style {
+        let nearest = finding
+            .nearest_token
+            .as_ref()
+            .map_or("none", |token| token.name.as_str());
+        let _ = writeln!(
+            rendered,
+            "  {}:{} {} — nearest token: {}",
+            terminal_text(&finding.path),
+            finding.line,
+            finding.kind,
+            terminal_text(nearest)
+        );
+    }
 }
 
 fn render_header(rendered: &mut String, report: &JsonReport, style: Style) {
@@ -472,12 +552,16 @@ mod tests {
             findings: vec![finding],
             clone_groups: Vec::new(),
             complexity: Vec::new(),
+            large_functions: Vec::new(),
+            flutter_style: Vec::new(),
+            semantic: None,
             file_scores: Vec::new(),
             hotspots: Vec::new(),
             refactoring_targets: Vec::new(),
             threshold_overrides: Vec::new(),
             feature_flags: Vec::new(),
             security_candidates: Vec::new(),
+            security_blind_spots: Vec::new(),
             attack_surface: Vec::new(),
             runtime_coverage: None,
             next_steps: Vec::new(),

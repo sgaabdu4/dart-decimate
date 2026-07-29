@@ -122,6 +122,14 @@ pub fn render_inspect_report(report: &InspectReport) -> String {
     );
     let _ = writeln!(rendered, "{}", report.file_trace.reason);
     if let Some(symbol_trace) = &report.symbol_trace {
+        let _ = writeln!(
+            rendered,
+            "semantic={} completeness={} impact_paths={} suggested_tests={}",
+            symbol_trace.semantic_decision.as_str(),
+            symbol_trace.completeness.status.as_str(),
+            symbol_trace.impact_paths.len(),
+            symbol_trace.suggested_tests.len()
+        );
         let _ = writeln!(rendered, "{}", symbol_trace.reason);
     }
     rendered

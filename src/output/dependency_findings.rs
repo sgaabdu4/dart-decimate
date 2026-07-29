@@ -77,6 +77,7 @@ const fn finding_kind(issue: DependencyIssue) -> FindingKind {
     match issue {
         DependencyIssue::UnusedRuntimeDependency => FindingKind::UnusedDependency,
         DependencyIssue::UnusedDevDependency => FindingKind::UnusedDevDependency,
+        DependencyIssue::DevDependencyInProduction => FindingKind::DevDependencyInProduction,
         DependencyIssue::TestOnlyDependency => FindingKind::TestOnlyDependency,
         DependencyIssue::UnusedDependencyOverride => FindingKind::UnusedDependencyOverride,
     }
@@ -86,6 +87,7 @@ fn rule_id(issue: DependencyIssue) -> &'static str {
     match issue {
         DependencyIssue::UnusedRuntimeDependency => "dart-decimate/unused-dependency",
         DependencyIssue::UnusedDevDependency => "dart-decimate/unused-dev-dependency",
+        DependencyIssue::DevDependencyInProduction => "dart-decimate/dev-dependency-in-production",
         DependencyIssue::TestOnlyDependency => "dart-decimate/test-only-dependency",
         DependencyIssue::UnusedDependencyOverride => "dart-decimate/unused-dependency-override",
     }
@@ -93,7 +95,9 @@ fn rule_id(issue: DependencyIssue) -> &'static str {
 
 const fn severity(issue: DependencyIssue) -> Severity {
     match issue {
-        DependencyIssue::UnusedDependencyOverride => Severity::Warning,
+        DependencyIssue::UnusedDependencyOverride | DependencyIssue::DevDependencyInProduction => {
+            Severity::Warning
+        }
         _ => Severity::Error,
     }
 }
@@ -106,6 +110,10 @@ fn message(dependency: &UnusedPackageDependency) -> String {
         ),
         DependencyIssue::UnusedDevDependency => format!(
             "{} declares unused dev dependency {}",
+            dependency.package, dependency.dependency
+        ),
+        DependencyIssue::DevDependencyInProduction => format!(
+            "{} imports dev dependency {} from production code",
             dependency.package, dependency.dependency
         ),
         DependencyIssue::TestOnlyDependency => format!(
@@ -129,6 +137,7 @@ fn action(dependency: &UnusedPackageDependency) -> &'static str {
         DependencyIssue::UnusedRuntimeDependency | DependencyIssue::UnusedDevDependency => {
             "review-pubspec-dependency"
         }
+        DependencyIssue::DevDependencyInProduction => "move-pubspec-dependency-to-dependencies",
         DependencyIssue::TestOnlyDependency => "move-pubspec-dependency-to-dev-dependencies",
         DependencyIssue::UnusedDependencyOverride => "review-unused-dependency-override",
     }
@@ -143,6 +152,9 @@ fn action_description(dependency: &UnusedPackageDependency) -> &'static str {
         }
         DependencyIssue::UnusedRuntimeDependency | DependencyIssue::UnusedDevDependency => {
             "Review non-Dart usage such as build tools before removing this pubspec dependency"
+        }
+        DependencyIssue::DevDependencyInProduction => {
+            "Move the package from dev_dependencies to dependencies"
         }
         DependencyIssue::TestOnlyDependency => {
             "Move the package from dependencies to dev_dependencies after checking runtime usage"
@@ -249,6 +261,7 @@ const fn dependency_section_key(section: DependencySection) -> &'static str {
 
 const fn unused_action_config_key(dependency: &UnusedPackageDependency) -> &'static str {
     match dependency.issue {
+        DependencyIssue::DevDependencyInProduction => "dependencies",
         DependencyIssue::TestOnlyDependency => "dev_dependencies",
         _ => dependency_section_key(dependency.section),
     }

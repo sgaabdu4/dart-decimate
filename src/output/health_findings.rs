@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 use super::format::display_path;
 use super::{Finding, FindingAction, FindingKind, Severity};
 use crate::{
-    ComplexityContribution, ComplexityFinding, ComplexityRule, CoverageGapFinding,
-    CoverageGapReason, CrapFinding, EffectiveThresholds, FileCoverageStatus, FileHealthScore,
-    HealthHotspot, HealthReport, HealthThresholdOverrideReport, HealthThresholdOverrideStatus,
-    RefactoringTarget, ThresholdSource,
+    ComplexityContribution, ComplexityFinding, ComplexityFunctionKind, ComplexityRule,
+    CoverageGapFinding, CoverageGapReason, CrapFinding, EffectiveThresholds, FileCoverageStatus,
+    FileHealthScore, HealthHotspot, HealthReport, HealthThresholdOverrideReport,
+    HealthThresholdOverrideStatus, LargeFunction, RefactoringTarget, ThresholdSource,
 };
 
 /// Complexity finding serialized in JSON reports.
@@ -53,6 +53,37 @@ pub struct JsonComplexityFinding {
     pub contributions: Vec<JsonComplexityContribution>,
 }
 
+/// Advisory large function serialized in JSON reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JsonLargeFunction {
+    /// Stable advisory identifier.
+    pub rule_id: String,
+    /// Dart file path, root-relative where possible.
+    pub path: String,
+    /// Function-like declaration name.
+    pub symbol: String,
+    /// Function-like declaration kind.
+    pub kind: String,
+    /// 1-based start line.
+    pub line: usize,
+    /// 0-based byte column.
+    pub column: usize,
+    /// Inclusive 1-based ending line.
+    pub end_line: usize,
+    /// Inclusive physical line count.
+    pub line_count: usize,
+    /// Effective inclusive physical-line ceiling.
+    pub max_unit_size: usize,
+    /// Source of the effective threshold when overridden.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_source: Option<String>,
+    /// Configured reason for the threshold override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_reason: Option<String>,
+    /// Refactoring guidance appropriate to the declaration kind.
+    pub guidance: String,
+}
+
 /// Effective thresholds serialized in JSON reports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonEffectiveThresholds {
@@ -65,6 +96,9 @@ pub struct JsonEffectiveThresholds {
     /// CRAP ceiling used for this function.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_crap: Option<usize>,
+    /// Inclusive physical-line ceiling used for this function.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unit_size: Option<usize>,
 }
 
 /// Threshold override state serialized in JSON reports.
@@ -82,6 +116,8 @@ pub struct JsonThresholdOverride {
     pub max_cognitive: Option<usize>,
     /// Local CRAP ceiling.
     pub max_crap: Option<usize>,
+    /// Local inclusive physical-line ceiling.
+    pub max_unit_size: Option<usize>,
     /// Configured reason.
     pub reason: Option<String>,
     /// Whether this override currently changes or explains threshold output.
@@ -221,6 +257,9 @@ pub(super) fn add_health_findings(root: &Path, report: &HealthReport, findings: 
             .iter()
             .map(|finding| refactoring_target_finding(root, finding)),
     );
+    if let Some(style) = &report.flutter_style {
+        super::flutter_style::add_flutter_style_findings(root, style, findings);
+    }
 }
 
 pub(super) fn json_complexity(root: &Path, report: &HealthReport) -> Vec<JsonComplexityFinding> {
@@ -236,6 +275,14 @@ pub(super) fn json_complexity(root: &Path, report: &HealthReport) -> Vec<JsonCom
             .map(|finding| json_crap_finding(root, finding)),
     );
     findings
+}
+
+pub(super) fn json_large_functions(root: &Path, report: &HealthReport) -> Vec<JsonLargeFunction> {
+    report
+        .large_functions
+        .iter()
+        .map(|function| json_large_function(root, function))
+        .collect()
 }
 
 pub(super) fn json_file_scores(root: &Path, report: &HealthReport) -> Vec<JsonFileHealthScore> {
@@ -473,9 +520,7 @@ fn json_complexity_finding(root: &Path, finding: &ComplexityFinding) -> JsonComp
         rule_id: finding.rule.rule_id().to_owned(),
         path: display_path(root, &finding.path),
         symbol: finding.symbol.clone(),
-        kind: format!("{:?}", finding.kind)
-            .to_ascii_lowercase()
-            .replace('_', "-"),
+        kind: function_kind(finding.kind).to_owned(),
         line: finding.location.line,
         column: finding.location.column,
         cyclomatic_complexity: finding.cyclomatic_complexity,
@@ -507,9 +552,7 @@ fn json_crap_finding(root: &Path, finding: &CrapFinding) -> JsonComplexityFindin
         rule_id: "dart-decimate/high-crap-score".to_owned(),
         path: display_path(root, &finding.path),
         symbol: finding.symbol.clone(),
-        kind: format!("{:?}", finding.kind)
-            .to_ascii_lowercase()
-            .replace('_', "-"),
+        kind: function_kind(finding.kind).to_owned(),
         line: finding.location.line,
         column: finding.location.column,
         cyclomatic_complexity: finding.cyclomatic_complexity,
@@ -532,11 +575,37 @@ fn json_crap_finding(root: &Path, finding: &CrapFinding) -> JsonComplexityFindin
     }
 }
 
+fn json_large_function(root: &Path, function: &LargeFunction) -> JsonLargeFunction {
+    let flutter_build = function.kind == crate::ComplexityFunctionKind::FlutterBuildMethod;
+    JsonLargeFunction {
+        rule_id: "dart-decimate/large-function".to_owned(),
+        path: display_path(root, &function.path),
+        symbol: function.symbol.clone(),
+        kind: function_kind(function.kind).to_owned(),
+        line: function.location.line,
+        column: function.location.column,
+        end_line: function.end_line,
+        line_count: function.line_count,
+        max_unit_size: function.max_unit_size,
+        threshold_source: function
+            .threshold_source
+            .map(threshold_source)
+            .map(str::to_owned),
+        threshold_reason: function.threshold_reason.clone(),
+        guidance: if flutter_build {
+            "Split the Flutter build method into focused widgets or helper owners".to_owned()
+        } else {
+            "Extract cohesive responsibilities into smaller functions or owning modules".to_owned()
+        },
+    }
+}
+
 fn json_effective_thresholds(thresholds: &EffectiveThresholds) -> JsonEffectiveThresholds {
     JsonEffectiveThresholds {
         max_cyclomatic: thresholds.max_cyclomatic,
         max_cognitive: thresholds.max_cognitive,
         max_crap: thresholds.max_crap,
+        max_unit_size: thresholds.max_unit_size,
     }
 }
 
@@ -548,6 +617,7 @@ fn json_threshold_override(report: &HealthThresholdOverrideReport) -> JsonThresh
         max_cyclomatic: report.max_cyclomatic,
         max_cognitive: report.max_cognitive,
         max_crap: report.max_crap,
+        max_unit_size: report.max_unit_size,
         reason: report.reason.clone(),
         active: report.status == HealthThresholdOverrideStatus::Active,
         stale: report.status == HealthThresholdOverrideStatus::Stale,
@@ -559,6 +629,19 @@ fn json_threshold_override(report: &HealthThresholdOverrideReport) -> JsonThresh
 const fn threshold_source(source: ThresholdSource) -> &'static str {
     match source {
         ThresholdSource::Override => "override",
+    }
+}
+
+const fn function_kind(kind: ComplexityFunctionKind) -> &'static str {
+    match kind {
+        ComplexityFunctionKind::Function => "function",
+        ComplexityFunctionKind::Getter => "getter",
+        ComplexityFunctionKind::Setter => "setter",
+        ComplexityFunctionKind::Method => "method",
+        ComplexityFunctionKind::FlutterBuildMethod => "flutter-build-method",
+        ComplexityFunctionKind::Constructor => "constructor",
+        ComplexityFunctionKind::Operator => "operator",
+        ComplexityFunctionKind::Closure => "closure",
     }
 }
 

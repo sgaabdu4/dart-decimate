@@ -2,7 +2,9 @@ use std::fs;
 
 use tempfile::TempDir;
 
-use crate::{SecurityOptions, analyze_security, scan_project};
+use crate::{
+    SecurityBlindSpotReason, SecurityCategory, SecurityOptions, analyze_security, scan_project,
+};
 
 #[test]
 fn detects_dart_and_flutter_security_candidate_patterns() -> Result<(), Box<dyn std::error::Error>>
@@ -46,7 +48,7 @@ Future<void> main(dynamic db, dynamic prefs, dynamic controller, String command,
         .collect::<Vec<_>>();
 
     assert_eq!(report.analyzed_files, 1);
-    assert_eq!(report.total_occurrences, 7);
+    assert_eq!(report.total_occurrences, 7, "rules={rules:?}");
     assert_eq!(report.attack_surface.len(), 7);
     assert!(rules.contains(&"dart-decimate/security-hardcoded-secret"));
     assert!(rules.contains(&"dart-decimate/security-insecure-transport"));
@@ -691,6 +693,338 @@ final uri = Uri.parse('http://api.example.com/login');
 
     assert_eq!(report.candidates.len(), 1);
     assert_eq!(report.total_occurrences, 2);
+
+    Ok(())
+}
+
+#[test]
+fn skips_production_corpus_security_lookalikes() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r#"
+import 'dart:io';
+import 'dart:math';
+
+const locale = 'sk_SK';
+const modelSha256 =
+    'e047647409403d52696035ecd445792173e50d7fbdcccac97b958a585db9aa3d';
+const streamError = 'crypto_secretstream_xchacha20poly1305_pull';
+const tableName = 'records';
+const oauthToken =
+    'https://api.example.com/oauth2/token';
+
+void configure(dynamic prefs, dynamic db, dynamic tokenType) {
+  final json = File('script/Primitive.Mode 1.tokens.json').readAsStringSync();
+  final authHeader = tokenType.startsWith('Bearer ')
+      ? tokenType
+      : 'Bearer $tokenType';
+  final widget = ValueKey(Random().nextDouble());
+  final page = PageStorageKey(Random().nextDouble());
+  final key = Key.fromSecureRandom(32);
+  prefs.setString('show_token', const Uuid().v4());
+  prefs.setString('token_type', AuthTokenType.headlessJwt.name);
+  db.rawQuery('SELECT 1');
+  db.rawQuery('SELECT * FROM $tableName');
+  db.execute(
+    'CREATE INDEX idx '
+    'ON records(value)',
+  );
+  db.query(
+    'records',
+    where: 'id IN ($placeholders)',
+    whereArgs: ids,
+  );
+  db.query(
+    'records',
+    where: "json_extract(data, '\$.registeredAt') IS NOT NULL",
+  );
+  db.rawQuery(r'SELECT json_extract(data, "$.registeredAt") FROM records');
+  print([locale, modelSha256, streamError, json, authHeader, widget, page, key]);
+}
+"#,
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+
+    assert!(report.candidates.is_empty(), "{report:#?}");
+    assert!(report.blind_spots.is_empty(), "{report:#?}");
+
+    Ok(())
+}
+
+#[test]
+fn reports_split_production_secret_bindings() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+const _secretKeyA = 'fixtureSecretValueAlpha123';
+const _secretKeyB =
+    'fixtureSecretValueBeta456';
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+    let hardcoded = report
+        .candidates
+        .iter()
+        .find(|candidate| candidate.rule_id == "dart-decimate/security-hardcoded-secret")
+        .ok_or("hardcoded secret candidate")?;
+
+    assert_eq!(hardcoded.occurrences.len(), 2, "{report:#?}");
+
+    Ok(())
+}
+
+#[test]
+fn distinguishes_tls_configuration_from_certificate_bypass()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+import 'dart:io';
+
+final customRoots = SecurityContext(withTrustedRoots: false);
+
+bool rejectCertificate(X509Certificate cert, String host, int port) => false;
+
+bool configuredCertificate(
+  X509Certificate cert,
+  String host,
+  int port,
+) {
+  if (host.isEmpty) return false;
+  return allowInsecureConnections;
+}
+
+bool badCertificateCallback(
+  X509Certificate cert,
+  String host,
+  int port,
+) => allowInsecureConnections;
+
+HttpClient configuredClient() {
+  return HttpClient()
+    ..badCertificateCallback = configuredCertificate;
+}
+
+HttpClient sameNamedClient() {
+  return HttpClient()
+    ..badCertificateCallback = badCertificateCallback;
+}
+
+HttpClient rejectingClient() {
+  return HttpClient()
+    ..badCertificateCallback = rejectCertificate;
+}
+
+class ScopedClientFactory {
+  static bool badCertificateCallback(
+    X509Certificate cert,
+    String host,
+    int port,
+  ) => allowInsecureConnections;
+
+  HttpClient create() {
+    return HttpClient()
+      ..badCertificateCallback = badCertificateCallback;
+  }
+}
+
+class UnrelatedFactory {
+  static bool badCertificateCallback(
+    X509Certificate cert,
+    String host,
+    int port,
+  ) => false;
+}
+
+void configure() {
+  HttpOverrides.global = ProxyOnlyOverrides();
+  final client = HttpClient();
+  client.badCertificateCallback = (_, _, _) => true;
+  client.badCertificateCallback = (_, host, _) => host.endsWith('.example');
+  client.badCertificateCallback = configuredCertificate;
+  client.badCertificateCallback = rejectCertificate;
+  client.badCertificateCallback = importedCertificateCallback;
+  Adapter(
+    validateCertificate:
+        allowInsecureConnections ? (_, _, _) => true : null,
+  );
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+    let tls = report
+        .candidates
+        .iter()
+        .find(|candidate| candidate.rule_id == "dart-decimate/security-tls-bypass")
+        .ok_or("TLS candidate")?;
+
+    assert_eq!(tls.occurrences.len(), 6, "{report:#?}");
+    assert_eq!(report.total_occurrences, 7, "{report:#?}");
+    assert_eq!(
+        report
+            .blind_spots
+            .iter()
+            .filter(|spot| {
+                spot.category == SecurityCategory::TlsBypass
+                    && spot.reason == SecurityBlindSpotReason::AmbiguousTlsCallback
+            })
+            .count(),
+        1,
+        "{report:#?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn reports_dynamic_sql_without_parameter_evidence_but_not_wrappers()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+Future<void> query(dynamic db, String sql, List<Object?> arguments, String id) async {
+  await db.rawQuery(sql, arguments);
+  await db.rawQuery('SELECT * FROM users WHERE id = $id');
+}
+
+void log(dynamic l10n) {
+  print('${l10n.execute}: Shell');
+}
+
+class Schema {
+  static const table = 'users';
+}
+
+const topTable = 'users';
+
+class Store {
+  static const table = Schema.table;
+
+  Future<void> safeQueries(dynamic db, int count, bool oldest) async {
+    const column = 'id';
+    final placeholders = List.filled(count, '?').join(',');
+    final aggregate = oldest ? 'MIN' : 'MAX';
+    await db.rawQuery(
+      'SELECT $column, $aggregate(created_at) FROM $table '
+      'WHERE id IN ($placeholders)',
+      List.filled(count, 1),
+    );
+    await db.transaction((transaction) async {
+      await transaction.rawQuery(
+        '''
+        SELECT id FROM $topTable
+        WHERE id = ?
+        ''',
+        [1],
+      );
+    });
+  }
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+    let sql = report
+        .candidates
+        .iter()
+        .find(|candidate| candidate.rule_id == "dart-decimate/security-raw-sql")
+        .ok_or("raw SQL candidate")?;
+
+    assert_eq!(sql.occurrences.len(), 1, "{report:#?}");
+    assert_eq!(sql.occurrences[0].location.line, 4);
+    assert!(report.blind_spots.is_empty(), "{report:#?}");
+
+    Ok(())
+}
+
+#[test]
+fn detects_documented_cleartext_uri_constructors() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+final remote = Uri.http('api.example.com', '/login');
+final dynamicRemote = Uri.http(authority, '/login');
+final componentRemote = Uri(scheme: 'http', host: 'api.example.com');
+final local = Uri.http('localhost:8080', '/health');
+final secure = Uri(scheme: 'https', host: 'api.example.com');
+
+Uri appUri(String host) =>
+    host.startsWith('localhost') || host.startsWith('10.')
+        ? Uri.http(host, '/health')
+        : Uri.https(host, '/health');
+
+Uri debugUri(Uri base) {
+  if (kDebugMode && base.toString().startsWith('http://')) {
+    return Uri.http(base.authority, base.path);
+  }
+  return Uri.https(base.authority, base.path);
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+    let transport = report
+        .candidates
+        .iter()
+        .find(|candidate| candidate.rule_id == "dart-decimate/security-insecure-transport")
+        .ok_or("insecure transport candidate")?;
+
+    assert_eq!(transport.occurrences.len(), 3, "{report:#?}");
+
+    Ok(())
+}
+
+#[test]
+fn plain_storage_uses_the_stored_value_not_metadata_names() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+void persist(dynamic prefs, dynamic entry, dynamic credential, dynamic token) {
+  prefs.setString('access_token', credential.accessToken);
+  prefs.setString('token_type', AuthTokenType.headlessJwt.name);
+  prefs.setString('show_token', const Uuid().v4());
+  prefs.setString('access_token', token);
+  entry.setString('otp', ProtectedValue.fromString(token));
+}
+",
+    )?;
+
+    let project = scan_project(fixture.path())?;
+    let report = analyze_security(&project, &SecurityOptions::default(), None)?;
+    let storage = report
+        .candidates
+        .iter()
+        .find(|candidate| candidate.rule_id == "dart-decimate/security-plain-secret-storage")
+        .ok_or("plain secret storage candidate")?;
+
+    assert_eq!(storage.occurrences.len(), 2, "{report:#?}");
 
     Ok(())
 }

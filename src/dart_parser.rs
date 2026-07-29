@@ -4,6 +4,11 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tree_sitter::{Parser, Tree};
 
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+pub(crate) use test_support::track_parse_count;
+
 /// Parsed Dart source and the source buffer used for the parse.
 ///
 /// Tree-Sitter node byte ranges are relative to this buffer, which may be a
@@ -104,6 +109,9 @@ pub(crate) fn parse_dart_source_lossy<'source>(
 }
 
 fn parse_raw(path: &Path, source: &str) -> Result<Tree, DartParseError> {
+    #[cfg(test)]
+    test_support::record_parse(path);
+
     let mut parser = Parser::new();
     parser.set_language(&tree_sitter_dart::LANGUAGE.into())?;
     parser

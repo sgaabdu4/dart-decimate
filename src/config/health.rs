@@ -17,6 +17,9 @@ pub struct HealthConfig {
     /// Maximum cognitive complexity before reporting.
     #[serde(default, alias = "maxCognitive")]
     pub max_cognitive: Option<usize>,
+    /// Maximum inclusive physical lines in one function-like declaration.
+    #[serde(default, alias = "maxUnitSize")]
+    pub max_unit_size: Option<usize>,
     /// Limit output to the N highest complexity findings.
     #[serde(default)]
     pub top: Option<usize>,
@@ -56,6 +59,9 @@ pub struct HealthConfig {
     /// Attach CODEOWNERS ownership metadata to health output.
     #[serde(default)]
     pub ownership: Option<bool>,
+    /// Include advisory Flutter theme/style analysis.
+    #[serde(default, alias = "flutterStyle")]
+    pub flutter_style: Option<bool>,
     /// Minimum file health score before hotspot reporting.
     #[serde(default, alias = "minScore")]
     pub min_score: Option<usize>,
@@ -76,7 +82,7 @@ impl HealthConfig {
             if !rule.has_threshold() {
                 return Err(ConfigError::HealthThresholdOverride {
                     index,
-                    message: "set maxCyclomatic, maxCognitive, or maxCrap".to_owned(),
+                    message: "set maxCyclomatic, maxCognitive, maxCrap, or maxUnitSize".to_owned(),
                 });
             }
             for pattern in &rule.files {
@@ -97,6 +103,9 @@ impl HealthConfig {
         }
         if let Some(max_cognitive) = self.max_cognitive {
             options.max_cognitive = max_cognitive;
+        }
+        if let Some(max_unit_size) = self.max_unit_size {
+            options.max_unit_size = max_unit_size;
         }
         if self.top.is_some() {
             options.top = self.top;
@@ -139,6 +148,9 @@ impl HealthConfig {
         if let Some(ownership) = self.ownership {
             options.ownership = ownership.into();
         }
+        if let Some(flutter_style) = self.flutter_style {
+            options.flutter_style = flutter_style.into();
+        }
         if let Some(min_score) = self.min_score {
             options.min_score = min_score.min(100);
         }
@@ -157,6 +169,8 @@ pub(super) fn health_schema() -> Value {
             "maxCyclomatic": positive_integer_schema(),
             "max_cognitive": positive_integer_schema(),
             "maxCognitive": positive_integer_schema(),
+            "max_unit_size": positive_integer_schema(),
+            "maxUnitSize": positive_integer_schema(),
             "top": positive_integer_schema(),
             "complexity_breakdown": { "type": "boolean" },
             "complexityBreakdown": { "type": "boolean" },
@@ -179,6 +193,8 @@ pub(super) fn health_schema() -> Value {
             "hotspots": { "type": "boolean" },
             "targets": { "type": "boolean" },
             "ownership": { "type": "boolean" },
+            "flutter_style": { "type": "boolean" },
+            "flutterStyle": { "type": "boolean" },
             "min_score": score_schema(),
             "minScore": score_schema(),
             "threshold_overrides": threshold_overrides_schema(),
@@ -212,7 +228,9 @@ fn threshold_overrides_schema() -> Value {
                 { "required": ["max_cognitive"] },
                 { "required": ["maxCognitive"] },
                 { "required": ["max_crap"] },
-                { "required": ["maxCrap"] }
+                { "required": ["maxCrap"] },
+                { "required": ["max_unit_size"] },
+                { "required": ["maxUnitSize"] }
             ],
             "properties": {
                 "files": {
@@ -230,6 +248,8 @@ fn threshold_overrides_schema() -> Value {
                 "maxCognitive": positive_integer_schema(),
                 "max_crap": positive_integer_schema(),
                 "maxCrap": positive_integer_schema(),
+                "max_unit_size": positive_integer_schema(),
+                "maxUnitSize": positive_integer_schema(),
                 "reason": { "type": ["string", "null"] }
             }
         }

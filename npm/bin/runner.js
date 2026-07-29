@@ -40,13 +40,14 @@ function installCachedBinary(root) {
     stdio: "inherit",
     windowsHide: false,
   });
+  handleInstallerResult(result);
+}
 
+function handleInstallerResult(result) {
   if (result.error && result.error.code !== "ENOENT") {
     console.error(`dart-decimate: install step failed to start: ${result.error.message}`);
   }
-  if (result.signal) {
-    process.kill(process.pid, result.signal);
-  }
+  forwardSignal(result.signal);
 }
 
 function run(command, commandArgs, cwd = undefined, label = command) {
@@ -57,23 +58,34 @@ function run(command, commandArgs, cwd = undefined, label = command) {
   });
 
   if (result.error) {
-    if (result.error.code === "ENOENT") {
-      console.error(
-        `${label}: Rust/Cargo is required to build the npm source package. ` +
-          "Install Rust from https://rustup.rs or use a release package with a prebuilt binary.",
-      );
-      process.exit(127);
-    }
-    console.error(`${label}: failed to execute ${command}: ${result.error.message}`);
-    process.exit(1);
+    handleRunError(result.error, command, label);
   }
 
-  if (result.signal) {
-    process.kill(process.pid, result.signal);
+  if (forwardSignal(result.signal)) {
     return;
   }
 
   process.exit(result.status ?? 1);
+}
+
+function handleRunError(error, command, label) {
+  if (error.code === "ENOENT") {
+    console.error(
+      `${label}: Rust/Cargo is required to build the npm source package. ` +
+        "Install Rust from https://rustup.rs or use a release package with a prebuilt binary.",
+    );
+    process.exit(127);
+  }
+  console.error(`${label}: failed to execute ${command}: ${error.message}`);
+  process.exit(1);
+}
+
+function forwardSignal(signal) {
+  if (!signal) {
+    return false;
+  }
+  process.kill(process.pid, signal);
+  return true;
 }
 
 module.exports = { runBinary };

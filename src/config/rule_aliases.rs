@@ -55,11 +55,22 @@ pub(super) fn aliases(rule_id: &str, kind: FindingKind) -> Vec<&'static str> {
             "security-plain-secret-storage",
             "plain-secret-storage",
         ],
+        "security-weak-randomness" => vec![
+            "dart-decimate/security-weak-randomness",
+            "security-weak-randomness",
+            "weak-randomness",
+        ],
         "unused-dev-dependency" => vec![
             "dart-decimate/unused-dev-dependency",
             "unused-dev-dependency",
             "unused-dev-dependencies",
             "unused-dev-deps",
+        ],
+        "dev-dependency-in-production" => vec![
+            "dart-decimate/dev-dependency-in-production",
+            "dev-dependency-in-production",
+            "dev-dependencies-in-production",
+            "dev-deps-in-production",
         ],
         "test-only-dependency" => vec![
             "dart-decimate/test-only-dependency",
@@ -120,6 +131,9 @@ fn all_security_aliases() -> Vec<&'static str> {
         "dart-decimate/security-plain-secret-storage",
         "security-plain-secret-storage",
         "plain-secret-storage",
+        "dart-decimate/security-weak-randomness",
+        "security-weak-randomness",
+        "weak-randomness",
     ]
     .into()
 }
@@ -130,6 +144,10 @@ fn all_dependency_aliases() -> Vec<&'static str> {
         "unused-dev-dependency",
         "unused-dev-dependencies",
         "unused-dev-deps",
+        "dart-decimate/dev-dependency-in-production",
+        "dev-dependency-in-production",
+        "dev-dependencies-in-production",
+        "dev-deps-in-production",
         "dart-decimate/test-only-dependency",
         "test-only-dependency",
         "test-only-dependencies",
@@ -173,6 +191,7 @@ fn all_known_aliases() -> Vec<&'static str> {
         FindingKind::PartOfViolation,
         FindingKind::UnusedDependency,
         FindingKind::UnusedDevDependency,
+        FindingKind::DevDependencyInProduction,
         FindingKind::TestOnlyDependency,
         FindingKind::UnusedDependencyOverride,
         FindingKind::MisconfiguredDependencyOverride,
@@ -185,6 +204,9 @@ fn all_known_aliases() -> Vec<&'static str> {
         FindingKind::HighCrapScore,
         FindingKind::HealthHotspot,
         FindingKind::RefactoringTarget,
+        FindingKind::RawFlutterStyleValue,
+        FindingKind::NearDuplicateThemeToken,
+        FindingKind::UnusedThemeExtensionToken,
         FindingKind::FeatureFlag,
         FindingKind::SecurityCandidate,
         FindingKind::StaleSuppression,
@@ -380,6 +402,12 @@ fn dependency_kind_aliases(kind: FindingKind) -> Option<Vec<&'static str>> {
             "unused-dev-dependencies",
             "unused-dev-deps",
         ]),
+        FindingKind::DevDependencyInProduction => Some(vec![
+            "dart-decimate/dev-dependency-in-production",
+            "dev-dependency-in-production",
+            "dev-dependencies-in-production",
+            "dev-deps-in-production",
+        ]),
         FindingKind::TestOnlyDependency => Some(vec![
             "dart-decimate/test-only-dependency",
             "test-only-dependency",
@@ -477,6 +505,21 @@ fn quality_kind_aliases(kind: FindingKind) -> Option<Vec<&'static str>> {
             "refactoring-targets",
             "target",
             "targets",
+        ]),
+        FindingKind::RawFlutterStyleValue => Some(vec![
+            "dart-decimate/raw-flutter-style-value",
+            "raw-flutter-style-value",
+            "raw-flutter-style-values",
+        ]),
+        FindingKind::NearDuplicateThemeToken => Some(vec![
+            "dart-decimate/near-duplicate-theme-token",
+            "near-duplicate-theme-token",
+            "near-duplicate-theme-tokens",
+        ]),
+        FindingKind::UnusedThemeExtensionToken => Some(vec![
+            "dart-decimate/unused-theme-extension-token",
+            "unused-theme-extension-token",
+            "unused-theme-extension-tokens",
         ]),
         FindingKind::FeatureFlag => Some(vec![
             "dart-decimate/feature-flag",

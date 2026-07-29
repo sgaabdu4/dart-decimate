@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "families": {
+    "typecheck": ["npm", "run", "typecheck"],
+    "format": ["npm", "run", "format:check"],
+    "lint": ["npm", "run", "lint"],
+    "tests": ["npm", "test"],
+    "fallow": [
+      "npx",
+      "--yes",
+      "--package",
+      "fallow@latest",
+      "fallow",
+      "--fail-on-issues",
+      "--format",
+      "json",
+      "--quiet"
+    ],
+    "targeted": ["cargo", "test", "--all-targets", "--quiet"]
+  }
+}

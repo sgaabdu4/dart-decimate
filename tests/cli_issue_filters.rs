@@ -52,12 +52,14 @@ fn dead_code_unused_deps_filter_groups_dependency_variants()
         "pubspec.yaml",
         "name: app\n\
 dependencies:\n  path: ^1.0.0\n  args: ^2.0.0\n\
-dev_dependencies:\n  lints: ^5.0.0\n",
+dev_dependencies:\n  lints: ^5.0.0\n  collection: ^1.0.0\n",
     )?;
     write(
         &fixture,
         "lib/main.dart",
-        "import 'package:args/args.dart';\nvoid main() {}\n",
+        "import 'package:args/args.dart';\n\
+import 'package:collection/collection.dart';\n\
+void main() {}\n",
     )?;
     write(
         &fixture,
@@ -78,14 +80,18 @@ dev_dependencies:\n  lints: ^5.0.0\n",
 
     let kinds = finding_kinds(&json);
     assert_eq!(code, 1);
-    assert_eq!(json["summary"]["findings"], 2);
-    assert_eq!(json["summary"]["unused_dependencies"], 2);
+    assert_eq!(json["summary"]["findings"], 3);
+    assert_eq!(json["summary"]["unused_dependencies"], 3);
     assert!(kinds.contains(&"unused-dependency"));
     assert!(kinds.contains(&"unused-dev-dependency"));
+    assert!(kinds.contains(&"dev-dependency-in-production"));
     assert!(kinds.iter().all(|kind| {
         matches!(
             *kind,
-            "unused-dependency" | "unused-dev-dependency" | "test-only-dependency"
+            "unused-dependency"
+                | "unused-dev-dependency"
+                | "dev-dependency-in-production"
+                | "test-only-dependency"
         )
     }));
 

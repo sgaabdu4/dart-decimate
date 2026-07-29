@@ -104,6 +104,66 @@ fn inspect_symbol_emits_trace_and_scoped_report() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+#[test]
+fn inspect_symbol_reports_identity_impact_and_targeted_tests()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/api.dart", "part 'src/model.dart';\n")?;
+    write(
+        &fixture,
+        "lib/src/model.dart",
+        "part of '../api.dart';\nclass Api {}\n",
+    )?;
+    write(&fixture, "lib/barrel.dart", "export 'api.dart' show Api;\n")?;
+    write(
+        &fixture,
+        "test/api_test.dart",
+        "import '../lib/barrel.dart' as api;\nvoid main() { api.Api(); }\n",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "inspect",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "test/api_test.dart",
+            "--symbol",
+            "lib/src/model.dart:Api",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    let trace = &json["symbol_trace"];
+    assert_eq!(code, 0);
+    assert_eq!(trace["identity"]["library_uri"], "lib/api.dart");
+    assert_eq!(trace["identity"]["kind"], "class");
+    assert_eq!(trace["semantic_decision"], "confirmed");
+    assert_eq!(trace["completeness"]["status"], "partial");
+    assert_eq!(trace["impact_paths"][0]["from"], "test/api_test.dart");
+    assert_eq!(
+        trace["impact_paths"][0]["files"],
+        serde_json::json!([
+            "test/api_test.dart",
+            "lib/barrel.dart",
+            "lib/api.dart",
+            "lib/src/model.dart"
+        ])
+    );
+    assert_eq!(trace["suggested_tests"][0]["path"], "test/api_test.dart");
+    assert_eq!(
+        trace["suggested_tests"][0]["import_path"],
+        trace["impact_paths"][0]["files"]
+    );
+
+    Ok(())
+}
+
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {
     let path = fixture.path().join(path);
     if let Some(parent) = path.parent() {

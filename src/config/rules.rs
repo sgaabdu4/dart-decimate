@@ -93,6 +93,10 @@ pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Res
             FindingKind::RefactoringTarget,
         ) != RuleLevel::Off
     });
+    report.flutter_style.retain(|finding| {
+        style_finding_kind(&finding.kind)
+            .is_some_and(|kind| rules.level(&finding.rule_id, kind) != RuleLevel::Off)
+    });
     report.feature_flags.retain(|_| {
         rules.level("dart-decimate/feature-flag", FindingKind::FeatureFlag) != RuleLevel::Off
     });
@@ -118,6 +122,15 @@ pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Res
         Verdict::Pass
     };
     Ok(())
+}
+
+fn style_finding_kind(kind: &str) -> Option<FindingKind> {
+    match kind {
+        "raw-flutter-style-value" => Some(FindingKind::RawFlutterStyleValue),
+        "near-duplicate-theme-token" => Some(FindingKind::NearDuplicateThemeToken),
+        "unused-theme-extension-token" => Some(FindingKind::UnusedThemeExtensionToken),
+        _ => None,
+    }
 }
 
 /// Error returned for invalid rule names.
@@ -164,6 +177,9 @@ fn apply_security_candidate_level(
 }
 
 fn recompute_summary(report: &mut JsonReport) {
+    let raw_flutter_style_values = style_count(report, "raw-flutter-style-value");
+    let near_duplicate_theme_tokens = style_count(report, "near-duplicate-theme-token");
+    let unused_theme_extension_tokens = style_count(report, "unused-theme-extension-token");
     let summary = &mut report.summary;
     let previous_feature_flags = summary.feature_flags;
     let previous_feature_flag_occurrences = summary.feature_flag_occurrences;
@@ -175,6 +191,8 @@ fn recompute_summary(report: &mut JsonReport) {
     summary.unused_dependencies = dependency_count(&report.findings);
     summary.unused_dev_dependencies =
         kind_count(&report.findings, FindingKind::UnusedDevDependency);
+    summary.dev_dependencies_in_production =
+        kind_count(&report.findings, FindingKind::DevDependencyInProduction);
     summary.test_only_dependencies = kind_count(&report.findings, FindingKind::TestOnlyDependency);
     summary.dependency_overrides = dependency_override_count(&report.findings);
     summary.unused_dependency_overrides =
@@ -207,6 +225,18 @@ fn recompute_summary(report: &mut JsonReport) {
     );
     summary.code_duplications = report.clone_groups.len();
     summary.complex_functions = report.complexity.len();
+    summary.large_functions = report.large_functions.len();
+    summary.raw_flutter_style_values = raw_flutter_style_values;
+    summary.near_duplicate_theme_tokens = near_duplicate_theme_tokens;
+    summary.unused_theme_extension_tokens = unused_theme_extension_tokens;
+    summary.semantic_evidence = report
+        .semantic
+        .as_ref()
+        .map_or(0, |semantic| semantic.evidence.len());
+    summary.type_couplings = report
+        .semantic
+        .as_ref()
+        .map_or(0, |semantic| semantic.type_couplings.len());
     summary.coverage_gaps = kind_count(&report.findings, FindingKind::CoverageGap);
     summary.crap_functions = kind_count(&report.findings, FindingKind::HighCrapScore);
     summary.file_scores = report.file_scores.len();
@@ -233,6 +263,7 @@ fn recompute_summary(report: &mut JsonReport) {
                 .map(|candidate| candidate.occurrences.len())
                 .sum()
         };
+    summary.security_blind_spots = report.security_blind_spots.len();
     summary.attack_surface = report.attack_surface.len();
     summary.missing_entry_points = kind_count(&report.findings, FindingKind::MissingEntryPoint);
     summary.cycles = kind_count(&report.findings, FindingKind::CircularDependency);
@@ -245,6 +276,14 @@ fn recompute_summary(report: &mut JsonReport) {
     summary.missing_suppression_reasons =
         kind_count(&report.findings, FindingKind::MissingSuppressionReason);
     summary.findings = report.findings.len();
+}
+
+fn style_count(report: &JsonReport, kind: &str) -> usize {
+    report
+        .flutter_style
+        .iter()
+        .filter(|finding| finding.kind == kind)
+        .count()
 }
 
 fn kind_count(findings: &[Finding], kind: FindingKind) -> usize {
@@ -280,6 +319,7 @@ fn security_surface_enabled(entry: &JsonAttackSurfaceEntry, rules: &RuleMatcher)
         SecurityCategory::ProcessExecution => "dart-decimate/security-process-execution",
         SecurityCategory::RawSql => "dart-decimate/security-raw-sql",
         SecurityCategory::PlainSecretStorage => "dart-decimate/security-plain-secret-storage",
+        SecurityCategory::WeakRandomness => "dart-decimate/security-weak-randomness",
     };
     rules.level(rule_id, FindingKind::SecurityCandidate) != RuleLevel::Off
 }
@@ -348,9 +388,13 @@ impl<'a> RuleMatcher<'a> {
 fn default_rule_level(rule_id: &str, kind: FindingKind) -> RuleLevel {
     match kind {
         FindingKind::UnusedDependencyOverride
+        | FindingKind::DevDependencyInProduction
         | FindingKind::CodeDuplication
         | FindingKind::UnusedWidgetParam
-        | FindingKind::UnrenderedWidget => RuleLevel::Warn,
+        | FindingKind::UnrenderedWidget
+        | FindingKind::RawFlutterStyleValue
+        | FindingKind::NearDuplicateThemeToken
+        | FindingKind::UnusedThemeExtensionToken => RuleLevel::Warn,
         FindingKind::SecurityCandidate
             if matches!(
                 rule_id.as_bytes(),
@@ -376,6 +420,7 @@ const fn is_dependency_hygiene_kind(kind: FindingKind) -> bool {
         kind,
         FindingKind::UnusedDependency
             | FindingKind::UnusedDevDependency
+            | FindingKind::DevDependencyInProduction
             | FindingKind::TestOnlyDependency
             | FindingKind::UnusedDependencyOverride
     )

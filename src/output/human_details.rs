@@ -108,6 +108,12 @@ fn dependency_items(summary: &ReportSummary) -> Vec<String> {
     );
     push_count(
         &mut items,
+        summary.dev_dependencies_in_production,
+        "dev dependency used in production",
+        "dev dependencies used in production",
+    );
+    push_count(
+        &mut items,
         summary.test_only_dependencies,
         "test-only production dependency",
         "test-only production dependencies",
@@ -195,6 +201,24 @@ fn quality_items(summary: &ReportSummary) -> Vec<String> {
     );
     push_count(
         &mut items,
+        summary.large_functions,
+        "large function",
+        "large functions",
+    );
+    push_count(
+        &mut items,
+        summary.semantic_evidence,
+        "semantic evidence row",
+        "semantic evidence rows",
+    );
+    push_count(
+        &mut items,
+        summary.type_couplings,
+        "type coupling",
+        "type couplings",
+    );
+    push_count(
+        &mut items,
         summary.coverage_gaps,
         "coverage gap",
         "coverage gaps",
@@ -247,6 +271,24 @@ fn flutter_items(summary: &ReportSummary) -> Vec<String> {
         "missing context.mounted guard",
         "missing context.mounted guards",
     );
+    push_count(
+        &mut items,
+        summary.raw_flutter_style_values,
+        "raw Flutter style value",
+        "raw Flutter style values",
+    );
+    push_count(
+        &mut items,
+        summary.near_duplicate_theme_tokens,
+        "near-duplicate theme token",
+        "near-duplicate theme tokens",
+    );
+    push_count(
+        &mut items,
+        summary.unused_theme_extension_tokens,
+        "unused ThemeExtension token",
+        "unused ThemeExtension tokens",
+    );
     items
 }
 
@@ -257,6 +299,12 @@ fn security_items(summary: &ReportSummary) -> Vec<String> {
         summary.security_candidates,
         "security candidate",
         "security candidates",
+    );
+    push_count(
+        &mut items,
+        summary.security_blind_spots,
+        "security blind spot",
+        "security blind spots",
     );
     push_count(
         &mut items,
@@ -313,6 +361,7 @@ pub(super) const fn kind_label(kind: FindingKind) -> &'static str {
         FindingKind::PartOfViolation => "Part-of violation",
         FindingKind::UnusedDependency => "Unused dependency",
         FindingKind::UnusedDevDependency => "Unused dev dependency",
+        FindingKind::DevDependencyInProduction => "Dev dependency used in production",
         FindingKind::TestOnlyDependency => "Test-only production dependency",
         FindingKind::UnusedDependencyOverride => "Unused dependency override",
         FindingKind::MisconfiguredDependencyOverride => "Misconfigured dependency override",
@@ -326,6 +375,9 @@ pub(super) const fn kind_label(kind: FindingKind) -> &'static str {
         FindingKind::HighCrapScore => "High CRAP score",
         FindingKind::HealthHotspot => "Health hotspot",
         FindingKind::RefactoringTarget => "Refactoring target",
+        FindingKind::RawFlutterStyleValue => "Raw Flutter style value",
+        FindingKind::NearDuplicateThemeToken => "Near-duplicate theme token",
+        FindingKind::UnusedThemeExtensionToken => "Unused ThemeExtension token",
         FindingKind::FeatureFlag => "Feature flag",
         FindingKind::SecurityCandidate => "Security candidate",
         FindingKind::StaleSuppression => "Stale suppression",
@@ -334,6 +386,9 @@ pub(super) const fn kind_label(kind: FindingKind) -> &'static str {
 }
 
 pub(super) const fn why_text(kind: FindingKind) -> &'static str {
+    if let Some(text) = quality_why_text(kind) {
+        return text;
+    }
     match kind {
         FindingKind::CircularDependency => {
             "These files import or export each other in a loop. That couples builds, tests, ownership, and refactors across the whole component."
@@ -367,6 +422,7 @@ pub(super) const fn why_text(kind: FindingKind) -> &'static str {
         }
         FindingKind::UnusedDependency
         | FindingKind::UnusedDevDependency
+        | FindingKind::DevDependencyInProduction
         | FindingKind::TestOnlyDependency
         | FindingKind::UnusedDependencyOverride
         | FindingKind::MisconfiguredDependencyOverride
@@ -396,18 +452,14 @@ pub(super) const fn why_text(kind: FindingKind) -> &'static str {
         }
         FindingKind::HighCyclomaticComplexity
         | FindingKind::HighCognitiveComplexity
-        | FindingKind::HighComplexity => {
-            "The function has enough branch or nesting decisions to raise review and change risk."
-        }
-        FindingKind::CoverageGap => {
-            "Runtime coverage data found no covered executable lines for this Dart file."
-        }
-        FindingKind::HighCrapScore => {
-            "The function combines high branching complexity with low test coverage."
-        }
-        FindingKind::HealthHotspot | FindingKind::RefactoringTarget => {
-            "Size, complexity, duplication, coupling, coverage, or ownership signals make this file expensive to change."
-        }
+        | FindingKind::HighComplexity
+        | FindingKind::CoverageGap
+        | FindingKind::HighCrapScore
+        | FindingKind::HealthHotspot
+        | FindingKind::RefactoringTarget
+        | FindingKind::RawFlutterStyleValue
+        | FindingKind::NearDuplicateThemeToken
+        | FindingKind::UnusedThemeExtensionToken => unreachable!(),
         FindingKind::FeatureFlag => {
             "Feature flag usage is present and should be traceable before cleanup or rollout work."
         }
@@ -430,6 +482,35 @@ pub(super) const fn why_text(kind: FindingKind) -> &'static str {
         FindingKind::MissingSuppressionReason => {
             "A suppression comment exists without the required reason text."
         }
+    }
+}
+
+const fn quality_why_text(kind: FindingKind) -> Option<&'static str> {
+    match kind {
+        FindingKind::HighCyclomaticComplexity
+        | FindingKind::HighCognitiveComplexity
+        | FindingKind::HighComplexity => Some(
+            "The function has enough branch or nesting decisions to raise review and change risk.",
+        ),
+        FindingKind::CoverageGap => {
+            Some("Runtime coverage data found no covered executable lines for this Dart file.")
+        }
+        FindingKind::HighCrapScore => {
+            Some("The function combines high branching complexity with low test coverage.")
+        }
+        FindingKind::HealthHotspot | FindingKind::RefactoringTarget => Some(
+            "Size, complexity, duplication, coupling, coverage, or ownership signals make this file expensive to change.",
+        ),
+        FindingKind::RawFlutterStyleValue => Some(
+            "A raw Flutter style value has a resolvable theme token that can preserve design-system consistency.",
+        ),
+        FindingKind::NearDuplicateThemeToken => Some(
+            "Two custom theme colors differ only slightly and may represent an accidental duplicate semantic role.",
+        ),
+        FindingKind::UnusedThemeExtensionToken => {
+            Some("No syntax-confirmed member access consumes this custom ThemeExtension field.")
+        }
+        _ => None,
     }
 }
 

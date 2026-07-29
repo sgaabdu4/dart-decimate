@@ -56,7 +56,12 @@ async function installPrebuilt() {
   const archivePath = path.join(os.tmpdir(), assetName);
   const url = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
   await download(url, archivePath, 0);
+  extractArchive(assetName, archivePath);
+  activateCachedBinaries(assetName);
+  return true;
+}
 
+function extractArchive(assetName, archivePath) {
   const extract = spawnSync("tar", ["-xzf", archivePath, "-C", cacheDir], {
     stdio: "pipe",
     windowsHide: false,
@@ -72,7 +77,9 @@ async function installPrebuilt() {
       `could not extract ${assetName}${stderr ? `: ${stderr}` : ""}`,
     );
   }
+}
 
+function activateCachedBinaries(assetName) {
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
     const cachedBinary = path.join(cacheDir, `${binary}${exeExt}`);
     if (!fs.existsSync(cachedBinary)) {
@@ -82,33 +89,36 @@ async function installPrebuilt() {
       fs.chmodSync(cachedBinary, 0o755);
     }
   }
-
-  return true;
 }
 
 function prebuiltAssetName() {
-  const platform =
-    process.platform === "darwin"
-      ? "darwin"
-      : process.platform === "linux"
-        ? "linux"
-        : process.platform === "win32"
-          ? "windows"
-          : null;
-  const arch =
-    process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : null;
+  const platform = prebuiltPlatform();
+  const arch = prebuiltArchitecture();
 
   if (!platform || !arch) {
     return null;
   }
-  if (platform === "linux" && arch === "arm64") {
-    return null;
-  }
-  if (platform === "windows" && arch === "arm64") {
+  if (!supportsPrebuiltTarget(platform, arch)) {
     return null;
   }
 
   return `dart-decimate-${platform}-${arch}.tar.gz`;
+}
+
+function prebuiltPlatform() {
+  return new Map([
+    ["darwin", "darwin"],
+    ["linux", "linux"],
+    ["win32", "windows"],
+  ]).get(process.platform);
+}
+
+function prebuiltArchitecture() {
+  return new Set(["x64", "arm64"]).has(process.arch) ? process.arch : null;
+}
+
+function supportsPrebuiltTarget(platform, arch) {
+  return !new Set(["linux:arm64", "windows:arm64"]).has(`${platform}:${arch}`);
 }
 
 function download(url, destination, redirectCount) {
@@ -120,39 +130,51 @@ function download(url, destination, redirectCount) {
 
   return new Promise((resolve, reject) => {
     const client = url.startsWith("http://") ? http : https;
-    const request = client.get(url, async (response) => {
-      if (
-        response.statusCode >= 300 &&
-        response.statusCode < 400 &&
-        response.headers.location
-      ) {
-        response.resume();
-        const nextUrl = new URL(response.headers.location, url).toString();
-        download(nextUrl, destination, redirectCount + 1).then(resolve, reject);
-        return;
-      }
-
-      if (response.statusCode !== 200) {
-        response.resume();
-        reject(
-          new Error(`download ${url} returned HTTP ${response.statusCode}`),
-        );
-        return;
-      }
-
-      try {
-        await pipeline(
-          response,
-          fs.createWriteStream(destination, { mode: 0o600 }),
-        );
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-
+    const request = client.get(url, (response) =>
+      handleDownloadResponse(
+        response,
+        url,
+        destination,
+        redirectCount,
+        resolve,
+        reject,
+      ),
+    );
     request.on("error", reject);
   });
+}
+
+function handleDownloadResponse(
+  response,
+  url,
+  destination,
+  redirectCount,
+  resolve,
+  reject,
+) {
+  if (isRedirect(response)) {
+    response.resume();
+    const nextUrl = new URL(response.headers.location, url).toString();
+    download(nextUrl, destination, redirectCount + 1).then(resolve, reject);
+    return;
+  }
+  if (response.statusCode !== 200) {
+    response.resume();
+    reject(new Error(`download ${url} returned HTTP ${response.statusCode}`));
+    return;
+  }
+  pipeline(response, fs.createWriteStream(destination, { mode: 0o600 })).then(
+    resolve,
+    reject,
+  );
+}
+
+function isRedirect(response) {
+  return (
+    response.statusCode >= 300 &&
+    response.statusCode < 400 &&
+    Boolean(response.headers.location)
+  );
 }
 
 function buildFromSource(prebuiltError) {
@@ -161,30 +183,34 @@ function buildFromSource(prebuiltError) {
     stdio: "inherit",
     windowsHide: false,
   });
-
-  if (build.error) {
-    if (build.error.code === "ENOENT") {
-      if (prebuiltError) {
-        console.error(
-          `dart-decimate: prebuilt install failed: ${prebuiltError.message}`,
-        );
-      }
-      console.error(
-        "dart-decimate: Rust/Cargo is required as a fallback because a prebuilt binary " +
-          "could not be installed for this platform. Install Rust from https://rustup.rs.",
-      );
-      process.exit(127);
-    }
-    console.error(
-      `dart-decimate: cargo build failed to start: ${build.error.message}`,
-    );
-    process.exit(1);
-  }
-
+  handleBuildStartError(build.error, prebuiltError);
   if (build.status !== 0) {
     process.exit(build.status ?? 1);
   }
+  cacheBuiltBinaries();
+}
 
+function handleBuildStartError(error, prebuiltError) {
+  if (!error) {
+    return;
+  }
+  if (error.code === "ENOENT") {
+    if (prebuiltError) {
+      console.error(
+        `dart-decimate: prebuilt install failed: ${prebuiltError.message}`,
+      );
+    }
+    console.error(
+      "dart-decimate: Rust/Cargo is required as a fallback because a prebuilt binary " +
+        "could not be installed for this platform. Install Rust from https://rustup.rs.",
+    );
+    process.exit(127);
+  }
+  console.error(`dart-decimate: cargo build failed to start: ${error.message}`);
+  process.exit(1);
+}
+
+function cacheBuiltBinaries() {
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
     const builtBinary = path.join(
       root,

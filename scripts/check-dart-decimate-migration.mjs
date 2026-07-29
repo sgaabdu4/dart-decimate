@@ -108,12 +108,25 @@ function shouldScanFile(entry) {
   if (!entry.file) {
     return false;
   }
-  if (skippedFiles.has(entry.relative)) {
+  if (isSkippedFile(entry.relative)) {
     return false;
   }
+  return isScannableName(entry.relative);
+}
+
+function isSkippedFile(relative) {
+  return skippedFiles.has(relative) || isLifecycleArtifact(relative);
+}
+
+function isScannableName(relative) {
+  return extensions.has(path.extname(relative)) || explicitFiles.has(relative);
+}
+
+function isLifecycleArtifact(relative) {
+  const segments = relative.split(path.sep);
   return (
-    extensions.has(path.extname(entry.relative)) ||
-    explicitFiles.has(entry.relative)
+    segments[0] === "features" &&
+    (segments.at(-1) === "PLAN.md" || segments.includes("receipts"))
   );
 }
 

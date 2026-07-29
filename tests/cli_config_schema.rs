@@ -40,30 +40,7 @@ fn config_schema_command_emits_json_schema() -> Result<(), Box<dyn std::error::E
         "array"
     );
     assert_eq!(json["properties"]["health"]["type"], "object");
-    assert_eq!(
-        json["properties"]["health"]["properties"]["coverage_gaps"]["type"],
-        "boolean"
-    );
-    assert_eq!(
-        json["properties"]["health"]["properties"]["fileScores"]["type"],
-        "boolean"
-    );
-    assert_eq!(
-        json["properties"]["health"]["properties"]["max_crap"]["minimum"],
-        1
-    );
-    assert_eq!(
-        json["properties"]["health"]["properties"]["runtime_coverage"]["type"],
-        "string"
-    );
-    assert_eq!(
-        json["properties"]["health"]["properties"]["lowTrafficThreshold"]["maximum"],
-        1
-    );
-    assert_eq!(
-        json["properties"]["health"]["properties"]["minScore"]["maximum"],
-        100
-    );
+    assert_health_config_schema(&json);
     assert_eq!(
         json["properties"]["dupes"]["properties"]["mode"]["enum"][3],
         "semantic"
@@ -108,6 +85,41 @@ fn config_schema_command_emits_json_schema() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+fn assert_health_config_schema(json: &Value) {
+    assert_eq!(
+        json["properties"]["health"]["properties"]["coverage_gaps"]["type"],
+        "boolean"
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["fileScores"]["type"],
+        "boolean"
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["flutter_style"]["type"],
+        "boolean"
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["flutterStyle"]["type"],
+        "boolean"
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["max_crap"]["minimum"],
+        1
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["runtime_coverage"]["type"],
+        "string"
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["lowTrafficThreshold"]["maximum"],
+        1
+    );
+    assert_eq!(
+        json["properties"]["health"]["properties"]["minScore"]["maximum"],
+        100
+    );
+}
+
 fn assert_boundary_config_schema(json: &Value) {
     let boundary_object = &json["properties"]["boundaries"]["oneOf"][1];
     assert_eq!(boundary_object["type"], "object");
@@ -148,8 +160,21 @@ fn assert_report_schema_envelope(json: &Value) {
     assert_eq!(json["properties"]["kind"]["type"], "string");
     assert_eq!(json["properties"]["findings"]["type"], "array");
     assert_eq!(json["properties"]["file_scores"]["type"], "array");
+    assert_eq!(json["properties"]["flutter_style"]["type"], "array");
     assert_eq!(json["properties"]["hotspots"]["type"], "array");
     assert_eq!(json["properties"]["refactoring_targets"]["type"], "array");
+    assert_eq!(
+        json["properties"]["semantic"]["$ref"],
+        "#/$defs/semantic_report"
+    );
+    assert_eq!(
+        json["$defs"]["semantic_evidence"]["properties"]["decision"]["enum"][0],
+        "confirmed"
+    );
+    assert_eq!(
+        json["$defs"]["semantic_type_coupling"]["properties"]["target"]["$ref"],
+        "#/$defs/semantic_identity"
+    );
     assert_eq!(
         json["properties"]["runtime_coverage"]["$ref"],
         "#/$defs/runtime_coverage"
@@ -180,12 +205,16 @@ fn assert_report_schema_finding_kinds(json: &Value) {
         "unused-class-member",
         "coverage-gap",
         "unused-dev-dependency",
+        "dev-dependency-in-production",
         "test-only-dependency",
         "unused-dependency-override",
         "misconfigured-dependency-override",
         "high-crap-score",
         "health-hotspot",
         "refactoring-target",
+        "raw-flutter-style-value",
+        "near-duplicate-theme-token",
+        "unused-theme-extension-token",
     ] {
         assert_array_contains(
             &json["$defs"]["finding"]["properties"]["kind"]["enum"],
@@ -203,6 +232,7 @@ fn assert_report_schema_summary_fields(json: &Value) {
         "policy_violations",
         "missing_suppression_reasons",
         "unused_dev_dependencies",
+        "dev_dependencies_in_production",
         "test_only_dependencies",
         "dependency_overrides",
         "unused_dependency_overrides",
@@ -213,6 +243,11 @@ fn assert_report_schema_summary_fields(json: &Value) {
         "file_scores",
         "hotspots",
         "refactoring_targets",
+        "raw_flutter_style_values",
+        "near_duplicate_theme_tokens",
+        "unused_theme_extension_tokens",
+        "semantic_evidence",
+        "type_couplings",
     ] {
         assert_array_contains(&json["$defs"]["summary"]["required"], field);
     }

@@ -220,7 +220,16 @@ fn render_findings(html: &mut String, report: &JsonReport) {
     let _ = writeln!(html, "<section>");
     let _ = writeln!(html, "<h2>Findings</h2>");
     if report.findings.is_empty() {
-        if report.summary.findings == 0 && report.verdict == Verdict::Pass {
+        if report.summary.findings == 0
+            && report.verdict == Verdict::Pass
+            && report.summary.security_blind_spots > 0
+        {
+            let _ = writeln!(
+                html,
+                "<article class=\"finding\"><p>No verified security candidates, but {} bounded blind spot(s) require review; this is not clean security proof.</p></article>",
+                report.summary.security_blind_spots
+            );
+        } else if report.summary.findings == 0 && report.verdict == Verdict::Pass {
             let _ = writeln!(
                 html,
                 "<article class=\"finding\"><p>No findings. The selected Dart graph checks passed.</p></article>"

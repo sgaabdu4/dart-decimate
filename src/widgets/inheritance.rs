@@ -38,6 +38,69 @@ pub(super) fn inherited_param_uses_across_files(
     uses
 }
 
+pub(super) fn flutter_framework_classes_across_files(
+    files: &[WidgetFileFacts],
+    resolver: &DeclarationResolver,
+) -> BTreeSet<(PathBuf, String)> {
+    let facts = files
+        .iter()
+        .flat_map(|file| file.classes.iter())
+        .collect::<Vec<_>>();
+    let mut framework = facts
+        .iter()
+        .filter(|fact| {
+            fact.superclass
+                .as_deref()
+                .is_some_and(is_flutter_framework_base)
+        })
+        .map(|fact| fact.class_key())
+        .collect::<BTreeSet<_>>();
+
+    loop {
+        let mut changed = false;
+        for fact in &facts {
+            let key = fact.class_key();
+            if framework.contains(&key) {
+                continue;
+            }
+            let Some(parent) = fact.superclass.as_deref() else {
+                continue;
+            };
+            let reference = parent.split('<').next().unwrap_or(parent).trim();
+            let ancestors = resolver.resolve(&fact.path, reference);
+            if !ancestors.is_empty()
+                && ancestors
+                    .iter()
+                    .all(|ancestor| framework.contains(ancestor))
+            {
+                changed |= framework.insert(key);
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    framework
+        .into_iter()
+        .map(|class| (class.path, class.name))
+        .collect()
+}
+
+fn is_flutter_framework_base(superclass: &str) -> bool {
+    let base = superclass.split('<').next().unwrap_or(superclass);
+    matches!(
+        simple_type_name(base).as_str(),
+        "AnimatedWidget"
+            | "StatelessWidget"
+            | "ConsumerWidget"
+            | "HookWidget"
+            | "HookConsumerWidget"
+            | "State"
+            | "ConsumerState"
+    )
+}
+
 pub(super) fn class_facts(
     path: &Path,
     classes: &[Node<'_>],

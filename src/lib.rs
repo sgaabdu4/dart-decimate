@@ -22,6 +22,7 @@ pub mod extract;
 pub mod feature_flags;
 pub(crate) mod finding_identity;
 pub mod fix;
+pub mod flutter_style;
 pub(crate) mod generated;
 pub(crate) mod git_command;
 pub mod graph;
@@ -42,6 +43,7 @@ pub mod routes;
 pub mod scan;
 pub mod security;
 pub(crate) mod security_gate;
+pub mod semantic;
 pub mod symbols;
 pub mod trace;
 pub mod unsupported;
@@ -109,6 +111,10 @@ pub use fix::{
     FIX_SCHEMA_VERSION, FixChange, FixMode, FixReport, FixSkip, FixSummary, fix_findings,
     render_fix_report,
 };
+pub use flutter_style::{
+    FlutterStyleFinding, FlutterStyleFindingKind, FlutterStyleReport, FlutterStyleValueKind,
+    ThemeTokenEvidence, analyze_flutter_style,
+};
 pub use graph::{
     DependencyEdge, DependencyKind, DependencyVisibility, GraphError, GraphOptions,
     InvalidPartReason, InvalidPartRelationship, ModuleGraph, ModuleNode, ResolvedDependency,
@@ -119,8 +125,8 @@ pub use health::{
     CoverageGapFinding, CoverageGapReason, CrapFinding, EffectiveThresholds, FileCoverageStatus,
     FileHealthScore, HealthError, HealthHotspot, HealthOptions, HealthReport,
     HealthThresholdOverride, HealthThresholdOverrideReport, HealthThresholdOverrideStatus,
-    HealthToggle, LowTrafficThreshold, RefactoringTarget, RuntimeBlastRadius, RuntimeBlastRisk,
-    RuntimeCoverageAction, RuntimeCoverageConfidence, RuntimeCoverageFinding,
+    HealthToggle, LargeFunction, LowTrafficThreshold, RefactoringTarget, RuntimeBlastRadius,
+    RuntimeBlastRisk, RuntimeCoverageAction, RuntimeCoverageConfidence, RuntimeCoverageFinding,
     RuntimeCoverageFindingKind, RuntimeCoverageFormat, RuntimeCoverageIntelligence,
     RuntimeCoverageIntelligenceKind, RuntimeCoverageReport, RuntimeHotPath, RuntimeImportance,
     SourceMapConfidence, ThresholdSource, analyze_health,
@@ -176,9 +182,14 @@ pub use routes::{
 };
 pub use scan::{ScanError, ScanOptions, ScannedProject, scan_project, scan_project_with_options};
 pub use security::{
-    AttackSurfaceEntry, SecurityCandidate, SecurityCategory, SecurityConfidence, SecurityError,
+    AttackSurfaceEntry, SecurityBlindSpot, SecurityBlindSpotReason, SecurityCandidate,
+    SecurityCategory, SecurityConfidence, SecurityDefaultSeverity, SecurityError,
     SecurityOccurrence, SecurityOptions, SecurityReachability, SecurityReport,
     SecurityTaintConfidence, analyze_security,
+};
+pub use semantic::{
+    SemanticCompleteness, SemanticDecision, SemanticEvidence, SemanticIdentity,
+    SemanticOmissionReason, SemanticReport, SemanticTypeCoupling,
 };
 pub use symbols::{
     DuplicateExport, DuplicateExportDeclaration, PrivateTypeLeak, SymbolAnalysisOptions,
@@ -187,8 +198,9 @@ pub use symbols::{
 };
 pub use trace::{
     DependencyTraceReport, FileTraceReport, SymbolTraceReport, TraceDeclaration, TraceDependency,
-    TraceDependencyDirective, TracePubspecDependency, TraceReference, render_dependency_trace,
-    render_file_trace, render_symbol_trace, trace_dependency, trace_file, trace_symbol,
+    TraceDependencyDirective, TraceImpactPath, TracePubspecDependency, TraceReference,
+    TraceSemanticCompleteness, TraceTestSuggestion, render_dependency_trace, render_file_trace,
+    render_symbol_trace, trace_dependency, trace_file, trace_symbol,
 };
 pub use widgets::{
     MissingContextMountedAfterAwait, PrivateWidgetClass, UnrenderedWidgetClass, UnusedWidgetParam,

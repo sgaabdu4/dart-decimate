@@ -44,7 +44,7 @@ fn policy_pack_reports_banned_imports_and_calls_as_warnings()
     write(
         &fixture,
         "lib/main.dart",
-        "import 'dart:io';\nvoid main() { Process.runSync('sh', []); }\n",
+        "import 'dart:io';\nvoid main() { Process.killPid(1); }\n",
     )?;
     write_policy_pack(&fixture)?;
 
@@ -82,7 +82,7 @@ fn policy_violations_can_be_promoted_and_suppressed() -> Result<(), Box<dyn std:
     write(
         &fixture,
         "lib/main.dart",
-        "// dart-decimate-ignore-next-line dart-decimate/policy/mobile/no-dart-io\nimport 'dart:io';\nvoid main() { Process.runSync('sh', []); }\n",
+        "// dart-decimate-ignore-next-line dart-decimate/policy/mobile/no-dart-io\nimport 'dart:io';\nvoid main() { Process.killPid(1); }\n",
     )?;
     write_policy_pack(&fixture)?;
     write(
@@ -121,7 +121,7 @@ fn policy_pack_rule_severity_can_fail_check() -> Result<(), Box<dyn std::error::
     write(
         &fixture,
         "lib/main.dart",
-        "void main() { Process.runSync('sh', []); }\n",
+        "void main() { Process.killPid(1); }\n",
     )?;
     write(
         &fixture,

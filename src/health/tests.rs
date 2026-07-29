@@ -2,7 +2,10 @@ use std::fs;
 
 use tempfile::TempDir;
 
-use crate::{HealthOptions, analyze_health, scan_project};
+use crate::{
+    ComplexityFunctionKind, HealthOptions, HealthThresholdOverride, HealthThresholdOverrideStatus,
+    analyze_health, scan_project,
+};
 
 #[test]
 fn health_counts_branch_constructs() -> Result<(), Box<dyn std::error::Error>> {
@@ -217,6 +220,192 @@ end_of_record
     Ok(())
 }
 
+#[test]
+fn reports_functions_above_the_default_unit_size() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        &large_function_source("oversized", 61),
+    )?;
+    write(
+        &fixture,
+        "lib/exact.dart",
+        &large_function_source("exactLimit", 60),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_health(&project, &HealthOptions::default())?;
+
+    assert_eq!(report.large_functions.len(), 1);
+    assert_eq!(report.large_functions[0].symbol, "oversized");
+    assert_eq!(report.large_functions[0].line_count, 61);
+    assert_eq!(report.large_functions[0].max_unit_size, 60);
+    assert_eq!(
+        report.large_functions[0].kind,
+        ComplexityFunctionKind::Function
+    );
+    assert!(report.complexity.is_empty());
+
+    Ok(())
+}
+
+#[test]
+fn unit_size_override_can_suppress_a_matching_function() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        &large_function_source("legacyRoute", 61),
+    )?;
+    let project = scan_project(fixture.path())?;
+    let options = HealthOptions {
+        threshold_overrides: vec![HealthThresholdOverride {
+            files: vec!["lib/main.dart".to_owned()],
+            functions: vec!["legacyRoute".to_owned()],
+            max_cyclomatic: None,
+            max_cognitive: None,
+            max_crap: None,
+            max_unit_size: Some(120),
+            reason: Some("framework adapter".to_owned()),
+        }],
+        ..HealthOptions::default()
+    };
+
+    let report = analyze_health(&project, &options)?;
+
+    assert!(report.large_functions.is_empty());
+    assert_eq!(
+        report.threshold_overrides[0].status,
+        HealthThresholdOverrideStatus::Active
+    );
+    assert_eq!(
+        report.threshold_overrides[0].matched_functions,
+        ["lib/main.dart:legacyRoute"]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn classifies_only_flutter_widget_build_methods() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        &format!(
+            "{}\n\n{}\n\n{}\n\n{}\n\n{}",
+            large_build_method_source("Dashboard", "StatelessWidget", 61),
+            large_build_method_source("Presenter", "Object", 61),
+            large_build_method_source("DashboardState", "State<Dashboard>", 61),
+            large_build_method_source("StatefulOwner", "StatefulWidget", 61),
+            large_build_method_source("ConsumerStatefulOwner", "ConsumerStatefulWidget", 61)
+        ),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_health(&project, &HealthOptions::default())?;
+
+    assert_eq!(report.large_functions.len(), 5);
+    let dashboard = &report.large_functions[0];
+    assert_eq!(dashboard.kind, ComplexityFunctionKind::FlutterBuildMethod);
+    let presenter = &report.large_functions[1];
+    assert_eq!(presenter.kind, ComplexityFunctionKind::Method);
+    assert_eq!(
+        report.large_functions[2].kind,
+        ComplexityFunctionKind::FlutterBuildMethod
+    );
+    assert_eq!(
+        report.large_functions[3].kind,
+        ComplexityFunctionKind::Method
+    );
+    assert_eq!(
+        report.large_functions[4].kind,
+        ComplexityFunctionKind::Method
+    );
+
+    Ok(())
+}
+
+#[test]
+fn classifies_build_methods_through_project_widget_inheritance()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/base.dart",
+        "abstract class AppWidget extends StatelessWidget {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        &format!(
+            "import 'base.dart';\n\n{}",
+            large_build_method_source("Dashboard", "AppWidget", 61)
+        ),
+    )?;
+    let project = scan_project(fixture.path())?;
+    let parse_count = crate::dart_parser::track_parse_count(&fixture.path().join("lib/main.dart"));
+
+    let report = analyze_health(&project, &HealthOptions::default())?;
+
+    assert_eq!(report.large_functions.len(), 1);
+    assert_eq!(
+        report.large_functions[0].kind,
+        ComplexityFunctionKind::FlutterBuildMethod
+    );
+    assert_eq!(
+        parse_count.count(),
+        1,
+        "health analysis must parse each Dart source only once"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn classifies_animated_widget_build_methods() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        &large_build_method_source("Spinner", "AnimatedWidget", 61),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_health(&project, &HealthOptions::default())?;
+
+    assert_eq!(report.large_functions.len(), 1);
+    assert_eq!(
+        report.large_functions[0].kind,
+        ComplexityFunctionKind::FlutterBuildMethod
+    );
+
+    Ok(())
+}
+
+#[test]
+fn does_not_classify_build_methods_in_test_named_sources() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/dashboard_test.dart",
+        &large_build_method_source("Dashboard", "StatelessWidget", 61),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_health(&project, &HealthOptions::default())?;
+
+    assert_eq!(report.large_functions.len(), 1);
+    assert_eq!(
+        report.large_functions[0].kind,
+        ComplexityFunctionKind::Method
+    );
+
+    Ok(())
+}
+
 fn write_coverage_source(fixture: &TempDir) -> Result<(), std::io::Error> {
     write(
         fixture,
@@ -229,6 +418,28 @@ fn write_coverage_source(fixture: &TempDir) -> Result<(), std::io::Error> {
 }
 ",
     )
+}
+
+fn large_function_source(name: &str, lines: usize) -> String {
+    let mut source = vec![format!("void {name}() {{")];
+    source.extend(
+        (0..lines.saturating_sub(2)).map(|index| format!("  final value{index} = {index};")),
+    );
+    source.push("}".to_owned());
+    source.join("\n")
+}
+
+fn large_build_method_source(class_name: &str, base: &str, lines: usize) -> String {
+    let mut source = vec![
+        format!("class {class_name} extends {base} {{"),
+        "  Widget build(BuildContext context) {".to_owned(),
+    ];
+    source.extend(
+        (0..lines.saturating_sub(2)).map(|index| format!("    final value{index} = {index};")),
+    );
+    source.push("  }".to_owned());
+    source.push("}".to_owned());
+    source.join("\n")
 }
 
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {

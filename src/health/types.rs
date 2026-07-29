@@ -19,6 +19,8 @@ pub struct HealthOptions {
     pub max_cyclomatic: usize,
     /// Maximum cognitive complexity before reporting.
     pub max_cognitive: usize,
+    /// Maximum inclusive physical lines in one function-like declaration.
+    pub max_unit_size: usize,
     /// Limit output to the N highest complexity findings.
     pub top: Option<usize>,
     /// Include per-decision-point contribution records.
@@ -45,6 +47,8 @@ pub struct HealthOptions {
     pub targets: HealthToggle,
     /// Attach CODEOWNERS ownership metadata to health inventories.
     pub ownership: HealthToggle,
+    /// Include advisory Flutter theme/style analysis.
+    pub flutter_style: HealthToggle,
     /// Minimum file health score before hotspot reporting.
     pub min_score: usize,
     /// Per-file/function local complexity ceilings.
@@ -56,6 +60,7 @@ impl Default for HealthOptions {
         Self {
             max_cyclomatic: 20,
             max_cognitive: 15,
+            max_unit_size: 60,
             top: None,
             complexity_breakdown: HealthToggle::Off,
             coverage_path: None,
@@ -69,6 +74,7 @@ impl Default for HealthOptions {
             hotspots: HealthToggle::Off,
             targets: HealthToggle::Off,
             ownership: HealthToggle::Off,
+            flutter_style: HealthToggle::Off,
             min_score: 70,
             threshold_overrides: Vec::new(),
         }
@@ -203,6 +209,10 @@ pub struct HealthReport {
     pub max_crap_score: usize,
     /// Functions exceeding configured thresholds.
     pub complexity: Vec<ComplexityFinding>,
+    /// Function-like declarations exceeding the effective unit-size threshold.
+    pub large_functions: Vec<LargeFunction>,
+    /// Opt-in advisory Flutter style analysis.
+    pub flutter_style: Option<crate::FlutterStyleReport>,
     /// Source files with no covered executable lines.
     pub coverage_gaps: Vec<CoverageGapFinding>,
     /// Functions exceeding configured CRAP threshold.
@@ -524,12 +534,37 @@ pub enum ComplexityFunctionKind {
     Setter,
     /// Class, mixin, extension, or enum method.
     Method,
+    /// `build` method owned by a syntactically identified Flutter widget or `State`.
+    FlutterBuildMethod,
     /// Constructor or factory constructor.
     Constructor,
     /// Operator overload.
     Operator,
     /// Anonymous function expression.
     Closure,
+}
+
+/// Advisory record for one function-like declaration above its unit-size threshold.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LargeFunction {
+    /// Dart file path.
+    pub path: PathBuf,
+    /// Function-like declaration name.
+    pub symbol: String,
+    /// Function-like declaration kind.
+    pub kind: ComplexityFunctionKind,
+    /// Location of the declaration.
+    pub location: Location,
+    /// Inclusive 1-based ending line.
+    pub end_line: usize,
+    /// Inclusive physical line count.
+    pub line_count: usize,
+    /// Effective unit-size ceiling.
+    pub max_unit_size: usize,
+    /// Source of the effective threshold when overridden.
+    pub threshold_source: Option<ThresholdSource>,
+    /// Configured reason for the threshold override.
+    pub threshold_reason: Option<String>,
 }
 
 /// Complexity threshold rule exceeded by a function.

@@ -2,13 +2,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::graph::normalize_against;
-use crate::{DeadCodeReport, Location, ScannedProject};
+use crate::{
+    DartCombinatorKind, DartImport, DeadCodeReport, DependencyKind, Location, ScannedProject,
+};
 
+mod catalogue;
 mod detect;
+use catalogue::MatcherCatalogue;
+pub use catalogue::SecurityDefaultSeverity;
 use detect::{detect_in_source, is_ignored_path};
 
 /// Security candidate detector options.
@@ -33,6 +39,8 @@ pub struct SecurityReport {
     pub candidates: Vec<SecurityCandidate>,
     /// Raw security candidate occurrence count before `--top` truncation.
     pub total_occurrences: usize,
+    /// Bounded cases where a sink-shaped expression could not be verified.
+    pub blind_spots: Vec<SecurityBlindSpot>,
     /// Optional attack-surface inventory.
     pub attack_surface: Vec<AttackSurfaceEntry>,
 }
@@ -48,6 +56,20 @@ pub struct SecurityCandidate {
     pub sink: String,
     /// Detection confidence.
     pub confidence: SecurityConfidence,
+    /// CWE ids owned by the embedded matcher catalogue.
+    pub cwe: Vec<String>,
+    /// Risk effect owned by the embedded matcher catalogue.
+    pub effect: String,
+    /// Evidence expectation owned by the embedded matcher catalogue.
+    pub evidence_template: String,
+    /// Evidence source family.
+    pub source: String,
+    /// Trust or platform boundary involved.
+    pub boundary: String,
+    /// Trace role for serialized evidence.
+    pub trace_role: String,
+    /// Default severity before rule overrides.
+    pub default_severity: SecurityDefaultSeverity,
     /// Candidate occurrences.
     pub occurrences: Vec<SecurityOccurrence>,
 }
@@ -72,21 +94,22 @@ pub enum SecurityCategory {
     RawSql,
     /// Secret-like material written to plain local storage.
     PlainSecretStorage,
+    /// Predictable `dart:math Random()` output used as security material.
+    WeakRandomness,
 }
 
 impl SecurityCategory {
-    const fn rule_id(self) -> &'static str {
-        match self {
-            Self::HardcodedSecret => "dart-decimate/security-hardcoded-secret",
-            Self::FirebaseApiKey => "dart-decimate/security-firebase-api-key",
-            Self::InsecureTransport => "dart-decimate/security-insecure-transport",
-            Self::TlsBypass => "dart-decimate/security-tls-bypass",
-            Self::WebViewRisk => "dart-decimate/security-webview-risk",
-            Self::ProcessExecution => "dart-decimate/security-process-execution",
-            Self::RawSql => "dart-decimate/security-raw-sql",
-            Self::PlainSecretStorage => "dart-decimate/security-plain-secret-storage",
-        }
-    }
+    const ALL: [Self; 9] = [
+        Self::HardcodedSecret,
+        Self::FirebaseApiKey,
+        Self::InsecureTransport,
+        Self::TlsBypass,
+        Self::WebViewRisk,
+        Self::ProcessExecution,
+        Self::RawSql,
+        Self::PlainSecretStorage,
+        Self::WeakRandomness,
+    ];
 }
 
 impl SecurityOptions {
@@ -120,6 +143,39 @@ pub struct SecurityOccurrence {
     pub evidence: String,
     /// Optional module-level graph reachability context.
     pub reachability: Option<SecurityReachability>,
+}
+
+/// Why a sink-shaped expression could not be verified by the bounded analyzer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SecurityBlindSpotReason {
+    /// A value was assigned through an intermediate identifier.
+    UnflattenedRandomFlow,
+    /// A Random-shaped constructor could not be attributed to `dart:math`.
+    AmbiguousRandomProvenance,
+    /// A sink-shaped call could not be flattened into a complete argument list.
+    UnflattenedCall,
+    /// A sink-shaped call could not be attributed to its declaring library.
+    AmbiguousCallProvenance,
+    /// A TLS validation callback assignment could not be resolved locally.
+    AmbiguousTlsCallback,
+}
+
+/// One bounded security-analysis blind spot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecurityBlindSpot {
+    /// Candidate category whose verification was incomplete.
+    pub category: SecurityCategory,
+    /// Dart file path.
+    pub path: PathBuf,
+    /// Location of the ambiguous expression.
+    pub location: Location,
+    /// Sink or context family.
+    pub sink: String,
+    /// Stable bounded omission reason.
+    pub reason: SecurityBlindSpotReason,
+    /// Redacted source-line evidence.
+    pub evidence: String,
 }
 
 /// Module-level security reachability context.
@@ -167,6 +223,12 @@ pub enum SecurityError {
         /// Underlying IO error.
         source: std::io::Error,
     },
+    /// The embedded matcher catalogue was not valid TOML.
+    #[error("invalid embedded security matcher catalogue: {0}")]
+    MatcherCatalogue(toml::de::Error),
+    /// The embedded matcher catalogue violated its internal contract.
+    #[error("invalid embedded security matcher catalogue: {0}")]
+    InvalidMatcherCatalogue(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,6 +237,13 @@ struct CandidateGroup {
     category: SecurityCategory,
     sink: String,
     confidence: SecurityConfidence,
+    cwe: Vec<String>,
+    effect: String,
+    evidence_template: String,
+    source: String,
+    boundary: String,
+    trace_role: String,
+    default_severity: SecurityDefaultSeverity,
     occurrences: Vec<SecurityOccurrence>,
 }
 
@@ -184,6 +253,29 @@ struct DetectedSecurityCandidate {
     sink: String,
     confidence: SecurityConfidence,
     occurrence: SecurityOccurrence,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct DetectionResult {
+    candidates: Vec<DetectedSecurityCandidate>,
+    blind_spots: Vec<SecurityBlindSpot>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LibraryImportContext {
+    visible_types: BTreeSet<(String, String, Option<String>)>,
+    declared_names: BTreeSet<String>,
+    import_prefixes: BTreeSet<String>,
+}
+
+impl LibraryImportContext {
+    fn exposes(&self, uri: &str, type_name: &str, prefix: Option<&str>) -> bool {
+        self.visible_types.contains(&(
+            uri.to_owned(),
+            type_name.to_owned(),
+            prefix.map(str::to_owned),
+        ))
+    }
 }
 
 /// Detect unverified local security review candidates in Dart and Flutter code.
@@ -196,21 +288,43 @@ pub fn analyze_security(
     options: &SecurityOptions,
     dead_code: Option<&DeadCodeReport>,
 ) -> Result<SecurityReport, SecurityError> {
+    let catalogue = MatcherCatalogue::parse()?;
     let mut groups = BTreeMap::<(SecurityCategory, String), CandidateGroup>::new();
-    let mut analyzed_files = 0;
+    let mut blind_spots = Vec::new();
     let reachability = dead_code.map(SecurityReachabilityContext::from);
+    let library_imports = library_import_contexts(project);
 
-    for file in &project.files {
-        let path = normalize_against(&project.root, &file.path);
-        if !path.starts_with(&project.root) || is_ignored_path(&path) {
-            continue;
-        }
-        analyzed_files += 1;
-        let source = fs::read_to_string(&path).map_err(|source| SecurityError::ReadFile {
-            path: path.clone(),
-            source,
-        })?;
-        for detected in detect_in_source(&path, &source)
+    let mut detected_files = project
+        .files
+        .par_iter()
+        .filter_map(|file| {
+            let path = normalize_against(&project.root, &file.path);
+            if !path.starts_with(&project.root) || is_ignored_path(&path) {
+                return None;
+            }
+            let inherited_imports = library_imports.get(&path);
+            let detected = fs::read_to_string(&path)
+                .map(|source| detect_in_source(&path, &source, &catalogue, inherited_imports))
+                .map_err(|source| SecurityError::ReadFile {
+                    path: path.clone(),
+                    source,
+                });
+            Some((path, detected))
+        })
+        .collect::<Vec<_>>();
+    detected_files.sort_by(|left, right| left.0.cmp(&right.0));
+    let analyzed_files = detected_files.len();
+
+    for (_, detected) in detected_files {
+        let detected = detected?;
+        blind_spots.extend(
+            detected
+                .blind_spots
+                .into_iter()
+                .filter(|blind_spot| options.includes_category(blind_spot.category)),
+        );
+        for detected in detected
+            .candidates
             .into_iter()
             .filter(|candidate| options.includes_category(candidate.category))
         {
@@ -219,11 +333,19 @@ pub fn analyze_security(
                 .as_ref()
                 .and_then(|context| context.reachability_for(&detected.occurrence.path));
             let key = (detected.category, detected.sink.clone());
+            let matcher = catalogue.matcher(detected.category);
             let group = groups.entry(key).or_insert_with(|| CandidateGroup {
-                rule_id: detected.category.rule_id().to_owned(),
+                rule_id: matcher.rule_id.clone(),
                 category: detected.category,
                 sink: detected.sink.clone(),
                 confidence: detected.confidence,
+                cwe: matcher.cwe.clone(),
+                effect: matcher.effect.clone(),
+                evidence_template: matcher.evidence_template.clone(),
+                source: matcher.source.clone(),
+                boundary: matcher.boundary.clone(),
+                trace_role: matcher.trace_role.clone(),
+                default_severity: matcher.default_severity,
                 occurrences: Vec::new(),
             });
             group.confidence = group.confidence.max(detected.confidence);
@@ -254,8 +376,9 @@ pub fn analyze_security(
     if let Some(top) = options.top {
         candidates.truncate(top);
     }
+    deduplicate_blind_spots(&mut blind_spots);
     let attack_surface = if options.surface {
-        attack_surface_for(&candidates)
+        attack_surface_for(&candidates, &catalogue)
     } else {
         Vec::new()
     };
@@ -265,8 +388,109 @@ pub fn analyze_security(
         analyzed_files,
         candidates,
         total_occurrences,
+        blind_spots,
         attack_surface,
     })
+}
+
+fn library_import_contexts(project: &ScannedProject) -> BTreeMap<PathBuf, LibraryImportContext> {
+    let files = project
+        .files
+        .iter()
+        .map(|file| (normalize_against(&project.root, &file.path), file))
+        .collect::<BTreeMap<_, _>>();
+    let mut parts_by_library = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
+    let mut libraries_by_part = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
+    for dependency in project
+        .graph
+        .dependencies()
+        .into_iter()
+        .filter(|dependency| dependency.kind == DependencyKind::Part)
+    {
+        parts_by_library
+            .entry(dependency.from_path.clone())
+            .or_default()
+            .push(dependency.to_path.clone());
+        libraries_by_part
+            .entry(dependency.to_path)
+            .or_default()
+            .push(dependency.from_path);
+    }
+
+    let mut contexts = BTreeMap::new();
+    for (library, mut parts) in parts_by_library {
+        parts.sort();
+        parts.dedup();
+        let Some(owner) = files.get(&library) else {
+            continue;
+        };
+        if owner.parts.len() != parts.len()
+            || parts.iter().any(|part| {
+                let mut libraries = libraries_by_part.get(part).cloned().unwrap_or_default();
+                libraries.sort();
+                libraries.dedup();
+                libraries.as_slice() != [library.clone()]
+            })
+        {
+            continue;
+        }
+        let mut context = LibraryImportContext::default();
+        for import in owner
+            .imports
+            .iter()
+            .filter(|import| import.condition.is_none())
+        {
+            record_security_import(&mut context, import);
+        }
+        for path in std::iter::once(&library).chain(parts.iter()) {
+            let Some(file) = files.get(path) else {
+                continue;
+            };
+            context.declared_names.extend(
+                file.declarations
+                    .iter()
+                    .map(|declaration| declaration.name.clone()),
+            );
+        }
+        contexts.insert(library, context.clone());
+        for part in parts {
+            contexts.insert(part, context.clone());
+        }
+    }
+    contexts
+}
+
+fn record_security_import(context: &mut LibraryImportContext, import: &DartImport) {
+    if let Some(prefix) = &import.prefix {
+        context.import_prefixes.insert(prefix.clone());
+    }
+    let type_names: &[&str] = match import.uri.as_str() {
+        "dart:io" => &["Platform", "Process"],
+        "package:process/process.dart" => &["LocalProcessManager", "ProcessManager"],
+        _ => return,
+    };
+    for type_name in type_names {
+        if extracted_import_exposes_name(import, type_name) {
+            context.visible_types.insert((
+                import.uri.clone(),
+                (*type_name).to_owned(),
+                import.prefix.clone(),
+            ));
+        }
+    }
+}
+
+fn extracted_import_exposes_name(import: &DartImport, name: &str) -> bool {
+    let mut visible = true;
+    for combinator in &import.combinators {
+        let contains_name = combinator.names.iter().any(|candidate| candidate == name);
+        match combinator.kind {
+            DartCombinatorKind::Show => visible = contains_name,
+            DartCombinatorKind::Hide if contains_name => visible = false,
+            DartCombinatorKind::Hide => {}
+        }
+    }
+    visible
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,12 +547,22 @@ impl From<CandidateGroup> for SecurityCandidate {
             category: group.category,
             sink: group.sink,
             confidence: group.confidence,
+            cwe: group.cwe,
+            effect: group.effect,
+            evidence_template: group.evidence_template,
+            source: group.source,
+            boundary: group.boundary,
+            trace_role: group.trace_role,
+            default_severity: group.default_severity,
             occurrences,
         }
     }
 }
 
-fn attack_surface_for(candidates: &[SecurityCandidate]) -> Vec<AttackSurfaceEntry> {
+fn attack_surface_for(
+    candidates: &[SecurityCandidate],
+    catalogue: &MatcherCatalogue,
+) -> Vec<AttackSurfaceEntry> {
     candidates
         .iter()
         .flat_map(|candidate| {
@@ -340,39 +574,41 @@ fn attack_surface_for(candidates: &[SecurityCandidate]) -> Vec<AttackSurfaceEntr
                     path: occurrence.path.clone(),
                     location: occurrence.location,
                     surface: candidate.sink.clone(),
-                    verification_prompt: verification_prompt(candidate.category).to_owned(),
+                    verification_prompt: catalogue
+                        .matcher(candidate.category)
+                        .verification_prompt
+                        .clone(),
                 })
         })
         .collect()
 }
 
-const fn verification_prompt(category: SecurityCategory) -> &'static str {
-    match category {
-        SecurityCategory::HardcodedSecret => {
-            "Verify whether this literal is a real secret and rotate it if confirmed."
-        }
-        SecurityCategory::FirebaseApiKey => {
-            "Verify it is Firebase-provisioned, restricted to Firebase APIs, and covered by Security Rules and App Check."
-        }
-        SecurityCategory::InsecureTransport => {
-            "Verify whether this remote HTTP endpoint can expose sensitive traffic."
-        }
-        SecurityCategory::TlsBypass => {
-            "Verify whether certificate validation can be bypassed outside trusted development code."
-        }
-        SecurityCategory::WebViewRisk => {
-            "Verify whether untrusted content can execute JavaScript or access local files."
-        }
-        SecurityCategory::ProcessExecution => {
-            "Verify whether attacker-controlled input can influence the executable, arguments, or shell."
-        }
-        SecurityCategory::RawSql => {
-            "Verify whether untrusted input can alter SQL text instead of using parameters."
-        }
-        SecurityCategory::PlainSecretStorage => {
-            "Verify whether secret material is persisted outside secure storage."
-        }
-    }
+fn deduplicate_blind_spots(blind_spots: &mut Vec<SecurityBlindSpot>) {
+    blind_spots.sort_by(|left, right| {
+        (
+            &left.path,
+            left.location.line,
+            left.location.column,
+            left.category,
+            left.reason,
+            &left.sink,
+        )
+            .cmp(&(
+                &right.path,
+                right.location.line,
+                right.location.column,
+                right.category,
+                right.reason,
+                &right.sink,
+            ))
+    });
+    blind_spots.dedup_by(|left, right| {
+        left.path == right.path
+            && left.location == right.location
+            && left.category == right.category
+            && left.reason == right.reason
+            && left.sink == right.sink
+    });
 }
 
 #[cfg(test)]
