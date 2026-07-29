@@ -345,6 +345,7 @@ fn classifies_build_methods_through_project_widget_inheritance()
         ),
     )?;
     let project = scan_project(fixture.path())?;
+    let parse_count = crate::dart_parser::track_parse_count(&fixture.path().join("lib/main.dart"));
 
     let report = analyze_health(&project, &HealthOptions::default())?;
 
@@ -352,6 +353,11 @@ fn classifies_build_methods_through_project_widget_inheritance()
     assert_eq!(
         report.large_functions[0].kind,
         ComplexityFunctionKind::FlutterBuildMethod
+    );
+    assert_eq!(
+        parse_count.count(),
+        1,
+        "health analysis must parse each Dart source only once"
     );
 
     Ok(())
@@ -373,6 +379,28 @@ fn classifies_animated_widget_build_methods() -> Result<(), Box<dyn std::error::
     assert_eq!(
         report.large_functions[0].kind,
         ComplexityFunctionKind::FlutterBuildMethod
+    );
+
+    Ok(())
+}
+
+#[test]
+fn does_not_classify_build_methods_in_test_named_sources() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "lib/dashboard_test.dart",
+        &large_build_method_source("Dashboard", "StatelessWidget", 61),
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let report = analyze_health(&project, &HealthOptions::default())?;
+
+    assert_eq!(report.large_functions.len(), 1);
+    assert_eq!(
+        report.large_functions[0].kind,
+        ComplexityFunctionKind::Method
     );
 
     Ok(())

@@ -45,6 +45,7 @@ struct FunctionMetrics {
     pub(super) path: PathBuf,
     pub(super) symbol: String,
     pub(super) kind: ComplexityFunctionKind,
+    owner_class: Option<String>,
     pub(super) location: Location,
     pub(super) end_line: usize,
     pub(super) cyclomatic: usize,
@@ -147,9 +148,11 @@ pub fn analyze_health(
 fn collect_project_functions(
     project: &ScannedProject,
 ) -> Result<(Vec<FunctionMetrics>, usize), HealthError> {
-    let flutter_classes =
-        crate::widgets::flutter_framework_classes(project).map_err(widget_health_error)?;
     let mut functions = Vec::new();
+    let mut widget_facts = Vec::new();
+    let mut widget_paths = crate::widgets::widget_analysis_paths(project, None)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
     let mut analyzed_files = 0;
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
@@ -163,27 +166,34 @@ fn collect_project_functions(
         })?;
         let parsed = crate::dart_parser::parse_dart_source_lossy(&path, &source)
             .map_err(health_parse_error)?;
-        collect_functions(
+        let root = parsed.tree().root_node();
+        if widget_paths.remove(&path) {
+            widget_facts.push(crate::widgets::inheritance_file_facts(
+                &path,
+                root,
+                parsed.source(),
+            ));
+        }
+        collect_functions(root, parsed.source(), &path, &mut functions);
+    }
+    for path in widget_paths {
+        let source = fs::read_to_string(&path).map_err(|source| HealthError::ReadFile {
+            path: path.clone(),
+            source,
+        })?;
+        let parsed = crate::dart_parser::parse_dart_source_lossy(&path, &source)
+            .map_err(health_parse_error)?;
+        widget_facts.push(crate::widgets::inheritance_file_facts(
+            &path,
             parsed.tree().root_node(),
             parsed.source(),
-            &path,
-            &flutter_classes,
-            &mut functions,
-        );
+        ));
     }
+    let flutter_classes =
+        crate::widgets::flutter_framework_classes_from_facts(project, &widget_facts);
+    classify_flutter_build_methods(&mut functions, &flutter_classes);
 
     Ok((functions, analyzed_files))
-}
-
-fn widget_health_error(error: crate::WidgetAnalysisError) -> HealthError {
-    match error {
-        crate::WidgetAnalysisError::ReadFile { path, source } => {
-            HealthError::ReadFile { path, source }
-        }
-        crate::WidgetAnalysisError::Language(source) => HealthError::Language(source),
-        crate::WidgetAnalysisError::ParseCancelled { path }
-        | crate::WidgetAnalysisError::Syntax { path } => HealthError::ParseCancelled { path },
-    }
 }
 
 fn health_parse_error(error: crate::dart_parser::DartParseError) -> HealthError {
@@ -289,26 +299,20 @@ fn collect_functions(
     node: Node<'_>,
     source: &str,
     path: &Path,
-    flutter_classes: &BTreeSet<(PathBuf, String)>,
     functions: &mut Vec<FunctionMetrics>,
 ) {
-    if let Some(function) = function_from_node(node, source, path, flutter_classes) {
+    if let Some(function) = function_from_node(node, source, path) {
         functions.push(function);
     }
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        collect_functions(child, source, path, flutter_classes, functions);
+        collect_functions(child, source, path, functions);
     }
 }
 
-fn function_from_node(
-    node: Node<'_>,
-    source: &str,
-    path: &Path,
-    flutter_classes: &BTreeSet<(PathBuf, String)>,
-) -> Option<FunctionMetrics> {
-    let (symbol, mut kind, body) = match node.kind() {
+fn function_from_node(node: Node<'_>, source: &str, path: &Path) -> Option<FunctionMetrics> {
+    let (symbol, kind, body) = match node.kind() {
         "function_declaration" => named_function(node, source, ComplexityFunctionKind::Function)?,
         "getter_declaration" => named_function(node, source, ComplexityFunctionKind::Getter)?,
         "setter_declaration" => named_function(node, source, ComplexityFunctionKind::Setter)?,
@@ -320,18 +324,16 @@ fn function_from_node(
         ),
         _ => return None,
     };
-    if symbol == "build"
-        && kind == ComplexityFunctionKind::Method
-        && is_flutter_build_method(node, source, path, flutter_classes)
-    {
-        kind = ComplexityFunctionKind::FlutterBuildMethod;
-    }
+    let owner_class = (symbol == "build" && kind == ComplexityFunctionKind::Method)
+        .then(|| enclosing_class_name(node, source))
+        .flatten();
 
     let state = score_body(body);
     Some(FunctionMetrics {
         path: path.to_path_buf(),
         symbol,
         kind,
+        owner_class,
         location: node.start_position().into(),
         end_line: node.end_position().row + 1,
         cyclomatic: state.cyclomatic,
@@ -340,21 +342,31 @@ fn function_from_node(
     })
 }
 
-fn is_flutter_build_method(
-    node: Node<'_>,
-    source: &str,
-    path: &Path,
-    flutter_classes: &BTreeSet<(PathBuf, String)>,
-) -> bool {
+fn enclosing_class_name(node: Node<'_>, source: &str) -> Option<String> {
     let mut ancestor = node.parent();
     while let Some(candidate) = ancestor {
         if candidate.kind() == "class_declaration" {
-            let name = field_text(candidate, "name", source);
-            return name.is_some_and(|name| flutter_classes.contains(&(path.to_path_buf(), name)));
+            return field_text(candidate, "name", source);
         }
         ancestor = candidate.parent();
     }
-    false
+    None
+}
+
+fn classify_flutter_build_methods(
+    functions: &mut [FunctionMetrics],
+    flutter_classes: &BTreeSet<(PathBuf, String)>,
+) {
+    for function in functions {
+        if function.symbol == "build"
+            && function.kind == ComplexityFunctionKind::Method
+            && function.owner_class.as_ref().is_some_and(|owner| {
+                flutter_classes.contains(&(function.path.clone(), owner.clone()))
+            })
+        {
+            function.kind = ComplexityFunctionKind::FlutterBuildMethod;
+        }
+    }
 }
 
 fn named_function<'tree>(
