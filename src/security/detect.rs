@@ -3865,7 +3865,7 @@ fn debug_or_local_only_http_context(source: &str, index: usize) -> bool {
         .map_or(0, |line| {
             let mut start = line;
             for _ in 0..5 {
-                start = source[..start].rfind('\n').map_or(0, |previous| previous);
+                start = source[..start].rfind('\n').unwrap_or(0);
             }
             start
         })

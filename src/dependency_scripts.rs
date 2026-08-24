@@ -6,8 +6,7 @@ pub(crate) fn package_used_in_tooling(package_root: &Path, dependency: &str) -> 
         || known_tooling_convention(package_root, dependency)
         || tooling_files(package_root).into_iter().any(|path| {
             fs::read_to_string(path)
-                .ok()
-                .is_some_and(|source| source_mentions_dependency(&source, dependency))
+                .is_ok_and(|source| source_mentions_dependency(&source, dependency))
         })
 }
 
@@ -33,7 +32,7 @@ fn contains_runnable_test(dir: &Path) -> bool {
     };
     entries.flatten().any(|entry| {
         let path = entry.path();
-        entry.file_type().ok().is_some_and(|file_type| {
+        entry.file_type().is_ok_and(|file_type| {
             file_type.is_file() && is_runnable_test_file(&path)
                 || file_type.is_dir() && contains_runnable_test(&path)
         })
@@ -52,8 +51,7 @@ fn is_runnable_test_file(path: &Path) -> bool {
         return true;
     }
     crate::extract_dart_file(path)
-        .ok()
-        .is_some_and(|file| crate::extract::has_top_level_function(&file, "main"))
+        .is_ok_and(|file| crate::extract::has_top_level_function(&file, "main"))
 }
 
 fn tooling_files(package_root: &Path) -> Vec<PathBuf> {
