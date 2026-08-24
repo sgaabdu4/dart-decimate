@@ -74,9 +74,7 @@ pub(super) fn claude_settings_status(
 }
 
 fn settings_source_has_agent_command(source: &str) -> bool {
-    serde_json::from_str::<Value>(source)
-        .ok()
-        .is_some_and(|value| value_has_agent_command(&value))
+    serde_json::from_str::<Value>(source).is_ok_and(|value| value_has_agent_command(&value))
 }
 
 fn value_has_agent_command(value: &Value) -> bool {

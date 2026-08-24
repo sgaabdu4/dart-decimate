@@ -1267,8 +1267,7 @@ fn method_name(node: Node<'_>, source: &str) -> Option<String> {
 
 fn method_is_getter(node: Node<'_>, source: &str) -> bool {
     node.utf8_text(source.as_bytes())
-        .ok()
-        .is_some_and(|text| text.split_whitespace().any(|part| part == "get"))
+        .is_ok_and(|text| text.split_whitespace().any(|part| part == "get"))
 }
 
 fn local_function_name(node: Node<'_>, source: &str) -> Option<String> {

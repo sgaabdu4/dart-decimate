@@ -746,9 +746,7 @@ fn parse_numeric_literal(source: &str) -> Option<Rational> {
     } else {
         (normalized, 0)
     };
-    let (whole, fraction) = mantissa
-        .split_once('.')
-        .map_or((mantissa, ""), |parts| parts);
+    let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
     if fraction.contains('.') || (whole.is_empty() && fraction.is_empty()) {
         return None;
     }
