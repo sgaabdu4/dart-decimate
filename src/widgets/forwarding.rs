@@ -240,8 +240,7 @@ fn is_named_parameter(param: Node<'_>, source: &str) -> bool {
     parent.kind() == "optional_formal_parameters"
         && parent
             .utf8_text(source.as_bytes())
-            .ok()
-            .is_some_and(|text| text.trim_start().starts_with('{'))
+            .is_ok_and(|text| text.trim_start().starts_with('{'))
 }
 
 fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {

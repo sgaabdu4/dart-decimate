@@ -200,7 +200,7 @@ fn ignored_by_parent_gitignore(root: &Path, scan_root: &Path) -> bool {
             return false;
         }
     }
-    builder.build().ok().is_some_and(|gitignore| {
+    builder.build().is_ok_and(|gitignore| {
         gitignore
             .matched_path_or_any_parents(scan_root, true)
             .is_ignore()

@@ -1,5 +1,4 @@
 {
-  "$schema": "./node_modules/fallow/schema.json",
   "duplicates": {
     "ignore": ["npm/scripts/test-*.js"]
   },

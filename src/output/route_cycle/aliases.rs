@@ -14,8 +14,7 @@ pub(super) fn route_alias_receiver_node(
     source: &str,
 ) -> bool {
     node.utf8_text(source.as_bytes())
-        .ok()
-        .is_some_and(|text| route_alias_receiver_text(text, aliases))
+        .is_ok_and(|text| route_alias_receiver_text(text, aliases))
 }
 
 pub(super) fn route_alias_receiver_text(text: &str, aliases: &BTreeSet<String>) -> bool {

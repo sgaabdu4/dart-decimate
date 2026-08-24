@@ -141,8 +141,7 @@ fn is_named_parameter(param: Node<'_>, signature: Node<'_>, source: &str) -> boo
         if node.kind() == "optional_formal_parameters" {
             return node
                 .utf8_text(source.as_bytes())
-                .ok()
-                .is_some_and(|text| text.trim_start().starts_with('{'));
+                .is_ok_and(|text| text.trim_start().starts_with('{'));
         }
         parent = node.parent();
     }

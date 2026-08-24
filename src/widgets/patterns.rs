@@ -205,8 +205,7 @@ fn is_named_parameter(param: Node<'_>, source: &str) -> bool {
     parent.kind() == "optional_formal_parameters"
         && parent
             .utf8_text(source.as_bytes())
-            .ok()
-            .is_some_and(|text| text.trim_start().starts_with('{'))
+            .is_ok_and(|text| text.trim_start().starts_with('{'))
 }
 
 fn formal_parameter_name(param: Node<'_>, source: &str) -> Option<String> {
@@ -2324,8 +2323,7 @@ fn named_argument_value(node: Node<'_>) -> Option<Node<'_>> {
 fn argument_matches_roots(argument: Node<'_>, roots: &BTreeSet<String>, source: &str) -> bool {
     argument
         .utf8_text(source.as_bytes())
-        .ok()
-        .is_some_and(|text| expression_matches_roots(text, roots))
+        .is_ok_and(|text| expression_matches_roots(text, roots))
 }
 
 pub(super) fn pattern_binds_name(node: Node<'_>, name: &str, source: &str) -> bool {
