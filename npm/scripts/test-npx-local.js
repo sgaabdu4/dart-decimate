@@ -7,12 +7,16 @@ const { spawnSync } = require("node:child_process");
 
 const root = join(__dirname, "..", "..");
 const tempDir = mkdtempSync(join(tmpdir(), "dart-decimate-npx-"));
+const npmEnv = {
+  ...process.env,
+  npm_config_cache: join(tempDir, "npm-cache"),
+};
 
 try {
   const pack = spawnSync(
     "npm",
     ["pack", "--json", "--pack-destination", tempDir],
-    { cwd: root, encoding: "utf8" },
+    { cwd: root, encoding: "utf8", env: npmEnv },
   );
   if (pack.error) {
     process.stderr.write(`failed to execute npm: ${pack.error.message}\n`);
@@ -31,7 +35,7 @@ try {
     ["--yes", "--package", tarball, "--", "dart-decimate", "--help"],
     {
       encoding: "utf8",
-      env: { ...process.env, DART_DECIMATE_SKIP_DOWNLOAD: "1" },
+      env: { ...npmEnv, DART_DECIMATE_SKIP_DOWNLOAD: "1" },
     },
   );
   if (result.stdout) {

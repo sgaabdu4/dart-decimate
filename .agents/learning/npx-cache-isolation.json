@@ -1,0 +1,25 @@
+{
+  "evidence": [
+    "The user npm cache contains 191 dart-decimate npx installs using 53.84 GiB, and both pre-push npx scripts pack a unique temporary tarball without overriding npm_config_cache."
+  ],
+  "failure": "Local npx package tests add a new permanent npm cache entry for each unique packed tarball.",
+  "helper": {
+    "name": "he-learn",
+    "selections": 1,
+    "state": "selected"
+  },
+  "learning_id": "npx-cache-isolation",
+  "next_action": "none",
+  "occurrences": 191,
+  "prevention": {
+    "kind": "deterministic",
+    "owner": "npm/scripts/test-npx-local.js",
+    "proof": "tests/js/npx-cache-isolation.test.mjs",
+    "valid_fixture": "tests/js/npx-cache-isolation.test.mjs",
+    "violation_fixture": "tests/js/npx-cache-isolation.test.mjs"
+  },
+  "root_cause": "The test scripts delete their own temporary package directory but let npx use the shared user cache.",
+  "schema_version": 1,
+  "status": "resolved",
+  "trigger": "recurrence"
+}
