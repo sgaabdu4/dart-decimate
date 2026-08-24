@@ -60,12 +60,17 @@ if (process.argv.includes("dart-decimate-mcp")) {
     }
 
     try {
+      const pathKey =
+        Object.keys(process.env).find((key) => key.toLowerCase() === "path") ??
+        "PATH";
       const result = spawnSync(process.execPath, [fixture.script], {
         cwd: process.cwd(),
         encoding: "utf8",
         env: {
           ...process.env,
-          PATH: `${binDir}${delimiter}${process.env.PATH}`,
+          [pathKey]: [binDir, process.env[pathKey]]
+            .filter(Boolean)
+            .join(delimiter),
           DART_DECIMATE_CACHE_RECORD: recordPath,
           npm_config_cache: inheritedCache,
         },
