@@ -1,6 +1,6 @@
 {
   "name": "dart-decimate",
-  "version": "0.0.36",
+  "version": "0.0.37",
   "description": "Rust-native codebase intelligence for Dart and Flutter module graphs.",
   "license": "MIT",
   "bin": {
@@ -31,9 +31,9 @@
     "typecheck": "node scripts/typecheck-js.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "lint": "npm run version:check && npm run migration:check && npm run lint:js && npm run format:check",
-    "lint:js": "oxlint .",
-    "format": "prettier --write . && cargo fmt",
-    "format:check": "prettier --check . && cargo fmt --check",
+    "lint:js": "biome lint .",
+    "format": "biome format --write . && cargo fmt",
+    "format:check": "biome format . && cargo fmt --check",
     "version:bump:check": "node scripts/check-pr-version-bump.mjs",
     "release:check": "node scripts/check-release-version.mjs",
     "migration:check": "node scripts/check-dart-decimate-migration.mjs",
@@ -52,7 +52,6 @@
     "access": "public"
   },
   "devDependencies": {
-    "oxlint": "1.78.0",
-    "prettier": "3.9.6"
+    "@biomejs/biome": "2.5.11"
   }
 }
