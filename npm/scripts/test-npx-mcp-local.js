@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-const { mkdtempSync, readFileSync, rmSync } = require("fs");
-const { tmpdir } = require("os");
-const { join } = require("path");
-const { spawnSync } = require("child_process");
+const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { join } = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const root = join(__dirname, "..", "..");
 const tempDir = mkdtempSync(join(tmpdir(), "dart-decimate-npx-mcp-"));

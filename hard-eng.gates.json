@@ -1,5 +1,9 @@
 {
   "schema_version": 1,
+  "enforcement": {
+    "schema_version": 1,
+    "required_paths": ["hard-eng.gates.json"]
+  },
   "families": {
     "typecheck": ["npm", "run", "typecheck"],
     "format": ["npm", "run", "format:check"],
@@ -8,14 +12,18 @@
     "fallow": [
       "npx",
       "--yes",
-      "--package",
       "fallow@latest",
-      "fallow",
       "--fail-on-issues",
       "--format",
       "json",
-      "--quiet"
+      "--quiet",
+      "--no-cache"
     ],
     "targeted": ["cargo", "test", "--all-targets", "--quiet"]
+  },
+  "phases": {
+    "commit": ["typecheck", "format", "lint", "tests", "fallow", "targeted"],
+    "push": ["typecheck", "format", "lint", "tests", "fallow", "targeted"],
+    "ci": ["typecheck", "format", "lint", "tests", "fallow", "targeted"]
   }
 }

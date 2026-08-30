@@ -1,6 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { extname, join } from "node:path";
-import { spawnSync } from "node:child_process";
 
 const roots = ["npm", "scripts", "tests/js"];
 const files = roots.flatMap(javascriptFiles).sort();

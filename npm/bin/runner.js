@@ -4,7 +4,8 @@ const path = require("node:path");
 
 function runBinary(binaryName, args) {
   const root = path.resolve(__dirname, "../..");
-  const exeName = process.platform === "win32" ? `${binaryName}.exe` : binaryName;
+  const exeName =
+    process.platform === "win32" ? `${binaryName}.exe` : binaryName;
   const cachedBinary = path.join(root, "npm", "bin-cache", exeName);
   const releaseBinary = path.join(root, "target", "release", exeName);
   const debugBinary = path.join(root, "target", "debug", exeName);
@@ -14,7 +15,12 @@ function runBinary(binaryName, args) {
   runFirstExisting([cachedBinary, releaseBinary, debugBinary], args);
 
   const cargo = process.env.CARGO || "cargo";
-  run(cargo, ["run", "--release", "--locked", "--bin", binaryName, "--", ...args], root, binaryName);
+  run(
+    cargo,
+    ["run", "--release", "--locked", "--bin", binaryName, "--", ...args],
+    root,
+    binaryName,
+  );
 }
 
 function runFirstExisting(candidates, args) {
@@ -45,7 +51,9 @@ function installCachedBinary(root) {
 
 function handleInstallerResult(result) {
   if (result.error && result.error.code !== "ENOENT") {
-    console.error(`dart-decimate: install step failed to start: ${result.error.message}`);
+    console.error(
+      `dart-decimate: install step failed to start: ${result.error.message}`,
+    );
   }
   forwardSignal(result.signal);
 }
