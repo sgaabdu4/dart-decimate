@@ -1,6 +1,6 @@
 {
   "name": "dart-decimate",
-  "version": "0.0.37",
+  "version": "0.0.38",
   "description": "Rust-native codebase intelligence for Dart and Flutter module graphs.",
   "license": "MIT",
   "bin": {
