@@ -2,13 +2,30 @@
   "schema_version": 1,
   "enforcement": {
     "schema_version": 1,
-    "required_paths": ["hard-eng.gates.json"]
+    "required_paths": [
+      "hard-eng.gates.json"
+    ]
   },
   "families": {
-    "typecheck": ["npm", "run", "typecheck"],
-    "format": ["npm", "run", "format:check"],
-    "lint": ["npm", "run", "lint"],
-    "tests": ["npm", "test"],
+    "typecheck": [
+      "npm",
+      "run",
+      "typecheck"
+    ],
+    "format": [
+      "npm",
+      "run",
+      "format:check"
+    ],
+    "lint": [
+      "npm",
+      "run",
+      "lint"
+    ],
+    "tests": [
+      "npm",
+      "test"
+    ],
     "fallow": [
       "npx",
       "--yes",
@@ -19,11 +36,48 @@
       "--quiet",
       "--no-cache"
     ],
-    "targeted": ["cargo", "test", "--all-targets", "--quiet"]
+    "targeted": [
+      "cargo",
+      "test",
+      "--all-targets",
+      "--quiet"
+    ]
   },
   "phases": {
-    "commit": ["typecheck", "format", "lint", "tests", "fallow", "targeted"],
-    "push": ["typecheck", "format", "lint", "tests", "fallow", "targeted"],
-    "ci": ["typecheck", "format", "lint", "tests", "fallow", "targeted"]
+    "commit": [
+      "typecheck",
+      "format",
+      "lint",
+      "tests",
+      "fallow",
+      "targeted"
+    ],
+    "push": [
+      "typecheck",
+      "format",
+      "lint",
+      "tests",
+      "fallow",
+      "targeted"
+    ],
+    "ci": [
+      "typecheck",
+      "format",
+      "lint",
+      "tests",
+      "fallow",
+      "targeted"
+    ]
+  },
+  "hard_eng": {
+    "schema_version": 1,
+    "channel": "prerelease",
+    "release_repository": "sgaabdu4/hard-eng",
+    "wiring": "shared",
+    "pin": {
+      "tag": "v0.1.0-alpha.ge77e97f7a9218fd80a0ace1fe3c9b6636cf0f14b",
+      "archive_sha256": "049053942b8dbd9d580c7ddebbc1de5cb18d883a5e05e1cae26a0da648451e58",
+      "manifest_sha256": "6164caae334b1aca5c09b198500f8919534193dfcee94e9306da516b06e2a100"
+    }
   }
 }
