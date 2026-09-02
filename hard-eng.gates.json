@@ -25,5 +25,16 @@
     "commit": ["typecheck", "format", "lint", "tests", "fallow", "targeted"],
     "push": ["typecheck", "format", "lint", "tests", "fallow", "targeted"],
     "ci": ["typecheck", "format", "lint", "tests", "fallow", "targeted"]
+  },
+  "hard_eng": {
+    "schema_version": 1,
+    "channel": "prerelease",
+    "release_repository": "sgaabdu4/hard-eng",
+    "wiring": "shared",
+    "pin": {
+      "tag": "v0.1.0-alpha.g0761411fe1877805db39c2ea13660ac470a0a3c6",
+      "archive_sha256": "231b068e87cff3d124a64051c647c6b9f460ea6156dbc9e927c03d437c83c613",
+      "manifest_sha256": "5b18149222c9b3ef41ed2187b213e6c7c459d80bafa0cc929e52db5e5e188796"
+    }
   }
 }
