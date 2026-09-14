@@ -5,7 +5,7 @@
 Find dead Dart code, circular dependencies, duplicated code, complex functions,
 dependency problems, risky Flutter wiring, and PR risk fast.
 
-![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-b7410e)
+![Rust 1.90+](https://img.shields.io/badge/rust-1.90%2B-b7410e)
 ![Dart and Flutter](https://img.shields.io/badge/Dart%20%2B%20Flutter-codebase%20intelligence-111111)
 ![License](https://img.shields.io/badge/license-MIT-2f855a)
 
@@ -20,6 +20,10 @@ looks at your repo as a graph:
 It is not a formatter. It is not a replacement for `dart analyze`. It is not a
 Flutter style guide. It does not enforce opinions like "all providers must use
 Riverpod code generation."
+
+The parser accepts Dart 3.13 primary and concise constructors, dot shorthand,
+and null-aware collection elements. Flutter UI detection includes the
+standalone `material_ui` and `cupertino_ui` packages.
 
 It answers practical questions:
 
@@ -667,7 +671,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.38`.
+Current version: `0.0.40`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

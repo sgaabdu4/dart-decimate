@@ -72,9 +72,10 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
         });
     }
 
-    if let Some(health) = &results.health {
-        if let Some(complexity) = health.complexity.first() {
-            steps.push(NextStep {
+    if let Some(health) = &results.health
+        && let Some(complexity) = health.complexity.first()
+    {
+        steps.push(NextStep {
                 id: "complexity-breakdown".to_owned(),
                 command: format!(
                     "dart-decimate health --format json --complexity-breakdown --top 1 --max-cyclomatic {} --max-cognitive {}",
@@ -85,7 +86,6 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
                     display_path(root, &complexity.path)
                 ),
             });
-        }
     }
 
     if results.security.as_ref().is_some_and(|report| {

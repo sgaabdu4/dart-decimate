@@ -202,10 +202,10 @@ fn collect_member_field_names(node: Node<'_>, source: &str, names: &mut Vec<Stri
         &["static_final_declaration", "initialized_identifier"],
         names,
     );
-    if names.is_empty() {
-        if let Some(identifier_list) = find_first_named_descendant(node, "identifier_list") {
-            collect_direct_identifier_children(identifier_list, source, names);
-        }
+    if names.is_empty()
+        && let Some(identifier_list) = find_first_named_descendant(node, "identifier_list")
+    {
+        collect_direct_identifier_children(identifier_list, source, names);
     }
 }
 

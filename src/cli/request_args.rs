@@ -50,10 +50,10 @@ pub(super) fn policy_pack_paths(
     config: &DartDecimateConfig,
 ) -> Vec<PathBuf> {
     let mut paths = config.policy_packs.clone();
-    if matches!(command, ReportCommand::Check | ReportCommand::Audit) {
-        if let Some(values) = subcommand.get_many::<PathBuf>("policy-pack") {
-            paths.extend(values.cloned());
-        }
+    if matches!(command, ReportCommand::Check | ReportCommand::Audit)
+        && let Some(values) = subcommand.get_many::<PathBuf>("policy-pack")
+    {
+        paths.extend(values.cloned());
     }
     paths
 }

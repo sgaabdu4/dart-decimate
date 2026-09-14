@@ -1,6 +1,6 @@
 {
   "name": "dart-decimate",
-  "version": "0.0.39",
+  "version": "0.0.40",
   "description": "Rust-native codebase intelligence for Dart and Flutter module graphs.",
   "license": "MIT",
   "bin": {
@@ -52,6 +52,6 @@
     "access": "public"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.11"
+    "@biomejs/biome": "2.5.13"
   }
 }

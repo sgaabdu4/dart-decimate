@@ -13,10 +13,9 @@ fn quoted_dart_string_body(trimmed: &str) -> Option<(&str, bool)> {
     if let Some(raw) = trimmed
         .strip_prefix('r')
         .or_else(|| trimmed.strip_prefix('R'))
+        && let Some(quoted) = quoted_dart_string_body_without_prefix(raw)
     {
-        if let Some(quoted) = quoted_dart_string_body_without_prefix(raw) {
-            return Some((quoted, true));
-        }
+        return Some((quoted, true));
     }
 
     quoted_dart_string_body_without_prefix(trimmed).map(|quoted| (quoted, false))

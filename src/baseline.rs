@@ -269,13 +269,13 @@ pub fn save_regression_baseline(
 
 fn save_json<T: Serialize>(path: impl AsRef<Path>, value: &T) -> Result<(), BaselineError> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|source| BaselineError::CreateDir {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|source| BaselineError::CreateDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
     }
     let mut json = serde_json::to_string_pretty(value).map_err(|source| BaselineError::Json {
         path: path.to_path_buf(),

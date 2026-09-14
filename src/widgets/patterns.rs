@@ -1908,6 +1908,8 @@ fn unquote_dart_string(text: &str) -> Option<String> {
 
 fn framework_import_uri(uri: &str) -> bool {
     uri.starts_with("package:flutter/")
+        || uri.starts_with("package:material_ui/")
+        || uri.starts_with("package:cupertino_ui/")
         || uri.starts_with("package:flutter_riverpod/")
         || uri.starts_with("package:hooks_riverpod/")
 }

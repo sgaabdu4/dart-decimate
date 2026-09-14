@@ -68,30 +68,29 @@ impl PackageMap {
         let roots = self.by_name.get(package)?;
         let owner_package = self.owner_package(from_path);
         let owner_root = owner_package.map(|package| package.root.as_path());
-        if let Some(owner_package) = owner_package {
-            if owner_package.name == package {
-                return Some(package_resolution(owner_package, path));
-            }
+        if let Some(owner_package) = owner_package
+            && owner_package.name == package
+        {
+            return Some(package_resolution(owner_package, path));
         }
         let configured_root = roots.iter().find(|root| root.from_package_config);
-        if owner_package.is_some_and(|package| package.from_package_config) {
-            if let Some(root) = configured_root {
-                return Some(package_resolution(root, path));
-            }
+        if owner_package.is_some_and(|package| package.from_package_config)
+            && let Some(root) = configured_root
+        {
+            return Some(package_resolution(root, path));
         }
-        if let Some(owner_root) = owner_root {
-            if let Some(root) = self
+        if let Some(owner_root) = owner_root
+            && let Some(root) = self
                 .by_owner_dependency
                 .get(owner_root)
                 .and_then(|dependencies| dependencies.get(package))
-            {
-                return Some(package_resolution(root, path));
-            }
+        {
+            return Some(package_resolution(root, path));
         }
-        if let Some(owner_package) = owner_package {
-            if owner_package.from_package_config || self.uses_package_config {
-                return None;
-            }
+        if let Some(owner_package) = owner_package
+            && (owner_package.from_package_config || self.uses_package_config)
+        {
+            return None;
         }
         if let Some(root) = configured_root {
             return Some(package_resolution(root, path));
@@ -223,10 +222,9 @@ impl PackageMap {
                 self.discover_nested_pubspecs(&path, visited)?;
             } else if file_type.is_file()
                 && path.file_name().is_some_and(|name| name == "pubspec.yaml")
+                && let Some(package_root) = path.parent()
             {
-                if let Some(package_root) = path.parent() {
-                    self.discover_optional_pubspec(package_root, visited)?;
-                }
+                self.discover_optional_pubspec(package_root, visited)?;
             }
         }
 

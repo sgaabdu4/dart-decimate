@@ -96,6 +96,8 @@ fn imports_flutter_ui(root: Node<'_>, source: &str) -> bool {
         .filter_map(|child| child.utf8_text(source.as_bytes()).ok())
         .any(|text| {
             text.contains("package:flutter/")
+                || text.contains("package:material_ui/")
+                || text.contains("package:cupertino_ui/")
                 || text.contains("package:flutter_hooks/")
                 || text.contains("package:flutter_riverpod/")
                 || text.contains("package:hooks_riverpod/")

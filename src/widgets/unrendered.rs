@@ -136,15 +136,15 @@ fn object_constructor_names(root: Node<'_>, source: &str) -> Vec<String> {
     let mut constructors = Vec::new();
     visit_named(root, &mut |node| {
         if is_object_constructor(node) && !has_ancestor_kind(node, &["annotation"]) {
-            if let Some(constructor) = constructor_type_name(node, source) {
-                if !constructor_name_candidates(&constructor).is_empty() {
-                    constructors.push(constructor);
-                }
+            if let Some(constructor) = constructor_type_name(node, source)
+                && !constructor_name_candidates(&constructor).is_empty()
+            {
+                constructors.push(constructor);
             }
-        } else if is_arrow_body_constructor_identifier(node, source) {
-            if let Ok(constructor) = node.utf8_text(source.as_bytes()) {
-                constructors.push(constructor.to_owned());
-            }
+        } else if is_arrow_body_constructor_identifier(node, source)
+            && let Ok(constructor) = node.utf8_text(source.as_bytes())
+        {
+            constructors.push(constructor.to_owned());
         }
     });
     constructors

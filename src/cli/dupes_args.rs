@@ -98,25 +98,25 @@ pub(super) fn duplicate_options_with_defaults(
     if is_command_line(matches, "cross-language") && matches.get_flag("cross-language") {
         return Err(CliError::UnsupportedCrossLanguageDupes);
     }
-    if is_command_line(matches, "mode") {
-        if let Some(mode) = matches.get_one::<String>("mode") {
-            options.mode = DuplicateMode::parse(mode).unwrap_or(DuplicateMode::Mild);
-        }
+    if is_command_line(matches, "mode")
+        && let Some(mode) = matches.get_one::<String>("mode")
+    {
+        options.mode = DuplicateMode::parse(mode).unwrap_or(DuplicateMode::Mild);
     }
-    if is_command_line(matches, "min-tokens") {
-        if let Some(min_tokens) = matches.get_one::<usize>("min-tokens") {
-            options.min_tokens = *min_tokens;
-        }
+    if is_command_line(matches, "min-tokens")
+        && let Some(min_tokens) = matches.get_one::<usize>("min-tokens")
+    {
+        options.min_tokens = *min_tokens;
     }
-    if is_command_line(matches, "min-lines") {
-        if let Some(min_lines) = matches.get_one::<usize>("min-lines") {
-            options.min_lines = *min_lines;
-        }
+    if is_command_line(matches, "min-lines")
+        && let Some(min_lines) = matches.get_one::<usize>("min-lines")
+    {
+        options.min_lines = *min_lines;
     }
-    if is_command_line(matches, "min-occurrences") {
-        if let Some(min_occurrences) = matches.get_one::<usize>("min-occurrences") {
-            options.min_occurrences = (*min_occurrences).max(2);
-        }
+    if is_command_line(matches, "min-occurrences")
+        && let Some(min_occurrences) = matches.get_one::<usize>("min-occurrences")
+    {
+        options.min_occurrences = (*min_occurrences).max(2);
     }
     if is_command_line(matches, "top") {
         options.top = matches.get_one::<usize>("top").copied();

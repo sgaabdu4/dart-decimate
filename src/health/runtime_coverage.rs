@@ -535,11 +535,11 @@ fn decode_runtime_path(raw_path: &str) -> String {
         if byte == b'%' {
             let high = bytes.next();
             let low = bytes.next();
-            if let (Some(high), Some(low)) = (high, low) {
-                if let Some(decoded) = decode_hex_pair(high, low) {
-                    output.push(char::from(decoded));
-                    continue;
-                }
+            if let (Some(high), Some(low)) = (high, low)
+                && let Some(decoded) = decode_hex_pair(high, low)
+            {
+                output.push(char::from(decoded));
+                continue;
             }
             output.push('%');
             if let Some(high) = high {

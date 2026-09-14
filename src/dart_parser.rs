@@ -125,9 +125,116 @@ fn normalize_modern_dart_compatibility(source: &str) -> Option<String> {
     let mut normalized = normalize_primary_constructors(source);
     let mut output = normalized.take().unwrap_or_else(|| source.to_owned());
     let mut changed = output != source;
+    changed |= normalize_concise_constructors(&mut output);
     changed |= normalize_dot_shorthands(&mut output);
     changed |= normalize_null_aware_collection_elements(&mut output);
     changed.then_some(output)
+}
+
+fn normalize_concise_constructors(source: &mut String) -> bool {
+    let mut replacements = Vec::new();
+    let mut cursor = 0;
+
+    while let Some((keyword_start, keyword)) = find_next_header_keyword(source, cursor) {
+        let Some((class_name, body_start, body_end)) =
+            class_body(source, keyword_start + keyword.len(), keyword)
+        else {
+            cursor = keyword_start + keyword.len();
+            continue;
+        };
+        push_concise_constructor_replacements(
+            source,
+            body_start + 1,
+            body_end,
+            &class_name,
+            &mut replacements,
+        );
+        cursor = body_end + 1;
+    }
+
+    apply_text_replacements(source, replacements)
+}
+
+fn class_body(
+    source: &str,
+    cursor: usize,
+    keyword: &'static str,
+) -> Option<(String, usize, usize)> {
+    let mut name_start = skip_whitespace(source, cursor)?;
+    if matches!(keyword, "class" | "enum") && starts_keyword(source, name_start, "const") {
+        name_start = skip_whitespace(source, name_start + "const".len())?;
+    }
+    let name_end = identifier_end(source, name_start)?;
+    let name = source[name_start..name_end].to_owned();
+    let (body_start, terminator) = find_header_terminator(source, name_end)?;
+    if terminator != b'{' {
+        return None;
+    }
+    let body_end = matching_delimiter(source, body_start, b'{', b'}')?;
+    Some((name, body_start, body_end))
+}
+
+fn push_concise_constructor_replacements(
+    source: &str,
+    start: usize,
+    end: usize,
+    class_name: &str,
+    replacements: &mut Vec<(usize, usize, String)>,
+) {
+    let bytes = source.as_bytes();
+    let mut cursor = start;
+    while cursor < end {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
+        if matches!(bytes[cursor], b'{' | b'(' | b'[') {
+            let close = match bytes[cursor] {
+                b'{' => b'}',
+                b'(' => b')',
+                _ => b']',
+            };
+            if let Some(after) = matching_delimiter(source, cursor, bytes[cursor], close) {
+                cursor = after + 1;
+                continue;
+            }
+        }
+        if starts_keyword(source, cursor, "new")
+            && let Some((suffix, after_suffix)) = concise_constructor_suffix(source, cursor + 3)
+        {
+            replacements.push((cursor, after_suffix, format!("{class_name}{suffix}")));
+            cursor = after_suffix;
+            continue;
+        }
+        if starts_keyword(source, cursor, "factory")
+            && let Some((suffix, after_suffix)) = concise_constructor_suffix(source, cursor + 7)
+        {
+            replacements.push((
+                cursor,
+                after_suffix,
+                format!("factory {class_name}{suffix}"),
+            ));
+            cursor = after_suffix;
+            continue;
+        }
+        cursor += 1;
+    }
+}
+
+fn concise_constructor_suffix(source: &str, cursor: usize) -> Option<(String, usize)> {
+    let suffix_start = skip_whitespace(source, cursor)?;
+    if source.as_bytes().get(suffix_start).copied() == Some(b'(') {
+        return Some((String::new(), suffix_start));
+    }
+    let suffix_end = identifier_end(source, suffix_start)?;
+    let after_suffix = skip_whitespace(source, suffix_end)?;
+    if source.as_bytes().get(after_suffix).copied() != Some(b'(') {
+        return None;
+    }
+    Some((
+        format!(".{}", &source[suffix_start..suffix_end]),
+        after_suffix,
+    ))
 }
 
 fn normalize_primary_constructors(source: &str) -> Option<String> {
@@ -175,11 +282,10 @@ fn primary_constructor_header(
     let class_name = source[name_start..name_end].to_owned();
     let mut header_cursor = skip_whitespace(source, name_end).unwrap_or(name_end);
 
-    if source.as_bytes().get(header_cursor).copied() == Some(b'<') {
-        if let Some(type_params_end) = matching_delimiter(source, header_cursor, b'<', b'>') {
-            header_cursor =
-                skip_whitespace(source, type_params_end + 1).unwrap_or(type_params_end + 1);
-        }
+    if source.as_bytes().get(header_cursor).copied() == Some(b'<')
+        && let Some(type_params_end) = matching_delimiter(source, header_cursor, b'<', b'>')
+    {
+        header_cursor = skip_whitespace(source, type_params_end + 1).unwrap_or(type_params_end + 1);
     }
 
     let replacement_start = primary_constructor_replacement_start(source, &mut header_cursor)?;
@@ -268,18 +374,16 @@ fn push_constructor_body_replacement(
     replacements: &mut Vec<Replacement>,
     header: &PrimaryConstructorHeader,
 ) {
-    if let Some((terminator_start, _)) = header.terminator {
-        if let Some(body_end) = matching_delimiter(source, terminator_start, b'{', b'}') {
-            if let Some(this_start) =
-                find_primary_constructor_body(source, terminator_start + 1, body_end)
-            {
-                replacements.push(Replacement {
-                    start: this_start,
-                    end: this_start + "this".len(),
-                    kind: ReplacementKind::ConstructorBody(header.class_name.clone()),
-                });
-            }
-        }
+    if let Some((terminator_start, _)) = header.terminator
+        && let Some(body_end) = matching_delimiter(source, terminator_start, b'{', b'}')
+        && let Some(this_start) =
+            find_primary_constructor_body(source, terminator_start + 1, body_end)
+    {
+        replacements.push(Replacement {
+            start: this_start,
+            end: this_start + "this".len(),
+            kind: ReplacementKind::ConstructorBody(header.class_name.clone()),
+        });
     }
 }
 
@@ -321,6 +425,10 @@ fn normalize_dot_shorthands(source: &mut String) -> bool {
     let mut replacements = Vec::new();
     let mut cursor = 0;
     while cursor < bytes.len() {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
         if bytes[cursor] != b'.' {
             cursor += 1;
             continue;
@@ -372,11 +480,18 @@ fn is_dot_shorthand_start(bytes: &[u8], cursor: usize) -> bool {
 fn normalize_null_aware_collection_elements(source: &mut String) -> bool {
     let bytes = source.as_bytes().to_vec();
     let mut replacements = Vec::new();
-    for cursor in 0..bytes.len() {
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
         if bytes[cursor] != b'?' || !is_null_aware_collection_marker(&bytes, cursor) {
+            cursor += 1;
             continue;
         }
         replacements.push((cursor, cursor + 1, " ".to_owned()));
+        cursor += 1;
     }
     apply_text_replacements(source, replacements)
 }
@@ -412,11 +527,14 @@ fn find_header_terminator(source: &str, start: usize) -> Option<(usize, u8)> {
     let bytes = source.as_bytes();
     let mut cursor = start;
     while cursor < bytes.len() {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
         match bytes[cursor] {
             b'{' | b';' => return Some((cursor, bytes[cursor])),
             b'(' => cursor = matching_delimiter(source, cursor, b'(', b')')?,
             b'<' => cursor = matching_delimiter(source, cursor, b'<', b'>')?,
-            b'\'' | b'"' => cursor = skip_quoted(source, cursor)?,
             _ => {}
         }
         cursor += 1;
@@ -471,10 +589,13 @@ fn find_primary_constructor_body(source: &str, start: usize, end: usize) -> Opti
     let mut depth = 0usize;
     let mut cursor = start;
     while cursor < end {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
         match bytes[cursor] {
             b'{' | b'(' | b'[' => depth += 1,
             b'}' | b')' | b']' => depth = depth.saturating_sub(1),
-            b'\'' | b'"' => cursor = skip_quoted(source, cursor)?,
             _ if depth == 0 && starts_keyword(source, cursor, "this") => {
                 let after_this = skip_whitespace(source, cursor + "this".len())?;
                 if matches!(
@@ -494,6 +615,10 @@ fn find_primary_constructor_body(source: &str, start: usize, end: usize) -> Opti
 fn find_next_header_keyword(source: &str, start: usize) -> Option<(usize, &'static str)> {
     let mut cursor = start;
     while cursor < source.len() {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
         if starts_keyword(source, cursor, "class") {
             return Some((cursor, "class"));
         }
@@ -555,6 +680,10 @@ fn matching_delimiter(source: &str, start: usize, open: u8, close: u8) -> Option
     let mut depth = 0usize;
     let mut cursor = start;
     while cursor < bytes.len() {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
         match bytes[cursor] {
             byte if byte == open => depth += 1,
             byte if byte == close => {
@@ -563,7 +692,6 @@ fn matching_delimiter(source: &str, start: usize, open: u8, close: u8) -> Option
                     return Some(cursor);
                 }
             }
-            b'\'' | b'"' => cursor = skip_quoted(source, cursor)?,
             _ => {}
         }
         cursor += 1;
@@ -571,17 +699,65 @@ fn matching_delimiter(source: &str, start: usize, open: u8, close: u8) -> Option
     None
 }
 
-fn skip_quoted(source: &str, start: usize) -> Option<usize> {
-    let quote = source.as_bytes().get(start).copied()?;
-    let mut cursor = start + 1;
-    while cursor < source.len() {
-        match source.as_bytes()[cursor] {
-            b'\\' => cursor += 2,
-            byte if byte == quote => return Some(cursor),
-            _ => cursor += 1,
-        }
+fn skip_non_code(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(start..start + 2) == Some(b"//") {
+        return Some(
+            bytes[start + 2..]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(bytes.len(), |offset| start + 2 + offset),
+        );
     }
-    None
+    if bytes.get(start..start + 2) == Some(b"/*") {
+        let mut depth = 1usize;
+        let mut cursor = start + 2;
+        while cursor < bytes.len() {
+            if bytes.get(cursor..cursor + 2) == Some(b"/*") {
+                depth += 1;
+                cursor += 2;
+            } else if bytes.get(cursor..cursor + 2) == Some(b"*/") {
+                depth -= 1;
+                cursor += 2;
+                if depth == 0 {
+                    return Some(cursor);
+                }
+            } else {
+                cursor += 1;
+            }
+        }
+        return Some(bytes.len());
+    }
+
+    let raw = matches!(bytes.get(start), Some(b'r' | b'R'))
+        && matches!(bytes.get(start + 1), Some(b'\'' | b'"'))
+        && !source
+            .get(..start)
+            .and_then(|prefix| prefix.chars().next_back())
+            .is_some_and(is_identifier_char);
+    let quote_start = if raw { start + 1 } else { start };
+    let quote = bytes.get(quote_start).copied()?;
+    if !matches!(quote, b'\'' | b'"') {
+        return None;
+    }
+    let triple = bytes.get(quote_start..quote_start + 3) == Some(&[quote, quote, quote]);
+    let delimiter_len = if triple { 3 } else { 1 };
+    let mut cursor = quote_start + delimiter_len;
+    while cursor < bytes.len() {
+        if !raw && bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+        if triple {
+            if bytes.get(cursor..cursor + 3) == Some(&[quote, quote, quote]) {
+                return Some(cursor + 3);
+            }
+        } else if bytes[cursor] == quote {
+            return Some(cursor + 1);
+        }
+        cursor += 1;
+    }
+    Some(bytes.len())
 }
 
 fn push_preserved_whitespace(output: &mut String, span: &str) {
@@ -614,7 +790,7 @@ fn is_identifier_char(ch: char) -> bool {
 mod tests {
     use std::path::Path;
 
-    use super::{DartParseError, parse_dart_source_strict};
+    use super::{DartParseError, normalize_modern_dart_compatibility, parse_dart_source_strict};
 
     #[test]
     fn strict_parse_normalizes_primary_constructor_headers() -> Result<(), DartParseError> {
@@ -666,6 +842,60 @@ Widget build(Banner? banner, List<Widget>? extras) {
         assert!(!parsed.tree().root_node().has_error());
 
         Ok(())
+    }
+
+    #[test]
+    fn strict_parse_normalizes_concise_constructor_forms() -> Result<(), DartParseError> {
+        let source = r"
+class Base {
+  new() {}
+  new named() : this();
+  const new empty();
+}
+
+class FactoryBox {
+  factory() => Child();
+  factory namedFactory() { return Child(); }
+  factory redirect() = Child;
+  const factory cached() = Child.cached;
+}
+
+class Child implements FactoryBox {
+  Child();
+  const Child.cached();
+}
+";
+
+        let parsed = parse_dart_source_strict(Path::new("lib/constructors.dart"), source)?;
+
+        assert!(!parsed.tree().root_node().has_error());
+        assert!(parsed.source().contains("Base.named()"));
+        assert!(parsed.source().contains("factory FactoryBox.redirect()"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn compatibility_normalizer_never_changes_comments_or_strings() {
+        let source = r#"
+class Example {
+  // new fake() {} .center ?value
+  /* nested /* new nested() {} */ .center */
+  static const text = "new quoted() {} .center ?value";
+  static const raw = r'''factory raw() {} .center ?value''';
+  new() {}
+}
+"#;
+
+        let Some(normalized) = normalize_modern_dart_compatibility(source) else {
+            panic!("code was not normalized");
+        };
+
+        assert!(normalized.contains("// new fake() {} .center ?value"));
+        assert!(normalized.contains("/* nested /* new nested() {} */ .center */"));
+        assert!(normalized.contains("\"new quoted() {} .center ?value\""));
+        assert!(normalized.contains("r'''factory raw() {} .center ?value'''"));
+        assert!(normalized.contains("Example() {}"));
     }
 
     #[test]

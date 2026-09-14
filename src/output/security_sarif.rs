@@ -131,16 +131,16 @@ fn result_properties(
     properties.insert("safeToDelete".to_owned(), json!(finding.safe_to_delete));
     properties.insert("files".to_owned(), json!(&finding.files));
     properties.insert("actions".to_owned(), json!(&finding.actions));
-    if let Some(fingerprint) = &finding.fingerprint {
-        if let Some(security) = security_by_fingerprint.get(fingerprint) {
-            properties.insert("cwe".to_owned(), security["cwe"].clone());
-            properties.insert("effect".to_owned(), security["effect"].clone());
-            if !security["reachability"].is_null() {
-                properties.insert(
-                    "securityReachability".to_owned(),
-                    security["reachability"].clone(),
-                );
-            }
+    if let Some(fingerprint) = &finding.fingerprint
+        && let Some(security) = security_by_fingerprint.get(fingerprint)
+    {
+        properties.insert("cwe".to_owned(), security["cwe"].clone());
+        properties.insert("effect".to_owned(), security["effect"].clone());
+        if !security["reachability"].is_null() {
+            properties.insert(
+                "securityReachability".to_owned(),
+                security["reachability"].clone(),
+            );
         }
     }
     Value::Object(properties)

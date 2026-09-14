@@ -348,8 +348,8 @@ jobs:
         with:
           fetch-depth: 0
       - run: |
-          rustup toolchain install 1.85.0 --profile minimal
-          rustup default 1.85.0
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
       - run: cargo install --git https://github.com/sgaabdu4/dart-decimate --locked dart-decimate
       - run: dart-decimate audit --format json --base origin/${{ github.base_ref || 'main' }}
 ";
@@ -361,8 +361,8 @@ dart-decimate:
   stage: quality
   image: rust:latest
   before_script:
-    - rustup toolchain install 1.85.0 --profile minimal
-    - rustup default 1.85.0
+    - rustup toolchain install 1.90.0 --profile minimal
+    - rustup default 1.90.0
     - cargo install --git https://github.com/sgaabdu4/dart-decimate --locked dart-decimate
   script:
     - dart-decimate audit --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
@@ -375,8 +375,8 @@ const GITLAB_VENDORED_CI: &str = r".dart-decimate:
   stage: quality
   image: rust:latest
   before_script:
-    - rustup toolchain install 1.85.0 --profile minimal
-    - rustup default 1.85.0
+    - rustup toolchain install 1.90.0 --profile minimal
+    - rustup default 1.90.0
     - cargo install --git https://github.com/sgaabdu4/dart-decimate --locked dart-decimate
   script:
     - ci/scripts/review.sh
