@@ -621,10 +621,10 @@ fn report_changed_since(
 
 fn baseline_paths(command: ReportCommand, subcommand: &ArgMatches) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    if supports_global_baseline(command) {
-        if let Some(path) = subcommand.get_one::<PathBuf>("baseline") {
-            paths.push(path.clone());
-        }
+    if supports_global_baseline(command)
+        && let Some(path) = subcommand.get_one::<PathBuf>("baseline")
+    {
+        paths.push(path.clone());
     }
     if command == ReportCommand::Audit {
         for id in ["dead-code-baseline", "health-baseline", "dupes-baseline"] {

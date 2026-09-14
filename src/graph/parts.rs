@@ -129,13 +129,12 @@ pub(super) fn add_part_dependency(
         });
         return;
     }
-    if let Some(part) = files_by_path.get(&target_path).copied() {
-        if let Some(relationship) =
+    if let Some(part) = files_by_path.get(&target_path).copied()
+        && let Some(relationship) =
             invalid_part_relationship(root, packages, library, part, specifier)
-        {
-            invalid_part_relationships.push(relationship);
-            return;
-        }
+    {
+        invalid_part_relationships.push(relationship);
+        return;
     }
     part_owners.insert(target_path.clone(), from_path.to_path_buf());
 

@@ -314,20 +314,20 @@ fn coverage_health_options(subcommand: &ArgMatches, mut options: HealthOptions) 
     options.ownership = false.into();
 
     options.runtime_coverage_path = subcommand.get_one::<PathBuf>("runtime-coverage").cloned();
-    if subcommand.value_source("min-invocations-hot") == Some(ValueSource::CommandLine) {
-        if let Some(value) = subcommand.get_one::<usize>("min-invocations-hot") {
-            options.min_invocations_hot = (*value).max(1);
-        }
+    if subcommand.value_source("min-invocations-hot") == Some(ValueSource::CommandLine)
+        && let Some(value) = subcommand.get_one::<usize>("min-invocations-hot")
+    {
+        options.min_invocations_hot = (*value).max(1);
     }
-    if subcommand.value_source("min-observation-volume") == Some(ValueSource::CommandLine) {
-        if let Some(value) = subcommand.get_one::<usize>("min-observation-volume") {
-            options.min_observation_volume = (*value).max(1);
-        }
+    if subcommand.value_source("min-observation-volume") == Some(ValueSource::CommandLine)
+        && let Some(value) = subcommand.get_one::<usize>("min-observation-volume")
+    {
+        options.min_observation_volume = (*value).max(1);
     }
-    if subcommand.value_source("low-traffic-threshold") == Some(ValueSource::CommandLine) {
-        if let Some(value) = subcommand.get_one::<f64>("low-traffic-threshold") {
-            options.low_traffic_threshold = LowTrafficThreshold::from_ratio(*value);
-        }
+    if subcommand.value_source("low-traffic-threshold") == Some(ValueSource::CommandLine)
+        && let Some(value) = subcommand.get_one::<f64>("low-traffic-threshold")
+    {
+        options.low_traffic_threshold = LowTrafficThreshold::from_ratio(*value);
     }
     if let Some(top) = subcommand.get_one::<usize>("top") {
         options.top = Some(*top);

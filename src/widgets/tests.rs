@@ -1346,8 +1346,13 @@ String prefixedShadowHelper(PrefixedInheritedShadowWidget widget) {
 #[test]
 fn object_pattern_helpers_accept_prefixed_flutter_framework_superclasses()
 -> Result<(), Box<dyn std::error::Error>> {
-    let source = r"
-import 'package:flutter/widgets.dart' as f;
+    for package in [
+        "flutter/widgets.dart",
+        "material_ui/material_ui.dart",
+        "cupertino_ui/cupertino_ui.dart",
+    ] {
+        let source = r"
+import 'package:PACKAGE' as f;
 
 class PrefixedFrameworkHelperWidget extends f.StatelessWidget {
   const PrefixedFrameworkHelperWidget({super.key, required this.used, required this.unused});
@@ -1360,10 +1365,16 @@ String prefixedFrameworkHelper(PrefixedFrameworkHelperWidget widget) {
   final PrefixedFrameworkHelperWidget(:used) = widget;
   return used;
 }
-";
-    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+"
+        .replace("PACKAGE", package);
+        let targets = unused_param_targets(parse_findings(&source)?.unused_params);
 
-    assert_eq!(targets, vec!["PrefixedFrameworkHelperWidget.unused"]);
+        assert_eq!(
+            targets,
+            vec!["PrefixedFrameworkHelperWidget.unused"],
+            "{package}"
+        );
+    }
     Ok(())
 }
 
@@ -2007,6 +2018,18 @@ fn flags_top_level_helpers_in_screen_files() -> Result<(), Box<dyn std::error::E
 
     assert_eq!(helpers.len(), 1);
     assert_eq!(helpers[0].function_name, "header");
+    Ok(())
+}
+
+#[test]
+fn standalone_flutter_ui_packages_mark_ui_helpers() -> Result<(), Box<dyn std::error::Error>> {
+    for package in ["material_ui", "cupertino_ui"] {
+        let source = format!(
+            "import 'package:{package}/{package}.dart';\nWidget header() => const SizedBox();\n"
+        );
+        let helpers = parse_findings_at("lib/helpers.dart", &source)?.top_level_functions;
+        assert_eq!(helpers.len(), 1, "{package}");
+    }
     Ok(())
 }
 

@@ -76,11 +76,11 @@ fn primary_constructor_headers(source: &str) -> Vec<PrimaryConstructorHeader> {
         };
         let declaration = source[name_start..name_end].to_owned();
         let mut header_cursor = skip_whitespace(source, name_end).unwrap_or(name_end);
-        if source.as_bytes().get(header_cursor).copied() == Some(b'<') {
-            if let Some(type_params_end) = matching_delimiter(source, header_cursor, b'<', b'>') {
-                header_cursor =
-                    skip_whitespace(source, type_params_end + 1).unwrap_or(type_params_end + 1);
-            }
+        if source.as_bytes().get(header_cursor).copied() == Some(b'<')
+            && let Some(type_params_end) = matching_delimiter(source, header_cursor, b'<', b'>')
+        {
+            header_cursor =
+                skip_whitespace(source, type_params_end + 1).unwrap_or(type_params_end + 1);
         }
         if source.as_bytes().get(header_cursor).copied() == Some(b'.') {
             let suffix_start =

@@ -47,6 +47,99 @@ class _Hidden {}
     Ok(())
 }
 
+#[test]
+fn dart_3_13_syntax_is_accepted_across_cli_surfaces() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: modern_app\nenvironment:\n  sdk: ^3.13.0\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"
+enum Axis { center }
+
+class Point(final int x, final int y);
+
+class Box {
+  new() {}
+  new named() : this();
+  const new empty();
+}
+
+class FactoryBox {
+  factory() => Child();
+  factory namedFactory() { return Child(); }
+  factory redirect() = Child;
+  const factory cached() = Child.cached;
+}
+
+class Child implements FactoryBox {
+  Child();
+  const Child.cached();
+}
+
+extension type UserId(int value) {}
+
+Axis alignment = .center;
+const axes = <Axis>[.center];
+
+void main() {
+  Point(1, 2);
+  Box.named();
+  UserId(1);
+}
+",
+    )?;
+
+    for args in [
+        vec![
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+        ],
+        vec![
+            "dart-decimate",
+            "inspect",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--entry",
+            "lib/main.dart",
+            "--file",
+            "lib/main.dart",
+        ],
+    ] {
+        let mut output = Vec::new();
+        let code = run_from(args, &mut output)?;
+        assert!(code <= 1);
+        let json = serde_json::from_slice::<Value>(&output)?;
+        assert_ne!(json["error"], true);
+    }
+
+    let mut output = Vec::new();
+    let code = run_from(
+        [
+            "dart-decimate",
+            "human",
+            fixture.path().to_str().unwrap_or("."),
+            "--entry",
+            "lib/main.dart",
+        ],
+        &mut output,
+    )?;
+    assert!(code <= 1);
+    assert!(String::from_utf8(output)?.contains("Dart Decimate check:"));
+
+    Ok(())
+}
+
 fn run_json<I, S>(args: I) -> Result<(i32, Value), Box<dyn std::error::Error>>
 where
     I: IntoIterator<Item = S>,

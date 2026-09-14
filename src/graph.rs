@@ -394,23 +394,23 @@ fn add_file_dependencies(
         return;
     };
 
-    if let Some(library) = &file.library {
-        if let Some(augment_uri) = &library.augment_uri {
-            add_dependency(
-                root,
-                packages,
-                known_paths,
-                nodes_by_path,
-                graph,
-                unresolved,
-                from_index,
-                &from_path,
-                augment_uri,
-                DependencyKind::Augment,
-                library.location,
-                DependencyVisibility::default(),
-            );
-        }
+    if let Some(library) = &file.library
+        && let Some(augment_uri) = &library.augment_uri
+    {
+        add_dependency(
+            root,
+            packages,
+            known_paths,
+            nodes_by_path,
+            graph,
+            unresolved,
+            from_index,
+            &from_path,
+            augment_uri,
+            DependencyKind::Augment,
+            library.location,
+            DependencyVisibility::default(),
+        );
     }
 
     let imports = selected_imports(&file.imports, &options.conditional_environment);
@@ -578,14 +578,13 @@ fn percent_decode_uri_path(value: &str) -> String {
     let mut index = 0;
 
     while index < bytes.len() {
-        if bytes[index] == b'%' {
-            if let (Some(high), Some(low)) = (bytes.get(index + 1), bytes.get(index + 2)) {
-                if let Some(decoded_byte) = decode_hex_pair(*high, *low) {
-                    decoded.push(decoded_byte);
-                    index += 3;
-                    continue;
-                }
-            }
+        if bytes[index] == b'%'
+            && let (Some(high), Some(low)) = (bytes.get(index + 1), bytes.get(index + 2))
+            && let Some(decoded_byte) = decode_hex_pair(*high, *low)
+        {
+            decoded.push(decoded_byte);
+            index += 3;
+            continue;
         }
 
         decoded.push(bytes[index]);
