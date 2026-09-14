@@ -192,10 +192,10 @@ fn variable_names(node: Node<'_>, source: &str) -> Vec<String> {
         &mut names,
     );
 
-    if names.is_empty() {
-        if let Some(identifier_list) = find_first_named_descendant(node, "identifier_list") {
-            collect_direct_identifier_children(identifier_list, source, &mut names);
-        }
+    if names.is_empty()
+        && let Some(identifier_list) = find_first_named_descendant(node, "identifier_list")
+    {
+        collect_direct_identifier_children(identifier_list, source, &mut names);
     }
 
     names
@@ -218,10 +218,10 @@ fn collect_named_fields(
     owner_kinds: &[&str],
     names: &mut Vec<String>,
 ) {
-    if owner_kinds.contains(&node.kind()) {
-        if let Some(name) = field_text(node, "name", source) {
-            names.push(name);
-        }
+    if owner_kinds.contains(&node.kind())
+        && let Some(name) = field_text(node, "name", source)
+    {
+        names.push(name);
     }
 
     let mut cursor = node.walk();

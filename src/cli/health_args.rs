@@ -147,20 +147,20 @@ pub(super) fn health_options_with_defaults(
     matches: &ArgMatches,
     mut options: HealthOptions,
 ) -> HealthOptions {
-    if is_command_line(matches, "max-cyclomatic") {
-        if let Some(max_cyclomatic) = matches.get_one::<usize>("max-cyclomatic") {
-            options.max_cyclomatic = *max_cyclomatic;
-        }
+    if is_command_line(matches, "max-cyclomatic")
+        && let Some(max_cyclomatic) = matches.get_one::<usize>("max-cyclomatic")
+    {
+        options.max_cyclomatic = *max_cyclomatic;
     }
-    if is_command_line(matches, "max-cognitive") {
-        if let Some(max_cognitive) = matches.get_one::<usize>("max-cognitive") {
-            options.max_cognitive = *max_cognitive;
-        }
+    if is_command_line(matches, "max-cognitive")
+        && let Some(max_cognitive) = matches.get_one::<usize>("max-cognitive")
+    {
+        options.max_cognitive = *max_cognitive;
     }
-    if is_command_line(matches, "max-unit-size") {
-        if let Some(max_unit_size) = matches.get_one::<usize>("max-unit-size") {
-            options.max_unit_size = *max_unit_size;
-        }
+    if is_command_line(matches, "max-unit-size")
+        && let Some(max_unit_size) = matches.get_one::<usize>("max-unit-size")
+    {
+        options.max_unit_size = *max_unit_size;
     }
     if is_command_line(matches, "top") {
         options.top = matches.get_one::<usize>("top").copied();
@@ -180,20 +180,20 @@ pub(super) fn health_options_with_defaults(
     if is_command_line(matches, "runtime-coverage") {
         options.runtime_coverage_path = matches.get_one::<PathBuf>("runtime-coverage").cloned();
     }
-    if is_command_line(matches, "min-invocations-hot") {
-        if let Some(min_invocations_hot) = matches.get_one::<usize>("min-invocations-hot") {
-            options.min_invocations_hot = (*min_invocations_hot).max(1);
-        }
+    if is_command_line(matches, "min-invocations-hot")
+        && let Some(min_invocations_hot) = matches.get_one::<usize>("min-invocations-hot")
+    {
+        options.min_invocations_hot = (*min_invocations_hot).max(1);
     }
-    if is_command_line(matches, "min-observation-volume") {
-        if let Some(min_observation_volume) = matches.get_one::<usize>("min-observation-volume") {
-            options.min_observation_volume = (*min_observation_volume).max(1);
-        }
+    if is_command_line(matches, "min-observation-volume")
+        && let Some(min_observation_volume) = matches.get_one::<usize>("min-observation-volume")
+    {
+        options.min_observation_volume = (*min_observation_volume).max(1);
     }
-    if is_command_line(matches, "low-traffic-threshold") {
-        if let Some(low_traffic_threshold) = matches.get_one::<f64>("low-traffic-threshold") {
-            options.low_traffic_threshold = LowTrafficThreshold::from_ratio(*low_traffic_threshold);
-        }
+    if is_command_line(matches, "low-traffic-threshold")
+        && let Some(low_traffic_threshold) = matches.get_one::<f64>("low-traffic-threshold")
+    {
+        options.low_traffic_threshold = LowTrafficThreshold::from_ratio(*low_traffic_threshold);
     }
     if is_command_line(matches, "file-scores") {
         options.file_scores = matches.get_flag("file-scores").into();
@@ -216,10 +216,10 @@ pub(super) fn health_options_with_defaults(
     {
         options.flutter_style = true.into();
     }
-    if is_command_line(matches, "min-score") {
-        if let Some(min_score) = matches.get_one::<usize>("min-score") {
-            options.min_score = (*min_score).min(100);
-        }
+    if is_command_line(matches, "min-score")
+        && let Some(min_score) = matches.get_one::<usize>("min-score")
+    {
+        options.min_score = (*min_score).min(100);
     }
     options
 }

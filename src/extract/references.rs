@@ -20,14 +20,14 @@ fn collect_identifier_references(
         collect_string_interpolation_references(node, source, references);
     }
 
-    if is_reference_identifier(node, source) {
-        if let Ok(name) = node.utf8_text(source.as_bytes()) {
-            references.push(IdentifierReference {
-                name: name.to_owned(),
-                qualifier: simple_member_qualifier(node, source),
-                location: node.start_position().into(),
-            });
-        }
+    if is_reference_identifier(node, source)
+        && let Ok(name) = node.utf8_text(source.as_bytes())
+    {
+        references.push(IdentifierReference {
+            name: name.to_owned(),
+            qualifier: simple_member_qualifier(node, source),
+            location: node.start_position().into(),
+        });
     }
 
     let mut cursor = node.walk();

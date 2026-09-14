@@ -72,35 +72,35 @@ fn collect_raw_routes_in(
     parent_resolved: bool,
     routes: &mut Vec<DartRouteDeclaration>,
 ) {
-    if is_object_constructor(node) {
-        if let Some(route_kind) = raw_route_constructor_kind(node, source) {
-            let next_parent = match route_kind {
-                RawRouteKind::GoRoute => collect_go_route(
-                    node,
-                    source,
-                    constants,
-                    parent_path,
-                    parent_resolved,
-                    routes,
-                ),
-                RawRouteKind::RouteContainer => None,
-            };
-            let next_parent_resolved = match route_kind {
-                RawRouteKind::GoRoute => next_parent.is_some(),
-                RawRouteKind::RouteContainer => parent_resolved,
-            };
-            for child_routes_arg in route_child_argument_nodes(node, source) {
-                collect_raw_routes_in(
-                    child_routes_arg,
-                    source,
-                    constants,
-                    next_parent.as_deref().or(parent_path),
-                    next_parent_resolved,
-                    routes,
-                );
-            }
-            return;
+    if is_object_constructor(node)
+        && let Some(route_kind) = raw_route_constructor_kind(node, source)
+    {
+        let next_parent = match route_kind {
+            RawRouteKind::GoRoute => collect_go_route(
+                node,
+                source,
+                constants,
+                parent_path,
+                parent_resolved,
+                routes,
+            ),
+            RawRouteKind::RouteContainer => None,
+        };
+        let next_parent_resolved = match route_kind {
+            RawRouteKind::GoRoute => next_parent.is_some(),
+            RawRouteKind::RouteContainer => parent_resolved,
+        };
+        for child_routes_arg in route_child_argument_nodes(node, source) {
+            collect_raw_routes_in(
+                child_routes_arg,
+                source,
+                constants,
+                next_parent.as_deref().or(parent_path),
+                next_parent_resolved,
+                routes,
+            );
         }
+        return;
     }
 
     let mut cursor = node.walk();
@@ -235,19 +235,17 @@ fn collect_string_constants_in(
         node.kind(),
         "static_final_declaration" | "initialized_identifier"
     ) && is_const_string_declaration(node, source)
+        && let Some(name) = field_text(node, "name", source)
+        && let Some(value) = node.child_by_field_name("value").and_then(|value| {
+            value
+                .utf8_text(source.as_bytes())
+                .ok()
+                .and_then(unquote_dart_string)
+        })
     {
-        if let Some(name) = field_text(node, "name", source) {
-            if let Some(value) = node.child_by_field_name("value").and_then(|value| {
-                value
-                    .utf8_text(source.as_bytes())
-                    .ok()
-                    .and_then(unquote_dart_string)
-            }) {
-                constants.insert(name.clone(), value.clone());
-                if let Some(class_name) = containing_class_name(node, source) {
-                    constants.insert(format!("{class_name}.{name}"), value);
-                }
-            }
+        constants.insert(name.clone(), value.clone());
+        if let Some(class_name) = containing_class_name(node, source) {
+            constants.insert(format!("{class_name}.{name}"), value);
         }
     }
 

@@ -1076,16 +1076,17 @@ fn string_literals(source: &str) -> Vec<StringLiteral> {
     let mut index = 0;
     let bytes = source.as_bytes();
     while index < bytes.len() {
-        if matches!(bytes[index], b'\'' | b'"') && !is_comment_match(source, index) {
-            if let Some((value, value_index, end)) = read_string(source, index) {
-                literals.push(StringLiteral {
-                    index,
-                    value_index,
-                    value,
-                });
-                index = end;
-                continue;
-            }
+        if matches!(bytes[index], b'\'' | b'"')
+            && !is_comment_match(source, index)
+            && let Some((value, value_index, end)) = read_string(source, index)
+        {
+            literals.push(StringLiteral {
+                index,
+                value_index,
+                value,
+            });
+            index = end;
+            continue;
         }
         index += 1;
     }
@@ -1897,13 +1898,13 @@ fn lexical_binding_value<'source>(
 ) -> Option<&'source str> {
     let mut child = root.descendant_for_byte_range(index, index.saturating_add(1))?;
     while let Some(parent) = child.parent() {
-        if parent.kind() == "class_body" {
-            if let Some(binding) = class_binding(parent, child, name, source) {
-                return match binding {
-                    LexicalBinding::Value(value) => Some(value),
-                    LexicalBinding::Unknown => None,
-                };
-            }
+        if parent.kind() == "class_body"
+            && let Some(binding) = class_binding(parent, child, name, source)
+        {
+            return match binding {
+                LexicalBinding::Value(value) => Some(value),
+                LexicalBinding::Unknown => None,
+            };
         }
         if process_scope_parameters_bind_name(parent, name, source)
             || process_scope_header_binds_name(parent, child, name, source)

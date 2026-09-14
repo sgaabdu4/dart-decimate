@@ -417,14 +417,12 @@ fn initialized_binding_name(root: Node<'_>, source: &str, index: usize) -> Optio
         ) && node
             .child_by_field_name("value")
             .is_some_and(|value| value.start_byte() <= index && value.end_byte() >= index)
-        {
-            if let Some(binding) = node
+            && let Some(binding) = node
                 .child_by_field_name("name")
                 .and_then(|name| name.utf8_text(source.as_bytes()).ok())
                 .map(str::to_owned)
-            {
-                return Some(binding);
-            }
+        {
+            return Some(binding);
         }
         let Some(parent) = node.parent() else {
             break;
