@@ -525,6 +525,77 @@ extension type UserId(String value) {
 }
 
 #[test]
+fn extracts_dart_313_abbreviated_constructors_with_exact_member_names() -> Result<(), ExtractError>
+{
+    let source = r"
+class Box {
+  new() {}
+  new named() {}
+  const new cached();
+  final untouched = new Other();
+}
+
+class FactoryBox {
+  factory() {}
+  factory namedFactory() {}
+  const factory constFactory() = FactoryBox.cached;
+}
+
+mixin class MixinBox {
+  new() {}
+  new named() {}
+}
+
+enum Tone {
+  quiet;
+  const new();
+}
+
+extension type UserId(int value) {
+  new() : this(0);
+}
+";
+
+    let extracted = extract_dart_source("lib/constructors.dart", source)?;
+    let members = extracted
+        .members
+        .iter()
+        .map(|member| (member.owner.as_str(), member.kind, member.name.as_str()))
+        .collect::<Vec<_>>();
+
+    for expected in [
+        ("Box", MemberKind::Constructor, "Box"),
+        ("Box", MemberKind::Constructor, "named"),
+        ("Box", MemberKind::Constructor, "cached"),
+        ("Box", MemberKind::Field, "untouched"),
+        ("FactoryBox", MemberKind::Constructor, "FactoryBox"),
+        ("FactoryBox", MemberKind::Constructor, "namedFactory"),
+        ("FactoryBox", MemberKind::Constructor, "constFactory"),
+        ("MixinBox", MemberKind::Constructor, "MixinBox"),
+        ("MixinBox", MemberKind::Constructor, "named"),
+        ("Tone", MemberKind::Constructor, "Tone"),
+        ("UserId", MemberKind::Constructor, "UserId"),
+    ] {
+        assert!(members.contains(&expected), "missing member {expected:?}");
+    }
+
+    assert_eq!(
+        members
+            .iter()
+            .filter(|(owner, kind, _)| {
+                *kind == MemberKind::Constructor
+                    && matches!(
+                        *owner,
+                        "Box" | "FactoryBox" | "MixinBox" | "Tone" | "UserId"
+                    )
+            })
+            .count(),
+        10
+    );
+    Ok(())
+}
+
+#[test]
 fn extracts_identifier_references_without_directive_metadata_or_declaration_names()
 -> Result<(), ExtractError> {
     let source = "\
