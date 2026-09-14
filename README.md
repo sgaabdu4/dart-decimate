@@ -671,7 +671,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.40`.
+Current version: `0.0.41`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

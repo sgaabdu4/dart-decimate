@@ -53,8 +53,24 @@ pub(crate) fn parse_dart_source_strict<'source>(
     path: &Path,
     source: &'source str,
 ) -> Result<ParsedDart<'source>, DartParseError> {
+    if has_malformed_concise_constructor(source) {
+        return Err(DartParseError::Syntax {
+            path: path.to_path_buf(),
+        });
+    }
+
     let original = parse_raw(path, source)?;
     if !original.root_node().has_error() {
+        let mut normalized = source.to_owned();
+        if normalize_concise_constructors(&mut normalized) {
+            let tree = parse_raw(path, &normalized)?;
+            if !tree.root_node().has_error() {
+                return Ok(ParsedDart {
+                    tree,
+                    source: Cow::Owned(normalized),
+                });
+            }
+        }
         return Ok(ParsedDart {
             tree: original,
             source: Cow::Borrowed(source),
@@ -86,6 +102,16 @@ pub(crate) fn parse_dart_source_lossy<'source>(
 ) -> Result<ParsedDart<'source>, DartParseError> {
     let original = parse_raw(path, source)?;
     if !original.root_node().has_error() {
+        let mut normalized = source.to_owned();
+        if normalize_concise_constructors(&mut normalized) {
+            let tree = parse_raw(path, &normalized)?;
+            if !tree.root_node().has_error() {
+                return Ok(ParsedDart {
+                    tree,
+                    source: Cow::Owned(normalized),
+                });
+            }
+        }
         return Ok(ParsedDart {
             tree: original,
             source: Cow::Borrowed(source),
@@ -135,9 +161,9 @@ fn normalize_concise_constructors(source: &mut String) -> bool {
     let mut replacements = Vec::new();
     let mut cursor = 0;
 
-    while let Some((keyword_start, keyword)) = find_next_header_keyword(source, cursor) {
+    while let Some((keyword_start, keyword)) = find_next_class_like_header(source, cursor) {
         let Some((class_name, body_start, body_end)) =
-            class_body(source, keyword_start + keyword.len(), keyword)
+            class_like_body(source, keyword_start + keyword.len(), keyword)
         else {
             cursor = keyword_start + keyword.len();
             continue;
@@ -155,7 +181,32 @@ fn normalize_concise_constructors(source: &mut String) -> bool {
     apply_text_replacements(source, replacements)
 }
 
-fn class_body(
+fn has_malformed_concise_constructor(source: &str) -> bool {
+    let mut cursor = 0;
+
+    while let Some((keyword_start, keyword)) = find_next_class_like_header(source, cursor) {
+        let Some((_, body_start, body_end)) =
+            class_like_body(source, keyword_start + keyword.len(), keyword)
+        else {
+            cursor = keyword_start + keyword.len();
+            continue;
+        };
+        let mut member_cursor = body_start + 1;
+        while let Some((member_start, member_end)) =
+            next_class_like_member(source, member_cursor, body_end)
+        {
+            if malformed_concise_constructor_member(source, member_start, member_end) {
+                return true;
+            }
+            member_cursor = member_end;
+        }
+        cursor = body_end + 1;
+    }
+
+    false
+}
+
+fn class_like_body(
     source: &str,
     cursor: usize,
     keyword: &'static str,
@@ -174,6 +225,30 @@ fn class_body(
     Some((name, body_start, body_end))
 }
 
+fn find_next_class_like_header(source: &str, start: usize) -> Option<(usize, &'static str)> {
+    let mut cursor = start;
+    while cursor < source.len() {
+        if let Some(after) = skip_non_code(source, cursor) {
+            cursor = after;
+            continue;
+        }
+        if starts_keyword(source, cursor, "class") {
+            return Some((cursor, "class"));
+        }
+        if starts_keyword(source, cursor, "enum") {
+            return Some((cursor, "enum"));
+        }
+        if starts_keyword(source, cursor, "extension") {
+            let type_start = skip_whitespace(source, cursor + "extension".len())?;
+            if starts_keyword(source, type_start, "type") {
+                return Some((type_start, "type"));
+            }
+        }
+        cursor = next_char_boundary(source, cursor)?;
+    }
+    None
+}
+
 fn push_concise_constructor_replacements(
     source: &str,
     start: usize,
@@ -181,60 +256,242 @@ fn push_concise_constructor_replacements(
     class_name: &str,
     replacements: &mut Vec<(usize, usize, String)>,
 ) {
-    let bytes = source.as_bytes();
     let mut cursor = start;
+    while let Some((member_start, member_end)) = next_class_like_member(source, cursor, end) {
+        if let Some((replacement_start, replacement_end, replacement)) =
+            concise_constructor_replacement(source, member_start, member_end, class_name)
+        {
+            replacements.push((replacement_start, replacement_end, replacement));
+        }
+        cursor = member_end;
+    }
+}
+
+fn next_class_like_member(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let member_start = skip_member_trivia(source, start, end);
+    if member_start >= end {
+        return None;
+    }
+
+    let bytes = source.as_bytes();
+    let mut cursor = member_start;
+    let mut delimiters = Vec::new();
     while cursor < end {
         if let Some(after) = skip_non_code(source, cursor) {
             cursor = after;
             continue;
         }
-        if matches!(bytes[cursor], b'{' | b'(' | b'[') {
-            let close = match bytes[cursor] {
-                b'{' => b'}',
-                b'(' => b')',
-                _ => b']',
-            };
-            if let Some(after) = matching_delimiter(source, cursor, bytes[cursor], close) {
-                cursor = after + 1;
-                continue;
+        match bytes[cursor] {
+            b'{' => delimiters.push(b'}'),
+            b'(' => delimiters.push(b')'),
+            b'[' => delimiters.push(b']'),
+            b'}' | b')' | b']' => {
+                if delimiters.last().copied() == Some(bytes[cursor]) {
+                    delimiters.pop();
+                    if delimiters.is_empty() && bytes[cursor] == b'}' {
+                        return Some((member_start, cursor + 1));
+                    }
+                }
             }
-        }
-        if starts_keyword(source, cursor, "new")
-            && let Some((suffix, after_suffix)) = concise_constructor_suffix(source, cursor + 3)
-        {
-            replacements.push((cursor, after_suffix, format!("{class_name}{suffix}")));
-            cursor = after_suffix;
-            continue;
-        }
-        if starts_keyword(source, cursor, "factory")
-            && let Some((suffix, after_suffix)) = concise_constructor_suffix(source, cursor + 7)
-        {
-            replacements.push((
-                cursor,
-                after_suffix,
-                format!("factory {class_name}{suffix}"),
-            ));
-            cursor = after_suffix;
-            continue;
+            b';' if delimiters.is_empty() => return Some((member_start, cursor + 1)),
+            _ => {}
         }
         cursor += 1;
     }
+
+    Some((member_start, end))
 }
 
-fn concise_constructor_suffix(source: &str, cursor: usize) -> Option<(String, usize)> {
-    let suffix_start = skip_whitespace(source, cursor)?;
+fn concise_constructor_replacement(
+    source: &str,
+    start: usize,
+    end: usize,
+    class_name: &str,
+) -> Option<(usize, usize, String)> {
+    let mut cursor = skip_member_trivia(source, start, end);
+    cursor = skip_member_annotations(source, cursor, end)?;
+
+    while let Some(after) = skip_member_modifier(source, cursor, end) {
+        cursor = after;
+    }
+
+    let (keyword_end, factory) = if starts_keyword(source, cursor, "factory") {
+        (cursor + "factory".len(), true)
+    } else if starts_keyword(source, cursor, "new") {
+        (cursor + "new".len(), false)
+    } else {
+        return None;
+    };
+    let (suffix, after_suffix) = concise_constructor_suffix(source, keyword_end, end)?;
+    let replacement = if factory {
+        format!("factory {class_name}{suffix}")
+    } else {
+        format!("{class_name}{suffix}")
+    };
+    Some((cursor, after_suffix, replacement))
+}
+
+fn skip_member_modifier(source: &str, cursor: usize, end: usize) -> Option<usize> {
+    for modifier in ["augment", "const", "external"] {
+        if starts_keyword(source, cursor, modifier) {
+            let after = cursor + modifier.len();
+            return (after <= end).then(|| skip_member_trivia(source, after, end));
+        }
+    }
+    None
+}
+
+fn malformed_concise_constructor_member(source: &str, start: usize, end: usize) -> bool {
+    let mut cursor = skip_member_trivia(source, start, end);
+    let Some(after_annotations) = skip_member_annotations(source, cursor, end) else {
+        return false;
+    };
+    cursor = after_annotations;
+
+    while let Some(after) = skip_member_modifier(source, cursor, end) {
+        cursor = after;
+    }
+
+    let keyword_end = if starts_keyword(source, cursor, "factory") {
+        cursor + "factory".len()
+    } else if starts_keyword(source, cursor, "new") {
+        cursor + "new".len()
+    } else {
+        return false;
+    };
+    let suffix_start = skip_member_trivia(source, keyword_end, end);
+    if suffix_start >= end || source.as_bytes().get(suffix_start) == Some(&b'(') {
+        return false;
+    }
+    let Some(suffix_end) = identifier_end(source, suffix_start) else {
+        return false;
+    };
+    let after_suffix = skip_member_trivia(source, suffix_end, end);
+
+    after_suffix < end
+        && source.as_bytes().get(after_suffix) == Some(&b'(')
+        && is_reserved_dart_word(&source[suffix_start..suffix_end])
+}
+
+fn is_reserved_dart_word(word: &str) -> bool {
+    matches!(
+        word,
+        "assert"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "default"
+            | "do"
+            | "else"
+            | "enum"
+            | "extends"
+            | "false"
+            | "final"
+            | "finally"
+            | "for"
+            | "if"
+            | "in"
+            | "is"
+            | "new"
+            | "null"
+            | "rethrow"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "true"
+            | "try"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+    )
+}
+
+fn skip_member_annotations(source: &str, mut cursor: usize, end: usize) -> Option<usize> {
+    loop {
+        cursor = skip_member_trivia(source, cursor, end);
+        if source.as_bytes().get(cursor).copied() != Some(b'@') {
+            return Some(cursor);
+        }
+        cursor += 1;
+        cursor = skip_member_trivia(source, cursor, end);
+        cursor = identifier_end(source, cursor)?;
+        loop {
+            cursor = skip_member_trivia(source, cursor, end);
+            if source.as_bytes().get(cursor).copied() != Some(b'.') {
+                break;
+            }
+            cursor += 1;
+            cursor = skip_member_trivia(source, cursor, end);
+            cursor = identifier_end(source, cursor)?;
+        }
+        cursor = skip_member_trivia(source, cursor, end);
+        if source.as_bytes().get(cursor).copied() == Some(b'(') {
+            cursor = matching_delimiter(source, cursor, b'(', b')')? + 1;
+        }
+    }
+}
+
+fn skip_member_trivia(source: &str, mut cursor: usize, end: usize) -> usize {
+    while cursor < end {
+        if source.as_bytes()[cursor].is_ascii_whitespace() {
+            cursor += 1;
+            continue;
+        }
+        if (source.as_bytes().get(cursor..cursor + 2) == Some(b"//")
+            || source.as_bytes().get(cursor..cursor + 2) == Some(b"/*"))
+            && let Some(after) = skip_non_code(source, cursor)
+        {
+            cursor = after;
+            continue;
+        }
+        break;
+    }
+    cursor.min(end)
+}
+
+fn concise_constructor_suffix(source: &str, cursor: usize, end: usize) -> Option<(String, usize)> {
+    let suffix_start = skip_member_trivia(source, cursor, end);
+    if suffix_start >= end {
+        return None;
+    }
     if source.as_bytes().get(suffix_start).copied() == Some(b'(') {
-        return Some((String::new(), suffix_start));
+        return Some((
+            preserved_line_breaks(&source[cursor..suffix_start]),
+            suffix_start,
+        ));
     }
     let suffix_end = identifier_end(source, suffix_start)?;
-    let after_suffix = skip_whitespace(source, suffix_end)?;
+    if suffix_end > end {
+        return None;
+    }
+    let after_suffix = skip_member_trivia(source, suffix_end, end);
+    if after_suffix >= end {
+        return None;
+    }
     if source.as_bytes().get(after_suffix).copied() != Some(b'(') {
         return None;
     }
     Some((
-        format!(".{}", &source[suffix_start..suffix_end]),
+        format!(
+            "{}.{}{}",
+            preserved_line_breaks(&source[cursor..suffix_start]),
+            &source[suffix_start..suffix_end],
+            preserved_line_breaks(&source[suffix_end..after_suffix]),
+        ),
         after_suffix,
     ))
+}
+
+fn preserved_line_breaks(span: &str) -> String {
+    span.chars()
+        .filter(|character| matches!(character, '\n' | '\r'))
+        .collect()
 }
 
 fn normalize_primary_constructors(source: &str) -> Option<String> {
@@ -790,7 +1047,9 @@ fn is_identifier_char(ch: char) -> bool {
 mod tests {
     use std::path::Path;
 
-    use super::{DartParseError, normalize_modern_dart_compatibility, parse_dart_source_strict};
+    use super::{
+        DartParseError, normalize_modern_dart_compatibility, parse_dart_source_strict, parse_raw,
+    };
 
     #[test]
     fn strict_parse_normalizes_primary_constructor_headers() -> Result<(), DartParseError> {
@@ -847,30 +1106,97 @@ Widget build(Banner? banner, List<Widget>? extras) {
     #[test]
     fn strict_parse_normalizes_concise_constructor_forms() -> Result<(), DartParseError> {
         let source = r"
-class Base {
+class BodyDefault {
   new() {}
+}
+
+class BodyNamed {
+  new named() {}
+}
+
+class ConstDefault {
+  const new();
+}
+
+class ConstNamed {
+  const new named();
+}
+
+class InitializerDefault {
+  new() : this.other();
+  InitializerDefault.other();
+}
+
+class InitializerNamed {
   new named() : this();
-  const new empty();
+  InitializerNamed();
 }
 
-class FactoryBox {
-  factory() => Child();
-  factory namedFactory() { return Child(); }
-  factory redirect() = Child;
-  const factory cached() = Child.cached;
+class ConstInitializerDefault {
+  const new() : this.other();
+  const ConstInitializerDefault.other();
 }
 
-class Child implements FactoryBox {
-  Child();
-  const Child.cached();
+class ConstInitializerNamed {
+  const new named() : this();
+  const ConstInitializerNamed();
+}
+
+class FactoryBodyDefault {
+  factory() { return FactoryBodyDefault._(); }
+  FactoryBodyDefault._();
+}
+
+class FactoryBodyNamed {
+  factory named() { return FactoryBodyNamed._(); }
+  FactoryBodyNamed._();
+}
+
+class FactoryRedirectDefault {
+  factory() = FactoryRedirectDefault._;
+  FactoryRedirectDefault._();
+}
+
+class FactoryRedirectNamed {
+  factory named() = FactoryRedirectNamed._;
+  FactoryRedirectNamed._();
+}
+
+class ConstFactoryRedirectDefault {
+  const factory() = ConstFactoryRedirectDefault._;
+  const ConstFactoryRedirectDefault._();
+}
+
+class ConstFactoryRedirectNamed {
+  const factory named() = ConstFactoryRedirectNamed._;
+  const ConstFactoryRedirectNamed._();
 }
 ";
 
         let parsed = parse_dart_source_strict(Path::new("lib/constructors.dart"), source)?;
 
         assert!(!parsed.tree().root_node().has_error());
-        assert!(parsed.source().contains("Base.named()"));
-        assert!(parsed.source().contains("factory FactoryBox.redirect()"));
+        for expected in [
+            "BodyDefault() {}",
+            "BodyNamed.named() {}",
+            "const ConstDefault();",
+            "const ConstNamed.named();",
+            "InitializerDefault() : this.other();",
+            "InitializerNamed.named() : this();",
+            "const ConstInitializerDefault() : this.other();",
+            "const ConstInitializerNamed.named() : this();",
+            "factory FactoryBodyDefault()",
+            "factory FactoryBodyNamed.named()",
+            "factory FactoryRedirectDefault() =",
+            "factory FactoryRedirectNamed.named() =",
+            "const factory ConstFactoryRedirectDefault() =",
+            "const factory ConstFactoryRedirectNamed.named() =",
+        ] {
+            assert!(
+                parsed.source().contains(expected),
+                "missing normalized constructor {expected:?}"
+            );
+        }
 
         Ok(())
     }
@@ -899,6 +1225,31 @@ class Example {
     }
 
     #[test]
+    fn concise_constructor_normalization_accepts_intertoken_comments() {
+        let source = r"
+class Commented {
+  @deprecated
+  const new /* before name */
+      named // before parameters
+      ();
+  factory /* before name */ create
+      /* before parameters */ () => Commented.named();
+}
+";
+        let Some(normalized) = normalize_modern_dart_compatibility(source) else {
+            panic!("commented constructors were not normalized");
+        };
+        let Ok(tree) = parse_raw(Path::new("commented.dart"), &normalized) else {
+            panic!("normalized commented constructors did not parse");
+        };
+
+        assert!(!tree.root_node().has_error());
+        assert!(normalized.contains("const Commented\n.named\n();"));
+        assert!(normalized.contains("factory Commented.create\n()"));
+        assert_eq!(normalized.lines().count(), source.lines().count());
+    }
+
+    #[test]
     fn strict_parse_keeps_unrecoverable_syntax_errors() {
         let error = parse_dart_source_strict(Path::new("lib/bad.dart"), "class {")
             .err()
@@ -908,5 +1259,100 @@ class Example {
             error.as_deref(),
             Some("Dart syntax errors found in lib/bad.dart")
         );
+    }
+
+    #[test]
+    fn strict_parse_normalizes_concise_constructors_even_when_raw_parse_is_clean()
+    -> Result<(), DartParseError> {
+        let source = "class Clean { new() {} }";
+        let raw = parse_raw(Path::new("clean.dart"), source)?;
+        assert!(!raw.root_node().has_error());
+
+        let strict = parse_dart_source_strict(Path::new("clean.dart"), source)?;
+        assert!(!strict.tree().root_node().has_error());
+        assert!(strict.source().contains("Clean()"));
+
+        let lossy = super::parse_dart_source_lossy(Path::new("clean.dart"), source)?;
+        assert!(!lossy.tree().root_node().has_error());
+        assert!(lossy.source().contains("Clean()"));
+        Ok(())
+    }
+
+    #[test]
+    fn concise_constructor_normalization_is_limited_to_top_level_members() {
+        let source = r"
+class Owner {
+  new() {}
+  new named() {}
+  const new cached();
+  factory() {}
+  factory namedFactory() {}
+  const factory constFactory() = Target.cached;
+
+  final field = new Target();
+  static final qualified = Target.new();
+  void method() {
+    final local = new Target();
+  }
+}
+
+mixin class MixinOwner {
+  new() {}
+}
+
+enum Tone {
+  quiet;
+  new() {}
+}
+
+extension type UserId(int value) {
+  new() : this(0);
+}
+";
+        let Some(normalized) = normalize_modern_dart_compatibility(source) else {
+            panic!("constructor source was not normalized");
+        };
+        let Ok(tree) = parse_raw(Path::new("normalized.dart"), &normalized) else {
+            panic!("normalized source did not parse");
+        };
+        assert!(!tree.root_node().has_error());
+
+        for expected in [
+            "Owner() {}",
+            "Owner.named() {}",
+            "const Owner.cached();",
+            "factory Owner() {}",
+            "factory Owner.namedFactory() {}",
+            "const factory Owner.constFactory() = Target.cached;",
+            "MixinOwner() {}",
+            "Tone() {}",
+            "UserId() : this(0);",
+        ] {
+            assert!(
+                normalized.contains(expected),
+                "missing normalized {expected:?}"
+            );
+        }
+        for untouched in [
+            "final field = new Target();",
+            "static final qualified = Target.new();",
+            "final local = new Target();",
+        ] {
+            assert!(normalized.contains(untouched), "changed {untouched:?}");
+        }
+    }
+
+    #[test]
+    fn strict_parse_rejects_reserved_concise_constructor_names() {
+        for source in [
+            "class Invalid { new new() {} }",
+            "class Invalid { factory class() = Invalid._; Invalid._(); }",
+            "class Invalid { const new void(); }",
+        ] {
+            assert!(matches!(
+                parse_dart_source_strict(Path::new("lib/invalid.dart"), source),
+                Err(DartParseError::Syntax { .. })
+            ));
+        }
     }
 }
