@@ -20,7 +20,7 @@ use primary_constructors::{
     extract_primary_constructor_identifier_references,
     extract_primary_constructor_signature_references,
 };
-use references::extract_identifier_references;
+use references::{extract_dot_shorthand_references, extract_identifier_references};
 pub use routes::DartRouteDeclaration;
 use routes::extract_route_declarations;
 pub use signatures::SignatureReference;
@@ -242,6 +242,8 @@ pub struct IdentifierReference {
     pub location: Location,
 }
 
+pub(crate) const DOT_SHORTHAND_QUALIFIER: &str = "$dot-shorthand";
+
 /// Top-level declaration categories extracted in Phase 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -356,6 +358,7 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
     let mut declarations = Vec::new();
     let mut members = Vec::new();
     let mut references = extract_identifier_references(root, parse_source);
+    references.extend(extract_dot_shorthand_references(source));
     references.extend(extract_primary_constructor_identifier_references(source));
     sort_identifier_references(&mut references);
     let mut signature_references = extract_signature_references(root, parse_source);
