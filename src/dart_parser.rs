@@ -712,7 +712,7 @@ fn normalize_dot_shorthands(source: &mut String) -> bool {
     apply_text_replacements(source, replacements)
 }
 
-fn is_dot_shorthand_start(bytes: &[u8], cursor: usize) -> bool {
+pub(crate) fn is_dot_shorthand_start(bytes: &[u8], cursor: usize) -> bool {
     if cursor > 0 && bytes[cursor - 1] == b'?' {
         return false;
     }
@@ -731,7 +731,24 @@ fn is_dot_shorthand_start(bytes: &[u8], cursor: usize) -> bool {
     matches!(
         previous,
         b'=' | b'(' | b'[' | b'{' | b',' | b':' | b'?' | b'!' | b'>' | b'|'
-    )
+    ) || preceding_keyword(bytes, cursor).is_some_and(|keyword| {
+        matches!(
+            keyword,
+            b"await" | b"case" | b"const" | b"return" | b"throw" | b"yield"
+        )
+    })
+}
+
+fn preceding_keyword(bytes: &[u8], cursor: usize) -> Option<&[u8]> {
+    let mut end = cursor;
+    while end > 0 && bytes[end - 1].is_ascii_whitespace() {
+        end -= 1;
+    }
+    let mut start = end;
+    while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+        start -= 1;
+    }
+    (start < end).then(|| &bytes[start..end])
 }
 
 fn normalize_null_aware_collection_elements(source: &mut String) -> bool {

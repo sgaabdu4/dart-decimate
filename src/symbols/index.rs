@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::ScannedProject;
+use crate::extract::DOT_SHORTHAND_QUALIFIER;
 use crate::graph::normalize_against;
 
 use super::{
@@ -87,6 +88,14 @@ impl SymbolIndex {
                     .filter(|reference| reachable_files.contains(&reference.path))
                     .count()
             })
+    }
+
+    pub(super) fn dot_shorthand_reference_count(
+        &self,
+        name: &str,
+        reachable_files: &BTreeSet<PathBuf>,
+    ) -> usize {
+        self.qualified_reference_count(DOT_SHORTHAND_QUALIFIER, name, reachable_files)
     }
 
     pub(super) fn reference_count(&self, name: &str, reachable_files: &BTreeSet<PathBuf>) -> usize {

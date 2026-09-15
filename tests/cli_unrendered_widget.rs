@@ -181,6 +181,74 @@ class UnusedConceptCard extends StatelessWidget {
 }
 
 #[test]
+fn check_counts_context_typed_dot_new_widget_constructors() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'tile_grid.dart';
+
+void main() => Gallery();
+
+class Gallery extends StatelessWidget {
+  Widget build(BuildContext context) => TileGrid(
+    tiles: [
+      .new(label: 'one'),
+      .new(label: 'two'),
+    ],
+  );
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/tile_grid.dart",
+        r"import 'native_tile.dart';
+
+class TileGrid extends StatelessWidget {
+  const TileGrid({required this.tiles});
+  final List<NativeTile> tiles;
+  Widget build(BuildContext context) => Column(children: tiles);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/native_tile.dart",
+        r"class NativeTile extends StatelessWidget {
+
+  const NativeTile({required this.label});
+  final String label;
+  Widget build(BuildContext context) => Text(label);
+}
+
+class TypeOnlyTile extends StatelessWidget {
+  const TypeOnlyTile();
+  Widget build(BuildContext context) => SizedBox();
+}
+
+final List<TypeOnlyTile> cache = [];
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_check(&fixture, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
+    assert_no_unrendered_widget_for(&json, "NativeTile");
+    assert_unrendered_widget_for(&json, "TypeOnlyTile");
+    Ok(())
+}
+
+#[test]
 fn check_reports_bare_type_reference_from_invoked_closure() -> Result<(), Box<dyn std::error::Error>>
 {
     let fixture = tempfile::tempdir()?;
@@ -216,6 +284,84 @@ void main(BuildContext context) {
 
     assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
     assert_unrendered_widget_for(&json, "DeadCard");
+
+    Ok(())
+}
+
+#[test]
+fn check_counts_contextual_dot_new_in_typed_initializers_and_annotated_fields()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'native_tile.dart';
+
+void main() => const Gallery();
+
+class Gallery extends StatelessWidget {
+  const Gallery({super.key});
+
+  final List<NativeTile> cached = makeTiles();
+  final List<NativeTile> seeded = List.unmodifiable([.new(label: 'seeded')]);
+
+  Widget build(BuildContext context) {
+    final NativeTile local = .new(label: 'local');
+    final List<NativeTile> listed = [.new(label: 'listed')];
+    return TileGrid(
+      primary: [.new(label: 'primary')],
+      secondary: [.new(label: 'secondary')],
+      children: [local, ...listed, ...seeded],
+    );
+  }
+}
+
+List<NativeTile> makeTiles() => const [];
+
+class TileGrid extends StatelessWidget {
+  const TileGrid({
+    super.key,
+    required this.primary,
+    required this.secondary,
+    required this.children,
+  });
+
+  @Deprecated('exercise metadata placement')
+  final List<NativeTile> primary, secondary;
+  final List<NativeTile> children;
+  Widget build(BuildContext context) => Column(children: children);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/native_tile.dart",
+        r"class NativeTile extends StatelessWidget {
+  const NativeTile({super.key, required this.label});
+  final String label;
+  Widget build(BuildContext context) => Text(label);
+}
+
+class UnusedTile extends StatelessWidget {
+  const UnusedTile({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_check(&fixture, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
+    assert_no_unrendered_widget_for(&json, "NativeTile");
+    assert_unrendered_widget_for(&json, "UnusedTile");
 
     Ok(())
 }

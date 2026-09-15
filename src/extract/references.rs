@@ -1,6 +1,87 @@
 use tree_sitter::Node;
 
-use super::{IdentifierReference, Location};
+use super::{DOT_SHORTHAND_QUALIFIER, IdentifierReference, Location};
+
+pub(super) fn extract_dot_shorthand_references(source: &str) -> Vec<IdentifierReference> {
+    let bytes = source.as_bytes();
+    let mut references = Vec::new();
+    collect_dot_shorthand_references(source, 0, bytes.len(), &mut references);
+    references
+}
+
+fn collect_dot_shorthand_references(
+    source: &str,
+    start: usize,
+    end: usize,
+    references: &mut Vec<IdentifierReference>,
+) {
+    let bytes = source.as_bytes();
+    let mut cursor = start;
+    while cursor < end {
+        if line_comment_start(bytes, cursor) {
+            cursor = line_comment_end(bytes, cursor);
+            continue;
+        }
+        if block_comment_start(bytes, cursor) {
+            cursor = block_comment_end(bytes, cursor);
+            continue;
+        }
+        if matches!(bytes[cursor], b'r' | b'R') && raw_quoted_segment_start(bytes, cursor).is_some()
+        {
+            cursor = raw_quoted_segment_end(bytes, cursor);
+            continue;
+        }
+        if matches!(bytes[cursor], b'\'' | b'"') {
+            let string_end = quoted_segment_end(bytes, cursor).min(end);
+            collect_dot_shorthand_interpolations(source, cursor, string_end, references);
+            cursor = string_end;
+            continue;
+        }
+        if bytes[cursor] != b'.' || !crate::dart_parser::is_dot_shorthand_start(bytes, cursor) {
+            cursor += 1;
+            continue;
+        }
+        let start = cursor + 1;
+        let Some(end) = identifier_end(bytes, start) else {
+            cursor += 1;
+            continue;
+        };
+        references.push(IdentifierReference {
+            name: source[start..end].to_owned(),
+            qualifier: Some(DOT_SHORTHAND_QUALIFIER.to_owned()),
+            location: location_at(source, start),
+        });
+        cursor = end;
+    }
+}
+
+fn collect_dot_shorthand_interpolations(
+    source: &str,
+    start: usize,
+    end: usize,
+    references: &mut Vec<IdentifierReference>,
+) {
+    let bytes = source.as_bytes();
+    let mut cursor = start;
+    while cursor < end {
+        let Some(relative) = bytes[cursor..end].iter().position(|byte| *byte == b'$') else {
+            return;
+        };
+        let dollar = cursor + relative;
+        cursor = dollar + 1;
+        if is_escaped_dollar(bytes, dollar) || bytes.get(cursor) != Some(&b'{') {
+            continue;
+        }
+        let body_start = cursor + 1;
+        let Some(body_end) =
+            interpolation_body_end(source, body_start).filter(|body_end| *body_end < end)
+        else {
+            return;
+        };
+        collect_dot_shorthand_references(source, body_start, body_end, references);
+        cursor = body_end + 1;
+    }
+}
 
 pub(super) fn extract_identifier_references(
     root: Node<'_>,
@@ -108,6 +189,9 @@ fn collect_string_segment_interpolation_references(
 
 fn simple_member_qualifier(node: Node<'_>, source: &str) -> Option<String> {
     let parent = node.parent()?;
+    if parent.kind() == "static_member_shorthand" {
+        return Some(DOT_SHORTHAND_QUALIFIER.to_owned());
+    }
     if parent.kind() == "constant_pattern" {
         let text = parent.utf8_text(source.as_bytes()).ok()?;
         let (qualifier, property) = text.rsplit_once('.')?;
@@ -455,4 +539,53 @@ fn same_node(left: Node<'_>, right: Node<'_>) -> bool {
     left.kind() == right.kind()
         && left.start_byte() == right.start_byte()
         && left.end_byte() == right.end_byte()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dot_shorthand_references_ignore_non_code_and_member_access() {
+        let source = r#"
+final values = [.loading, .new(), object.ready, object?.failed];
+final selected = switch (state) { .ready => true, _ => false };
+final returned = return .returned;
+final thrown = throw .thrown;
+final yielded = yield .yielded;
+final matched = case .matched;
+final awaited = await .awaited;
+final constant = const .new<Thing>();
+final label = '${.interpolated}';
+// .commented
+/* .blocked */
+final text = '.quoted';
+final raw = r".raw";
+"#;
+
+        let references = extract_dot_shorthand_references(source);
+        assert_eq!(
+            references
+                .iter()
+                .map(|reference| reference.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "loading",
+                "new",
+                "ready",
+                "returned",
+                "thrown",
+                "yielded",
+                "matched",
+                "awaited",
+                "new",
+                "interpolated",
+            ]
+        );
+        assert!(
+            references
+                .iter()
+                .all(|reference| reference.qualifier.as_deref() == Some(DOT_SHORTHAND_QUALIFIER))
+        );
+    }
 }
