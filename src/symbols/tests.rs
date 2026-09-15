@@ -271,6 +271,40 @@ fn skips_enum_constants_on_public_api_enums() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
+fn counts_native_dot_shorthand_enum_references() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"enum Readiness { loading, signedOut, ready }
+
+String label(Readiness readiness) => switch (readiness) {
+  .loading => 'loading',
+  .signedOut => 'signed-out',
+  .ready => 'ready',
+};
+
+void main() => print(label(.loading));
+",
+    )?;
+    let project = scan_project(fixture.path())?;
+    let dead_code = find_dead_code(&project.graph, ["lib/main.dart"]);
+
+    let report = analyze_unused_exports(&project, &dead_code);
+
+    assert!(
+        report
+            .unused_members
+            .iter()
+            .all(|unused| unused.owner != "Readiness"),
+        "{:?}",
+        report.unused_members
+    );
+    Ok(())
+}
+
+#[test]
 fn member_references_are_scoped_to_dart_library_parts() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

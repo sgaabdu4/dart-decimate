@@ -20,7 +20,27 @@ pub(super) struct FileReachabilityFacts {
     pub(super) class_names: BTreeSet<String>,
     pub(super) widgets: Vec<UnrenderedWidgetClass>,
     pub(super) object_constructors: Vec<String>,
+    contextual_constructors: Vec<ContextualConstructor>,
+    typed_fields: Vec<TypedField>,
     pub(super) superclasses: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ContextualConstructor {
+    NamedArgument {
+        owner_constructor: String,
+        argument: String,
+    },
+    TypedInitializer {
+        target: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TypedField {
+    owner: String,
+    field: String,
+    target: String,
 }
 
 pub(super) fn unrendered_widgets(
@@ -94,6 +114,8 @@ pub(super) fn reachability_facts(
             .collect(),
         widgets: widget_classes(path, classes, source),
         object_constructors: object_constructor_names(root, source),
+        contextual_constructors: contextual_constructor_names(root, source),
+        typed_fields: typed_fields(classes, source),
         superclasses: class_superclasses(classes, source),
     }
 }
@@ -148,6 +170,237 @@ fn object_constructor_names(root: Node<'_>, source: &str) -> Vec<String> {
         }
     });
     constructors
+}
+
+fn contextual_constructor_names(root: Node<'_>, source: &str) -> Vec<ContextualConstructor> {
+    let mut constructors = Vec::new();
+    visit_named(root, &mut |node| {
+        if node.kind() == "named_argument" && contains_dot_new(node, source) {
+            let Some(argument) = node.named_child(0).and_then(|label| {
+                label
+                    .utf8_text(source.as_bytes())
+                    .ok()
+                    .map(|name| name.trim_end_matches(':').to_owned())
+            }) else {
+                return;
+            };
+            let Some(call) = node.parent().and_then(|arguments| arguments.parent()) else {
+                return;
+            };
+            if let Some(owner_constructor) = constructor_type_name(call, source) {
+                constructors.push(ContextualConstructor::NamedArgument {
+                    owner_constructor,
+                    argument,
+                });
+            }
+            return;
+        }
+
+        if node.kind() == "local_variable_declaration" {
+            let mut cursor = node.walk();
+            for definition in node
+                .named_children(&mut cursor)
+                .filter(|child| child.kind() == "initialized_variable_definition")
+            {
+                if let Some(target) = contextual_initialized_variable_target(definition, source) {
+                    constructors.push(ContextualConstructor::TypedInitializer { target });
+                }
+            }
+            return;
+        }
+
+        if node.kind() == "declaration" {
+            constructors.extend(
+                contextual_declaration_targets(node, source)
+                    .map(|target| ContextualConstructor::TypedInitializer { target }),
+            );
+        }
+    });
+    constructors
+}
+
+fn contextual_initialized_variable_target(definition: Node<'_>, source: &str) -> Option<String> {
+    let type_node = direct_named_child(definition, "type")?;
+    let value = definition.child_by_field_name("value")?;
+    contextual_initializer_target(type_node, value, source)
+}
+
+fn contextual_declaration_targets<'tree>(
+    declaration: Node<'tree>,
+    source: &'tree str,
+) -> impl Iterator<Item = String> + 'tree {
+    let Some(type_node) = direct_named_child(declaration, "type") else {
+        return Vec::new().into_iter();
+    };
+    let Some(target) = type_node
+        .utf8_text(source.as_bytes())
+        .ok()
+        .and_then(contextual_target_type)
+    else {
+        return Vec::new().into_iter();
+    };
+    let mut cursor = declaration.walk();
+    declaration
+        .named_children(&mut cursor)
+        .filter(|child| {
+            matches!(
+                child.kind(),
+                "identifier_list" | "initialized_identifier_list"
+            )
+        })
+        .flat_map(|list| initialized_identifiers(list))
+        .filter(move |identifier| {
+            identifier
+                .child_by_field_name("value")
+                .is_some_and(|value| is_contextual_initializer(value, source))
+        })
+        .map(move |_| target.clone())
+        .collect::<Vec<_>>()
+        .into_iter()
+}
+
+fn contextual_initializer_target(
+    type_node: Node<'_>,
+    value: Node<'_>,
+    source: &str,
+) -> Option<String> {
+    is_contextual_initializer(value, source).then_some(())?;
+    type_node
+        .utf8_text(source.as_bytes())
+        .ok()
+        .and_then(contextual_target_type)
+}
+
+fn is_contextual_initializer(value: Node<'_>, source: &str) -> bool {
+    let Ok(value_text) = value.utf8_text(source.as_bytes()) else {
+        return false;
+    };
+    let value_text = value_text.trim_start();
+    let is_direct_constructor =
+        value_text.starts_with(".new") || value_text.starts_with("const .new");
+    let is_collection_literal = value_text.starts_with('[')
+        || value_text.starts_with('{')
+        || value_text.starts_with("const [")
+        || value_text.starts_with("const {")
+        || value_text.starts_with("List.unmodifiable(")
+        || value_text.starts_with("List.of(")
+        || value_text.starts_with("Set.of(");
+    (is_direct_constructor || is_collection_literal) && contains_dot_new(value, source)
+}
+
+fn contains_dot_new(node: Node<'_>, source: &str) -> bool {
+    if node.kind() == "static_member_shorthand"
+        && node.utf8_text(source.as_bytes()).ok() == Some(".new")
+    {
+        return true;
+    }
+    if is_object_constructor(node) && constructor_type_name(node, source).as_deref() == Some("New_")
+    {
+        return true;
+    }
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .any(|child| contains_dot_new(child, source))
+}
+
+fn typed_fields(classes: &[Node<'_>], source: &str) -> Vec<TypedField> {
+    let mut fields = Vec::new();
+    for class in classes {
+        let Some(owner) = class
+            .child_by_field_name("name")
+            .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+        else {
+            continue;
+        };
+        let Some(body) = class.child_by_field_name("body") else {
+            continue;
+        };
+        let mut cursor = body.walk();
+        for member in body.named_children(&mut cursor) {
+            let Some(declaration) = direct_named_child(member, "declaration") else {
+                continue;
+            };
+            for (field, target) in typed_fields_in_declaration(declaration, source) {
+                fields.push(TypedField {
+                    owner: owner.to_owned(),
+                    field,
+                    target,
+                });
+            }
+        }
+    }
+    fields
+}
+
+fn typed_fields_in_declaration(declaration: Node<'_>, source: &str) -> Vec<(String, String)> {
+    let Some(type_node) = direct_named_child(declaration, "type") else {
+        return Vec::new();
+    };
+    let Some(type_text) = type_node.utf8_text(source.as_bytes()).ok() else {
+        return Vec::new();
+    };
+    let Some(target) = contextual_target_type(type_text) else {
+        return Vec::new();
+    };
+    let mut cursor = declaration.walk();
+    declaration
+        .named_children(&mut cursor)
+        .filter(|child| {
+            matches!(
+                child.kind(),
+                "identifier_list" | "initialized_identifier_list"
+            )
+        })
+        .flat_map(initialized_identifiers)
+        .filter_map(|identifier| {
+            identifier
+                .child_by_field_name("name")
+                .or_else(|| (identifier.kind() == "identifier").then_some(identifier))
+                .and_then(|name| name.utf8_text(source.as_bytes()).ok())
+                .map(|name| (name.to_owned(), target.clone()))
+        })
+        .collect()
+}
+
+fn direct_named_child<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.named_children(&mut cursor)
+        .find(|child| child.kind() == kind)
+}
+
+fn initialized_identifiers(list: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = list.walk();
+    list.named_children(&mut cursor).collect()
+}
+
+fn contextual_target_type(type_text: &str) -> Option<String> {
+    let mut target = type_text.trim().trim_end_matches('?').trim();
+    while let Some(open) = target.find('<') {
+        let close = target.rfind('>')?;
+        let inner = target.get(open + 1..close)?.trim();
+        if has_top_level_comma(inner) {
+            return None;
+        }
+        target = inner.trim_end_matches('?').trim();
+    }
+    (!target.is_empty()
+        && target
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'.')))
+    .then(|| target.to_owned())
+}
+
+fn has_top_level_comma(text: &str) -> bool {
+    let mut depth = 0usize;
+    for byte in text.bytes() {
+        match byte {
+            b'<' => depth += 1,
+            b'>' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn is_object_constructor(node: Node<'_>) -> bool {
@@ -300,30 +553,85 @@ fn render_counts(
 ) -> BTreeMap<ClassKey, usize> {
     let superclasses = resolved_superclasses(files, resolver);
     let mut counts = BTreeMap::<ClassKey, usize>::new();
+    let typed_fields = files
+        .iter()
+        .flat_map(|file| {
+            file.typed_fields.iter().map(|field| {
+                (
+                    (
+                        ClassKey {
+                            path: file.path.clone(),
+                            name: field.owner.clone(),
+                        },
+                        field.field.clone(),
+                    ),
+                    field.target.clone(),
+                )
+            })
+        })
+        .collect::<BTreeMap<_, _>>();
     for file in files {
         for constructed in &file.object_constructors {
-            let mut pending = resolver
-                .resolve(&file.path, constructed)
-                .into_iter()
-                .collect::<Vec<_>>();
-            let mut visited = BTreeSet::new();
-            while let Some(class) = pending.pop() {
-                if !visited.insert(class.clone()) {
-                    continue;
+            increment_render_counts(
+                resolver.resolve(&file.path, constructed),
+                candidate_keys,
+                &superclasses,
+                &mut counts,
+            );
+        }
+        for contextual in &file.contextual_constructors {
+            match contextual {
+                ContextualConstructor::NamedArgument {
+                    owner_constructor,
+                    argument,
+                } => {
+                    for owner in resolver.resolve(&file.path, owner_constructor) {
+                        let Some(target) = typed_fields.get(&(owner.clone(), argument.clone()))
+                        else {
+                            continue;
+                        };
+                        increment_render_counts(
+                            resolver.resolve(&owner.path, target),
+                            candidate_keys,
+                            &superclasses,
+                            &mut counts,
+                        );
+                    }
                 }
-                if candidate_keys.contains(&class) {
-                    *counts.entry(class.clone()).or_default() += 1;
-                }
-                pending.extend(
-                    superclasses
-                        .get(&class)
-                        .into_iter()
-                        .flat_map(|parents| parents.iter().cloned()),
-                );
+                ContextualConstructor::TypedInitializer { target } => increment_render_counts(
+                    resolver.resolve(&file.path, target),
+                    candidate_keys,
+                    &superclasses,
+                    &mut counts,
+                ),
             }
         }
     }
     counts
+}
+
+fn increment_render_counts(
+    classes: BTreeSet<ClassKey>,
+    candidate_keys: &BTreeSet<ClassKey>,
+    superclasses: &BTreeMap<ClassKey, BTreeSet<ClassKey>>,
+    counts: &mut BTreeMap<ClassKey, usize>,
+) {
+    let mut pending = classes.into_iter().collect::<Vec<_>>();
+    let mut visited = BTreeSet::new();
+    while let Some(class) = pending.pop() {
+        if !visited.insert(class.clone()) {
+            continue;
+        }
+        if candidate_keys.contains(&class) {
+            *counts.entry(class.clone()).or_default() += 1;
+        }
+        pending.extend(
+            superclasses
+                .get(&class)
+                .into_iter()
+                .flat_map(|parents| parents.iter().cloned()),
+        );
+    }
 }
 
 fn resolved_superclasses(
