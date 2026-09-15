@@ -337,7 +337,9 @@ pub fn detect_duplicates(
     project: &ScannedProject,
     options: &DuplicateOptions,
 ) -> Result<DuplicateCodeReport, DuplicateCodeError> {
-    let mut by_fingerprint = BTreeMap::<String, Vec<(CloneOccurrence, usize)>>::new();
+    // Fingerprints identify report groups, but exact normalized text defines a clone.
+    let mut by_fingerprint =
+        BTreeMap::<String, BTreeMap<String, Vec<(CloneOccurrence, usize)>>>::new();
     let mut analyzed_lines = 0usize;
 
     for file in &project.files {
@@ -369,24 +371,31 @@ pub fn detect_duplicates(
                 continue;
             };
             let fingerprint = fingerprint(&text);
-            by_fingerprint.entry(fingerprint).or_default().push((
-                CloneOccurrence {
-                    parent: path.parent().map_or_else(PathBuf::new, Path::to_path_buf),
-                    path: path.clone(),
-                    start_line: first.line,
-                    end_line: last.line,
-                    column: first.column,
-                    line_count: window.len(),
-                },
-                clone_window.token_count,
-            ));
+            by_fingerprint
+                .entry(fingerprint)
+                .or_default()
+                .entry(text)
+                .or_default()
+                .push((
+                    CloneOccurrence {
+                        parent: path.parent().map_or_else(PathBuf::new, Path::to_path_buf),
+                        path: path.clone(),
+                        start_line: first.line,
+                        end_line: last.line,
+                        column: first.column,
+                        line_count: window.len(),
+                    },
+                    clone_window.token_count,
+                ));
         }
     }
 
     let mut clone_groups = by_fingerprint
         .into_iter()
-        .filter_map(|(fingerprint, occurrences)| {
-            clone_group_from_occurrences(&fingerprint, occurrences, options)
+        .flat_map(|(fingerprint, by_text)| {
+            by_text.into_values().filter_map(move |occurrences| {
+                clone_group_from_occurrences(&fingerprint, occurrences, options)
+            })
         })
         .collect::<Vec<_>>();
 

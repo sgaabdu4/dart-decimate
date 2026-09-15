@@ -284,6 +284,25 @@ fn trace_clone_matches_fingerprint_and_source_line() -> Result<(), Box<dyn std::
     Ok(())
 }
 
+#[test]
+fn does_not_group_distinct_windows_with_a_colliding_fingerprint()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert_fingerprint_collision_is_not_a_clone(
+        "lib/builder.dart",
+        "lib/validation.dart",
+        "void build4sh0() {\n  final palette4sh0 = select(red, green, blue, amber, ivory, slate, navy, mint);\n  final surface4sh0 = compose(palette4sh0, red, green, blue, amber, ivory, slate);\n  final result4sh0 = create(surface4sh0, red, green, blue, amber, ivory, slate);\n  report(result4sh0, red, green, blue, amber, ivory, slate);\n}",
+        "bool verify9zz() {\n  final record9zz = collect(one, two, three, four, five, six, seven, eight);\n  if (record9zz == one && record9zz == two && record9zz == three && record9zz == four) {\n    return record9zz == five || record9zz == six || record9zz == seven || record9zz == eight;\n  }\n  return false;\n}",
+    )?;
+    assert_fingerprint_collision_is_not_a_clone(
+        "lib/invariant.dart",
+        "lib/catalog.dart",
+        "Record parse4o3l(Map values) {\n  final stamp = values['stamp'] == null ? null : DateTime.parse(values['stamp']).toUtc();\n  if (values['phase'] == 'sent' && stamp == null) throw StateError('missing');\n  if (values['phase'] == 'ready' && stamp != null) throw StateError('unexpected');\n  return Record(stamp: stamp, phase: values['phase']);\n}",
+        "Record localizedhed() {\n  final state = Record(label: 'alpha', detail: 'beta', title: 'gamma', note: 'delta');\n  if (state.label == 'alpha' && state.detail == 'beta') return state;\n  if (state.title == 'gamma' || state.note == 'delta') return Record(label: 'next', detail: 'value');\n  return state;\n}",
+    )?;
+
+    Ok(())
+}
+
 fn pagination_clone_source() -> &'static str {
     r"Future<List<String>> fetchAllRowIds(Pages pages) async {
   final values = <String>[];
@@ -325,6 +344,73 @@ fn options(mode: DuplicateMode, min_lines: usize, min_tokens: usize) -> Duplicat
         top: None,
         threshold: None,
     }
+}
+
+fn assert_fingerprint_collision_is_not_a_clone(
+    first_path: &str,
+    second_path: &str,
+    first_source: &str,
+    second_source: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let options = options(DuplicateMode::Mild, 5, 50);
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, first_path, first_source)?;
+    write(&fixture, second_path, second_source)?;
+
+    let first_window = first_clone_window_text(first_source, &options)?;
+    let second_window = first_clone_window_text(second_source, &options)?;
+    assert_ne!(first_window, second_window);
+    assert_eq!(
+        super::fingerprint(&first_window),
+        super::fingerprint(&second_window)
+    );
+
+    let project = scan_project(fixture.path())?;
+    let report = detect_duplicates(&project, &options)?;
+    assert!(report.clone_groups.is_empty());
+
+    write(&fixture, "lib/exact_copy.dart", first_source)?;
+    let project = scan_project(fixture.path())?;
+    let report = detect_duplicates(&project, &options)?;
+    assert_eq!(report.clone_groups.len(), 1);
+    assert_eq!(report.clone_groups[0].instances.len(), 2);
+    assert!(
+        report.clone_groups[0]
+            .instances
+            .iter()
+            .any(|instance| instance.path.ends_with(first_path))
+    );
+    assert!(
+        report.clone_groups[0]
+            .instances
+            .iter()
+            .any(|instance| instance.path.ends_with("lib/exact_copy.dart"))
+    );
+    assert!(
+        report.clone_groups[0]
+            .instances
+            .iter()
+            .all(|instance| !instance.path.ends_with(second_path))
+    );
+
+    Ok(())
+}
+
+fn first_clone_window_text(
+    source: &str,
+    options: &DuplicateOptions,
+) -> Result<String, std::io::Error> {
+    let lines = super::lex::normalized_lines(source, options);
+    let window = super::clone_windows(&lines, options)
+        .into_iter()
+        .next()
+        .ok_or_else(|| std::io::Error::other("fixture contains a clone window"))?;
+    Ok(lines[window.start..=window.end]
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 fn instance(
