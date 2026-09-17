@@ -624,15 +624,15 @@ you need the installed binary's exact list.
 
 ## CI
 
-For a fast production-source check:
+For a complete repository check, including discovered local packages:
 
 ```bash
-npx --yes dart-decimate@0.0.44 json lib --threshold 0
+npx --yes dart-decimate@0.0.44 json . --threshold 0
 ```
 
-This runs every enabled check under `lib/` and prints the
-`dart-decimate.report.v1` JSON report. Use `.` instead of `lib` when CI must
-also scan local packages or other Dart source roots outside `lib/`.
+This runs every enabled check and prints the `dart-decimate.report.v1` JSON
+report. A single-package repository may replace `.` with `lib` for a narrower,
+faster production-source check.
 
 CI can use both the JSON `verdict` and the process exit code:
 
