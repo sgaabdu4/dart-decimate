@@ -240,7 +240,13 @@ fn schema_command_lists_actual_cli_flags() -> Result<(), Box<dyn std::error::Err
     assert_manifest_flags(
         &json,
         "check",
-        &["--root", "--baseline", "--max-crap", "--min-occurrences"],
+        &[
+            "--root",
+            "--strict",
+            "--baseline",
+            "--max-crap",
+            "--min-occurrences",
+        ],
     );
     assert_manifest_flags(
         &json,
@@ -255,14 +261,26 @@ fn schema_command_lists_actual_cli_flags() -> Result<(), Box<dyn std::error::Err
     assert_manifest_flags(
         &json,
         "dead-code",
-        &["--changed-workspaces", "--save-baseline"],
+        &["--strict", "--changed-workspaces", "--save-baseline"],
     );
+    assert_manifest_flags(&json, "cycles", &["--strict"]);
     assert_manifest_flags(
         &json,
         "dupes",
-        &["--min-occurrences", "--threshold", "--cross-language"],
+        &[
+            "--strict",
+            "--min-occurrences",
+            "--threshold",
+            "--cross-language",
+        ],
     );
-    assert_manifest_flags(&json, "health", &["--max-crap", "--min-score", "--top"]);
+    assert_manifest_flags(
+        &json,
+        "health",
+        &["--strict", "--max-crap", "--min-score", "--top"],
+    );
+    assert_manifest_flags(&json, "flags", &["--strict"]);
+    assert_manifest_flags(&json, "security", &["--strict"]);
     assert_manifest_flags(
         &json,
         "trace-clone",

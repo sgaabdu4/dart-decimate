@@ -399,6 +399,43 @@ fn audit_expands_scope_to_one_hop_related_files() -> Result<(), Box<dyn std::err
         1
     );
 
+    assert_new_only_strict_ignores_pre_existing(&fixture)?;
+
+    Ok(())
+}
+
+fn assert_new_only_strict_ignores_pre_existing(
+    fixture: &TempDir,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+    let code = run_from(
+        [
+            "dart-decimate",
+            "audit",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--base",
+            "HEAD",
+            "--gate",
+            "new-only",
+            "--strict",
+            "--threshold",
+            "100",
+            "--max-cyclomatic",
+            "1",
+            "--max-cognitive",
+            "99",
+        ],
+        &mut output,
+    )?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["attribution"]["introduced"]["findings"], 0);
+    assert_eq!(
+        json["summary"]["attribution"]["pre_existing"]["findings"],
+        1
+    );
     Ok(())
 }
 
@@ -471,6 +508,67 @@ fn audit_errors_for_invalid_base() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(error.to_string().contains("missing-ref"));
 
+    Ok(())
+}
+
+#[test]
+fn audit_new_only_still_fails_the_default_duplication_gate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = git_fixture()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let duplicate = "void shared() {\n  final values = [1, 2, 3];\n  final active = values.where((value) => value > 1);\n  print(active.length);\n}\n";
+    write(&fixture, "lib/a.dart", duplicate)?;
+    write(&fixture, "lib/b.dart", duplicate)?;
+    commit_all(&fixture)?;
+    write(&fixture, "lib/a.dart", &format!("// changed\n{duplicate}"))?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "audit",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--base",
+            "HEAD",
+            "--gate",
+            "new-only",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["code_duplications"], 1);
+    assert_eq!(json["summary"]["duplication_threshold_exceeded"], true);
+
+    Ok(())
+}
+
+#[test]
+fn audit_brief_rejects_strict_instead_of_ignoring_it() -> Result<(), Box<dyn std::error::Error>> {
+    let error = run_from(
+        [
+            "dart-decimate",
+            "audit",
+            ".",
+            "--base",
+            "HEAD",
+            "--brief",
+            "--strict",
+        ],
+        &mut Vec::new(),
+    )
+    .err()
+    .ok_or("expected --brief and --strict conflict")?;
+
+    assert!(error.to_string().contains("cannot be used with"));
     Ok(())
 }
 

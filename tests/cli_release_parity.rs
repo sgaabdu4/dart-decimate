@@ -62,9 +62,12 @@ fn report_schema_keeps_v1_and_accepts_the_versioned_tool_identity()
     assert!(output.status.success());
     let schema = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(schema["schema_version"], "dart-decimate.report.v1");
+    let tool_pattern = schema["properties"]["tool"]["pattern"]
+        .as_str()
+        .ok_or("tool pattern")?;
     assert_eq!(
-        schema["properties"]["tool"]["const"],
-        format!("dart-decimate {}", env!("CARGO_PKG_VERSION"))
+        tool_pattern,
+        r"^dart-decimate [0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
     );
     for required in ["verdict", "summary", "findings"] {
         assert!(

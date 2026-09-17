@@ -291,7 +291,7 @@ fn release_workflow_checks_existing_state_before_release_version()
     let validate = section_between(
         &release,
         "      - name: Validate release candidate",
-        "      - name: Create and push tag",
+        "  build-assets:",
     )?;
 
     assert!(state_index < release_check_index);
@@ -303,7 +303,7 @@ fn release_workflow_checks_existing_state_before_release_version()
     assert!(validate.contains("npm run migration:check"));
     assert!(
         index_of(&release, "      - name: Validate release candidate")?
-            < index_of(&release, "      - name: Create and push tag")?
+            < index_of(&release, "      - name: Create and push verified tag")?
     );
 
     Ok(())
@@ -317,13 +317,21 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
     let publish = section_between(&release, "  release:", "      - name: Publish to npm")?;
 
     assert!(build.contains("needs: prepare"));
-    assert!(build.contains("ref: ${{ needs.prepare.outputs.tag }}"));
-    assert!(build.contains("git rev-list -n 1 \"$TAG\""));
+    assert!(build.contains("ref: ${{ github.sha }}"));
+    assert!(build.contains("git rev-parse HEAD"));
     assert!(publish.contains("needs: [prepare, build-assets]"));
-    assert!(publish.contains("ref: ${{ needs.prepare.outputs.tag }}"));
+    assert!(publish.contains("ref: ${{ github.sha }}"));
     assert!(publish.contains("Verify Cargo and npm install parity"));
-    assert!(publish.contains("DART_DECIMATE_CARGO_TAG: ${{ needs.prepare.outputs.tag }}"));
+    assert!(publish.contains("DART_DECIMATE_CARGO_REV: ${{ github.sha }}"));
     assert!(publish.contains("npm run test:release:parity"));
+    assert!(
+        index_of(publish, "      - name: Verify Cargo and npm install parity")?
+            < index_of(publish, "      - name: Create and push verified tag")?
+    );
+    assert!(
+        index_of(publish, "      - name: Create and push verified tag")?
+            < index_of(publish, "      - name: Create or update GitHub release")?
+    );
 
     Ok(())
 }

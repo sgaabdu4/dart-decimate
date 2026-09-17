@@ -7,7 +7,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 #[test]
-fn dupes_command_emits_json_contract() -> Result<(), Box<dyn std::error::Error>> {
+fn dupes_command_defaults_to_zero_threshold() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
     write_duplicate_pair(&fixture)?;
@@ -29,10 +29,10 @@ fn dupes_command_emits_json_contract() -> Result<(), Box<dyn std::error::Error>>
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["schema_version"], "dart-decimate.report.v1");
     assert_eq!(json["command"], "dupes");
-    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["verdict"], "fail");
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert_eq!(json["summary"]["duplication_analyzed_lines"], 10);
     assert_eq!(json["summary"]["duplicated_lines"], 10);
@@ -40,7 +40,8 @@ fn dupes_command_emits_json_contract() -> Result<(), Box<dyn std::error::Error>>
         json["summary"]["duplication_percentage_basis_points"],
         10000
     );
-    assert_eq!(json["summary"]["duplication_threshold_exceeded"], false);
+    assert_eq!(json["summary"]["duplication_threshold_basis_points"], 0);
+    assert_eq!(json["summary"]["duplication_threshold_exceeded"], true);
     assert_eq!(
         json["clone_groups"][0]["instances"][0]["path"],
         "lib/a.dart"
@@ -79,6 +80,147 @@ fn dupes_command_emits_json_contract() -> Result<(), Box<dyn std::error::Error>>
             .is_some_and(|command| command
                 .starts_with("dart-decimate trace-clone --format json --fingerprint dup:"))
     );
+
+    Ok(())
+}
+
+#[test]
+fn strict_fails_on_warning_findings() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write_duplicate_pair(&fixture)?;
+    let root = fixture.path().to_str().unwrap_or(".");
+
+    let mut normal_output = Vec::new();
+    let normal_code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            root,
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--threshold",
+            "100",
+        ],
+        &mut normal_output,
+    )?;
+    let normal_json = serde_json::from_slice::<Value>(&normal_output)?;
+    assert_eq!(normal_code, 0);
+    assert_eq!(normal_json["verdict"], "pass");
+    assert_eq!(normal_json["findings"][0]["severity"], "warning");
+
+    let mut strict_output = Vec::new();
+    let strict_code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            root,
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--threshold",
+            "100",
+            "--strict",
+        ],
+        &mut strict_output,
+    )?;
+    let strict_json = serde_json::from_slice::<Value>(&strict_output)?;
+    assert_eq!(strict_code, 1);
+    assert_eq!(strict_json["verdict"], "fail");
+    assert_eq!(strict_json["findings"][0]["severity"], "warning");
+
+    Ok(())
+}
+
+#[test]
+fn strict_still_fails_when_regression_gate_has_no_regression()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write_duplicate_pair(&fixture)?;
+    let root = fixture.path().to_str().unwrap_or(".");
+    let baseline = fixture.path().join("regression.json");
+    let baseline_path = baseline.to_str().unwrap_or("regression.json");
+    let mut baseline_output = Vec::new();
+
+    let baseline_code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            root,
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--threshold",
+            "100",
+            "--save-regression-baseline",
+            baseline_path,
+        ],
+        &mut baseline_output,
+    )?;
+    assert_eq!(baseline_code, 0);
+
+    let mut threshold_output = Vec::new();
+    let threshold_code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            root,
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--regression-baseline",
+            baseline_path,
+            "--fail-on-regression",
+        ],
+        &mut threshold_output,
+    )?;
+    let threshold_json = serde_json::from_slice::<Value>(&threshold_output)?;
+    assert_eq!(threshold_code, 1);
+    assert_eq!(threshold_json["verdict"], "fail");
+    assert_eq!(
+        threshold_json["summary"]["duplication_threshold_exceeded"],
+        true
+    );
+
+    let mut strict_output = Vec::new();
+    let strict_code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            root,
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--threshold",
+            "100",
+            "--regression-baseline",
+            baseline_path,
+            "--fail-on-regression",
+            "--strict",
+        ],
+        &mut strict_output,
+    )?;
+    let strict_json = serde_json::from_slice::<Value>(&strict_output)?;
+    assert_eq!(strict_code, 1);
+    assert_eq!(strict_json["verdict"], "fail");
+    assert_eq!(strict_json["findings"][0]["severity"], "warning");
 
     Ok(())
 }
@@ -148,6 +290,51 @@ fn dupes_threshold_fails_only_when_percentage_is_exceeded() -> Result<(), Box<dy
         failing_json["summary"]["duplication_threshold_exceeded"],
         true
     );
+
+    Ok(())
+}
+
+#[test]
+fn top_limits_details_without_weakening_threshold() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write_duplicate_pair(&fixture)?;
+    let other = "void calculate() {\n  final value = DateTime.now();\n  final day = value.weekday;\n  print(day.isEven);\n}\n";
+    write(&fixture, "lib/c.dart", other)?;
+    write(&fixture, "lib/d.dart", other)?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--mode",
+            "strict",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--threshold",
+            "60",
+            "--top",
+            "1",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 1);
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["clone_groups"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["summary"]["duplicated_lines"], 20);
+    assert_eq!(
+        json["summary"]["duplication_percentage_basis_points"],
+        10000
+    );
+    assert_eq!(json["summary"]["duplication_threshold_exceeded"], true);
 
     Ok(())
 }
@@ -242,7 +429,7 @@ fn dupes_command_accepts_ignore_imports_alias_as_positive_override()
         &mut counted_output,
     )?;
     let counted_json = serde_json::from_slice::<Value>(&counted_output)?;
-    assert_eq!(counted_code, 0);
+    assert_eq!(counted_code, 1);
     assert_eq!(counted_json["summary"]["code_duplications"], 1);
 
     let mut ignored_output = Vec::new();
@@ -299,7 +486,7 @@ fn check_command_includes_code_duplication_findings() -> Result<(), Box<dyn std:
     let Some(findings) = json["findings"].as_array() else {
         panic!("findings array");
     };
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert!(
         findings
@@ -396,7 +583,7 @@ fn dupes_reports_executable_call_blocks_that_look_like_signatures()
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert_eq!(json["clone_groups"].as_array().map(Vec::len), Some(1));
 
@@ -440,7 +627,7 @@ void record(analytics, userId) {
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert_eq!(json["clone_groups"].as_array().map(Vec::len), Some(1));
 
@@ -485,7 +672,7 @@ fn dupes_collapses_copied_local_package_mirrors_to_canonical_source_clone()
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     let Some(instances) = json["clone_groups"][0]["instances"].as_array() else {
         panic!("clone group instances array");
@@ -588,7 +775,7 @@ fn dupes_collapses_shifted_copied_package_mirrors_to_canonical_source_ranges()
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     let Some(instances) = json["clone_groups"][0]["instances"].as_array() else {
         panic!("clone group instances array");
@@ -646,7 +833,7 @@ fn workspace_scope_prunes_clone_group_instances() -> Result<(), Box<dyn std::err
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert_eq!(
         json["clone_groups"][0]["instances"][0]["path"],
@@ -698,7 +885,7 @@ fn changed_workspaces_scope_prunes_clone_group_instances() -> Result<(), Box<dyn
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert_eq!(
         json["clone_groups"][0]["instances"][0]["path"],

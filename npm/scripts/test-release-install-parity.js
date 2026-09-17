@@ -21,17 +21,17 @@ main().catch((error) => {
 });
 
 async function main() {
-  const assetDir = path.resolve(
-    process.env.DART_DECIMATE_RELEASE_ASSET_DIR ||
-      path.join(root, "dist-assets"),
-  );
-  const assetName = releaseAssetName();
-  const assetPath = path.join(assetDir, assetName);
-  if (!isFile(assetPath)) {
-    throw new Error(`missing release asset ${assetPath}`);
-  }
-
   try {
+    const assetDir = path.resolve(
+      process.env.DART_DECIMATE_RELEASE_ASSET_DIR ||
+        path.join(root, "dist-assets"),
+    );
+    const assetName = releaseAssetName();
+    const assetPath = path.join(assetDir, assetName);
+    if (!isFile(assetPath)) {
+      throw new Error(`missing release asset ${assetPath}`);
+    }
+
     const cargoBinary = installWithCargo();
     const tarball = packNpmPackage();
     const projectDir = path.join(tempRoot, "npm-project");
@@ -91,7 +91,7 @@ async function main() {
     }
 
     console.log(
-      `release install parity ok: Cargo tag and npm ${packageJson.version} emitted identical reports`,
+      `release install parity ok: Cargo source and npm ${packageJson.version} emitted identical reports`,
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -110,14 +110,16 @@ function installWithCargo() {
   const cargoRoot = path.join(tempRoot, "cargo-root");
   const gitUrl = process.env.DART_DECIMATE_CARGO_GIT_URL;
   const tag = process.env.DART_DECIMATE_CARGO_TAG;
+  const revision = process.env.DART_DECIMATE_CARGO_REV;
   const args = ["install", "--locked", "--force", "--root", cargoRoot];
-  if (gitUrl || tag) {
-    if (!gitUrl || !tag) {
+  if (gitUrl || tag || revision) {
+    if (!gitUrl || Boolean(tag) === Boolean(revision)) {
       throw new Error(
-        "DART_DECIMATE_CARGO_GIT_URL and DART_DECIMATE_CARGO_TAG must be set together",
+        "DART_DECIMATE_CARGO_GIT_URL and exactly one of DART_DECIMATE_CARGO_TAG or DART_DECIMATE_CARGO_REV must be set together",
       );
     }
-    args.push("--git", gitUrl, "--tag", tag, "dart-decimate");
+    args.push("--git", gitUrl, tag ? "--tag" : "--rev", tag || revision);
+    args.push("dart-decimate");
   } else {
     args.push("--path", root);
   }
@@ -148,6 +150,7 @@ async function installNpmTarball(tarball, projectDir, port) {
       cwd: projectDir,
       env: {
         ...process.env,
+        CARGO: path.join(tempRoot, "missing-cargo"),
         DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageJson.version}`,
         npm_config_cache: path.join(tempRoot, "npm-cache"),
       },

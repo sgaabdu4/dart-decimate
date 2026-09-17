@@ -138,7 +138,7 @@ fn file_scope_prunes_clone_group_instances() -> Result<(), Box<dyn std::error::E
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
+    assert_eq!(code, 1);
     assert_eq!(json["summary"]["code_duplications"], 1);
     assert_eq!(
         json["clone_groups"][0]["instances"][0]["path"],
@@ -150,6 +150,46 @@ fn file_scope_prunes_clone_group_instances() -> Result<(), Box<dyn std::error::E
             .map(Vec::len),
         Some(1)
     );
+
+    Ok(())
+}
+
+#[test]
+fn file_scope_ignores_duplicate_threshold_outside_scope() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let duplicate = "void shared() {\n  final items = [1, 2, 3];\n  final active = items.where((item) => item > 1);\n  print(active.length);\n}\n";
+    write(&fixture, "lib/a.dart", duplicate)?;
+    write(&fixture, "lib/b.dart", duplicate)?;
+    write(&fixture, "lib/c.dart", "void unique() {}\n")?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "dupes",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--file",
+            "lib/c.dart",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["findings"], 0);
+    assert_eq!(json["summary"]["code_duplications"], 0);
+    assert_eq!(json["summary"]["duplicated_lines"], 0);
+    assert_eq!(json["summary"]["duplication_threshold_exceeded"], false);
+    assert!(json["clone_groups"].as_array().is_some_and(Vec::is_empty));
 
     Ok(())
 }

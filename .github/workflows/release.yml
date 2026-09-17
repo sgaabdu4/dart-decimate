@@ -17,13 +17,12 @@ concurrency:
 
 jobs:
   prepare:
-    name: Validate and tag source
+    name: Validate source
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    permissions:
-      contents: write
     outputs:
       npm_exists: ${{ steps.state.outputs.npm_exists }}
+      tag_exists: ${{ steps.state.outputs.tag_exists }}
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
 
@@ -108,21 +107,6 @@ jobs:
           npm run test:postinstall:prebuilt
           npm run test:npx:prebuilt
 
-      - name: Create and push tag
-        if: steps.state.outputs.tag_exists == 'false'
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "$TAG"
-          git push origin "$TAG"
-
-      - name: Verify tagged source
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
-
   build-assets:
     name: Build ${{ matrix.asset }}
     needs: prepare
@@ -154,15 +138,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
 
-      - name: Verify tagged source
+      - name: Verify release source
         shell: bash
-        env:
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Install Rust
         run: |
@@ -204,7 +184,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Install Rust
         run: |
@@ -225,12 +205,11 @@ jobs:
             sed -i '/_authToken/d' "$npmrc"
           fi
 
-      - name: Verify tagged source
+      - name: Verify release source
         env:
-          TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(node -p "require('./package.json').version")" = "$VERSION"
 
       - name: Download release assets
@@ -248,9 +227,26 @@ jobs:
       - name: Verify Cargo and npm install parity
         env:
           DART_DECIMATE_CARGO_GIT_URL: ${{ github.server_url }}/${{ github.repository }}
-          DART_DECIMATE_CARGO_TAG: ${{ needs.prepare.outputs.tag }}
+          DART_DECIMATE_CARGO_REV: ${{ github.sha }}
           DART_DECIMATE_RELEASE_ASSET_DIR: dist-assets
         run: npm run test:release:parity
+
+      - name: Create and push verified tag
+        if: needs.prepare.outputs.tag_exists == 'false'
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      - name: Verify tagged source
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" --force
+          test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
 
       - name: Create or update GitHub release
         env:

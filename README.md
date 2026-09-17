@@ -46,7 +46,8 @@ npx dart-decimate@latest
 That checks the current project and prints a readable report covering dead
 code, circular dependencies, duplicated code, complex functions, dependency
 hygiene, architecture drift, Flutter graph issues, security candidates, and
-PR-risk signals.
+PR-risk signals. The duplication threshold defaults to zero, so any detected
+duplicate group fails the check.
 
 To open the same report in your browser:
 
@@ -70,12 +71,15 @@ npx dart-decimate@latest json
 ```
 
 If the human report says `FAIL`, or JSON says `"verdict": "fail"`, Dart Decimate
-worked. It means it found error-level issues. It does not mean the tool crashed.
+worked. It means a configured quality gate failed: an error-level issue, the
+duplication threshold, or (with `--strict`) any visible finding. It does not
+mean the tool crashed.
 
 Exit codes:
 
-- `0`: no error-level findings
-- `1`: Dart Decimate found issues
+- `0`: the configured gates passed
+- `1`: an error, any duplicated code at the default zero threshold, or any
+  finding when `--strict` is enabled
 - `2`: command, config, or runtime error
 - `8`: security gate found new review-required candidates
 
@@ -541,6 +545,10 @@ Example shape:
 }
 ```
 
+The `dart-decimate.report.v1` field layout is unchanged. Its existing `tool`
+string includes the producing version so saved reports identify the exact
+build, for example `dart-decimate 0.0.44`.
+
 When grouped security findings hide additional occurrences, `next_steps` can
 include `review-security-surface`, which reruns
 `dart-decimate security . --format json --surface`.
@@ -627,17 +635,21 @@ you need the installed binary's exact list.
 For a complete repository check, including discovered local packages:
 
 ```bash
-npx --yes dart-decimate@0.0.44 json . --threshold 0
+npx --yes dart-decimate@0.0.44 --strict
 ```
 
-This runs every enabled check and prints the `dart-decimate.report.v1` JSON
-report. A single-package repository may replace `.` with `lib` for a narrower,
-faster production-source check.
+This runs every enabled check from the repository root. The default duplication
+threshold is zero, and `--strict` makes warnings fail too. Remove `--strict` if
+CI should fail only for error-level findings or duplicated code.
+
+Use `json --strict` instead when CI needs the `dart-decimate.report.v1` JSON
+report rather than the readable terminal report.
 
 CI can use both the JSON `verdict` and the process exit code:
 
 - `0`: pass
-- `1`: error-level findings or the duplication threshold failed
+- `1`: error-level findings, the duplication threshold failed, or `--strict`
+  found any warning
 - `2`: invalid command, configuration, or runtime error
 - `8`: new security candidates failed a security gate
 
@@ -674,15 +686,16 @@ branch and to an unpublished npm version.
 
 To release a new version:
 
-1. Update both `Cargo.toml` and `package.json` to the same unpublished version.
+1. Update `Cargo.toml`, `package.json`, and the pinned commands in `README.md`
+   and `docs/ci.md` to the same unpublished version.
 2. Open a PR.
 3. Let CI pass.
 4. Merge to `main`.
-5. GitHub Actions validates the candidate, creates tag `vX.Y.Z`, builds every
-   release asset from that tag, and compares a Cargo install from the tag with
-   the npm tarball built from the same checkout.
-6. Only after that parity check passes, GitHub Actions publishes
-   `dart-decimate@X.Y.Z` and creates or updates the GitHub release.
+5. GitHub Actions validates the merged commit, builds every release asset, and
+   compares a Cargo install from that exact commit with the npm tarball.
+6. Only after that parity check passes, GitHub Actions tags the verified commit
+   as `vX.Y.Z`, creates or updates the GitHub release, and publishes
+   `dart-decimate@X.Y.Z`.
 
 Release reruns for the same commit may update GitHub release assets. If the npm
 package already exists for that commit, the publish step is skipped; a reused tag

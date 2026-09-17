@@ -69,7 +69,7 @@ pub use runtime_coverage::{
 use scope::{
     file_scope, finding_in_scope, health_file_score_count, project_file_scope_count,
     scope_clone_groups, scope_feature_flags, scope_file_scores, scope_hotspots,
-    scope_refactoring_targets, scoped_quality_score,
+    scope_refactoring_targets, scoped_duplication_analyzed_lines, scoped_quality_score,
 };
 pub use security_findings::{
     JsonAttackSurfaceEntry, JsonSecurityBlindSpot, JsonSecurityCandidate, JsonSecurityOccurrence,
@@ -195,7 +195,7 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
         );
     }
 
-    JsonReport {
+    let mut report = JsonReport {
         schema_version: SCHEMA_VERSION.to_owned(),
         kind: results.command.kind().to_owned(),
         tool: crate::REPORT_TOOL.to_owned(),
@@ -218,7 +218,42 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
         attack_surface: security.attack_surface,
         runtime_coverage,
         next_steps,
+    };
+    if results.duplicates.is_some()
+        && let Some(scope) = scope.as_ref()
+    {
+        report.summary.duplication_analyzed_lines =
+            scoped_duplication_analyzed_lines(project, scope);
+        recompute_visible_duplication_summary(&mut report);
     }
+    report
+}
+
+/// Recompute duplicate statistics from the clone groups visible in a report.
+pub(crate) fn recompute_visible_duplication_summary(report: &mut JsonReport) {
+    let mut duplicated = BTreeSet::<(String, usize)>::new();
+    for group in &report.clone_groups {
+        for instance in &group.instances {
+            for line in instance.start_line..=instance.end_line {
+                duplicated.insert((instance.path.clone(), line));
+            }
+        }
+    }
+    report.summary.code_duplications = report.clone_groups.len();
+    report.summary.duplicated_lines = duplicated.len();
+    report.summary.duplication_percentage_basis_points =
+        if report.summary.duplication_analyzed_lines == 0 {
+            0
+        } else {
+            let raw = ((report.summary.duplicated_lines as u128) * 10_000)
+                / (report.summary.duplication_analyzed_lines as u128);
+            u32::try_from(raw).unwrap_or(u32::MAX)
+        };
+    report.summary.duplication_threshold_exceeded = crate::dupes::duplication_threshold_exceeded(
+        report.summary.duplication_analyzed_lines,
+        report.summary.duplicated_lines,
+        report.summary.duplication_threshold_basis_points,
+    );
 }
 
 /// Keep only selected finding kinds and recompute visible report counts.
@@ -231,6 +266,7 @@ pub fn filter_report_findings(report: &mut JsonReport, allowed: &[FindingKind]) 
         .retain(|finding| allowed.contains(&finding.kind));
     if !allowed.contains(&FindingKind::CodeDuplication) {
         report.clone_groups.clear();
+        recompute_visible_duplication_summary(report);
     }
     if !allowed.iter().any(|kind| is_complexity_kind(*kind)) {
         report.complexity.clear();

@@ -153,6 +153,7 @@ struct CommandRequest {
     save_regression_baseline: Option<PathBuf>,
     regression_tolerance: RegressionTolerance,
     fail_on_regression: bool,
+    finding_gate: FindingGate,
     trace_file: Option<PathBuf>,
     trace_symbol: Option<TraceSymbolSpec>,
     trace_dependency: Option<String>,
@@ -172,6 +173,13 @@ struct CommandRequest {
 struct SymbolRequestOptions {
     include_entry_exports: bool,
     private_type_leaks: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum FindingGate {
+    #[default]
+    ErrorsOnly,
+    All,
 }
 
 impl CommandRequest {
@@ -279,8 +287,18 @@ fn run_request<W: Write>(request: &CommandRequest, mut writer: W) -> Result<i32,
     }
     security_summary_run::apply_security_summary(request, &mut report);
     audit_run::apply_risk(&project.root, &audit_context, &mut report);
+    let verdict_before_duplication = report.verdict;
     apply_duplication_threshold_gate(&mut report);
-    let code = security_summary_run::exit_code(request, &report, regressed);
+    let duplication_failed = report.summary.duplication_threshold_exceeded;
+    let strict_failed = apply_strict_gate(request, &mut report);
+    let code = security_summary_run::exit_code(
+        request,
+        &report,
+        regressed,
+        duplication_failed,
+        strict_failed,
+        verdict_before_duplication,
+    );
 
     match request.format {
         ReportOutputFormat::Human => writer.write_all(render_human_report(&report).as_bytes())?,
@@ -305,6 +323,25 @@ fn apply_duplication_threshold_gate(report: &mut crate::output::JsonReport) {
     if report.summary.duplication_threshold_exceeded {
         report.verdict = Verdict::Fail;
     }
+}
+
+fn apply_strict_gate(request: &CommandRequest, report: &mut crate::output::JsonReport) -> bool {
+    let finding_count = if request.command == ReportCommand::Audit
+        && request.audit_gate == audit_run::AuditGate::NewOnly
+    {
+        report
+            .summary
+            .attribution
+            .as_ref()
+            .map_or(0, |attribution| attribution.introduced.findings)
+    } else {
+        report.summary.findings
+    };
+    let failed = request.finding_gate == FindingGate::All && finding_count > 0;
+    if failed {
+        report.verdict = Verdict::Fail;
+    }
+    failed
 }
 
 fn command() -> Command {
@@ -409,7 +446,8 @@ fn audit_command() -> Command {
             Arg::new("brief")
                 .long("brief")
                 .help("Emit a Fallow-style advisory review brief and always exit 0")
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .conflicts_with("strict"),
         )
         .arg(
             Arg::new("base")
@@ -545,6 +583,7 @@ fn request_from_matches(matches: &ArgMatches) -> Result<CommandRequest, CliError
         save_regression_baseline,
         regression_tolerance: regression.tolerance,
         fail_on_regression: regression.fail_on_regression,
+        finding_gate: finding_gate(subcommand),
         trace_file: trace.file,
         trace_symbol: trace.symbol,
         trace_dependency: trace.dependency,
@@ -562,6 +601,20 @@ fn request_from_matches(matches: &ArgMatches) -> Result<CommandRequest, CliError
         ignore_dependency_overrides: config.ignore_dependency_overrides.clone(),
         rules: config.rules.clone(),
     })
+}
+
+fn finding_gate(subcommand: &ArgMatches) -> FindingGate {
+    if subcommand
+        .try_get_one::<bool>("strict")
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or_default()
+    {
+        FindingGate::All
+    } else {
+        FindingGate::ErrorsOnly
+    }
 }
 
 fn request_format(
