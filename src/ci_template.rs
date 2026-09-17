@@ -302,7 +302,7 @@ fn template_file(path: &str, executable: bool, content: &str) -> CiTemplateFile 
     CiTemplateFile {
         path: path.to_owned(),
         executable,
-        content: content.to_owned(),
+        content: content.replace("__DART_DECIMATE_VERSION__", crate::VERSION),
     }
 }
 
@@ -347,11 +347,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: |
-          rustup toolchain install 1.90.0 --profile minimal
-          rustup default 1.90.0
-      - run: cargo install --git https://github.com/sgaabdu4/dart-decimate --locked dart-decimate
-      - run: dart-decimate audit --format json --base origin/${{ github.base_ref || 'main' }}
+      - run: npx --yes dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base origin/${{ github.base_ref || 'main' }} --strict
 ";
 
 const GITLAB_CI: &str = r#"stages:
@@ -359,13 +355,9 @@ const GITLAB_CI: &str = r#"stages:
 
 dart-decimate:
   stage: quality
-  image: rust:latest
-  before_script:
-    - rustup toolchain install 1.90.0 --profile minimal
-    - rustup default 1.90.0
-    - cargo install --git https://github.com/sgaabdu4/dart-decimate --locked dart-decimate
+  image: node:24
   script:
-    - dart-decimate audit --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
+    - npx --yes dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}" --strict
   rules:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -373,11 +365,7 @@ dart-decimate:
 
 const GITLAB_VENDORED_CI: &str = r".dart-decimate:
   stage: quality
-  image: rust:latest
-  before_script:
-    - rustup toolchain install 1.90.0 --profile minimal
-    - rustup default 1.90.0
-    - cargo install --git https://github.com/sgaabdu4/dart-decimate --locked dart-decimate
+  image: node:24
   script:
     - ci/scripts/review.sh
   rules:
@@ -389,11 +377,11 @@ const GITLAB_REVIEW_SCRIPT: &str = r#"#!/usr/bin/env sh
 set -eu
 
 BASE="origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
-dart-decimate audit --format json --base "$BASE"
+npx --yes dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "$BASE" --strict
 "#;
 
 const GITLAB_COMMENT_SCRIPT: &str = r#"#!/usr/bin/env sh
 set -eu
 
-dart-decimate review --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
+npx --yes dart-decimate@__DART_DECIMATE_VERSION__ review --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
 "#;

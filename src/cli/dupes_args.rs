@@ -50,6 +50,7 @@ pub(super) fn dupes_command(command: Command) -> Command {
                 .long("threshold")
                 .value_name("PERCENT")
                 .help("Fail when duplicated Dart lines exceed this percentage")
+                .default_value("0")
                 .value_parser(parse_threshold),
         )
         .arg(

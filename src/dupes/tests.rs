@@ -6,6 +6,12 @@ use super::*;
 use crate::scan_project;
 
 #[test]
+fn zero_threshold_does_not_round_small_duplicates_down_to_pass() {
+    assert!(duplication_threshold_exceeded(120_010, 10, Some(0)));
+    assert!(!duplication_threshold_exceeded(120_010, 10, Some(1)));
+}
+
+#[test]
 fn detects_exact_duplicate_dart_blocks() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

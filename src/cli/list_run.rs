@@ -169,6 +169,7 @@ fn scoped_project(
         save_regression_baseline: None,
         regression_tolerance: crate::RegressionTolerance::default(),
         fail_on_regression: false,
+        finding_gate: crate::cli::FindingGate::ErrorsOnly,
         trace_file: None,
         trace_symbol: None,
         trace_dependency: None,

@@ -17,6 +17,7 @@ fn analyze_maps_read_only_parity_flags() -> Result<(), String> {
             "baseline": "baseline.json",
             "regression_baseline": "regression.json",
             "fail_on_regression": true,
+            "strict": true,
             "tolerance": "10%",
             "include_entry_exports": true,
             "private_type_leaks": true,
@@ -65,6 +66,7 @@ fn analyze_maps_read_only_parity_flags() -> Result<(), String> {
     assert_pair(&cli, "--baseline", "baseline.json");
     assert_pair(&cli, "--regression-baseline", "regression.json");
     assert_flag(&cli, "--fail-on-regression");
+    assert_flag(&cli, "--strict");
     assert_pair(&cli, "--tolerance", "10%");
     assert_flag(&cli, "--include-entry-exports");
     assert_flag(&cli, "--private-type-leaks");

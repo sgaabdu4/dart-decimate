@@ -33,6 +33,7 @@ const BASELINE_KEYS: &[&str] = &[
     "fail_on_regression",
     "tolerance",
 ];
+const REPORT_GATE_KEYS: &[&str] = &["strict"];
 const SYMBOL_KEYS: &[&str] = &["include_entry_exports", "private_type_leaks"];
 const BOUNDARY_KEYS: &[&str] = &[
     "boundary",
@@ -161,12 +162,14 @@ fn extend_analyze_allowed(allowed: &mut Vec<&'static str>) {
     allowed.extend(BOUNDARY_KEYS);
     allowed.extend(DUPLICATE_KEYS);
     allowed.extend(HEALTH_KEYS);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn extend_check_changed_allowed(allowed: &mut Vec<&'static str>) {
     allowed.extend(["since", "changed_since", "compare"]);
     allowed.extend(BASELINE_KEYS);
     allowed.extend(["dart_platform", "production"]);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn extend_project_info_allowed(allowed: &mut Vec<&'static str>) {
@@ -184,6 +187,7 @@ fn extend_dupes_allowed(allowed: &mut Vec<&'static str>) {
     allowed.extend(REPORT_SCOPE_KEYS);
     allowed.extend(BASELINE_KEYS);
     allowed.extend(DUPLICATE_KEYS);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn extend_trace_clone_allowed(allowed: &mut Vec<&'static str>) {
@@ -195,6 +199,7 @@ fn extend_health_allowed(allowed: &mut Vec<&'static str>) {
     allowed.extend(REPORT_SCOPE_KEYS);
     allowed.extend(BASELINE_KEYS);
     allowed.extend(HEALTH_KEYS);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn extend_runtime_allowed(allowed: &mut Vec<&'static str>) {
@@ -221,12 +226,14 @@ fn extend_security_allowed(allowed: &mut Vec<&'static str>) {
         "fail_on_issues",
         "summary",
     ]);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn extend_flags_allowed(allowed: &mut Vec<&'static str>) {
     allowed.extend(REPORT_SCOPE_KEYS);
     allowed.extend(BASELINE_KEYS);
     allowed.extend(["top"]);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn extend_fix_allowed(allowed: &mut Vec<&'static str>) {
@@ -254,6 +261,7 @@ fn extend_audit_allowed(allowed: &mut Vec<&'static str>) {
         "dupes_baseline",
         "max_decisions",
     ]);
+    allowed.extend(REPORT_GATE_KEYS);
 }
 
 fn report_args<F>(
@@ -285,6 +293,7 @@ fn analyze_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), 
     push_boundary_args(cli, args)?;
     push_duplicate_args(cli, args)?;
     push_health_args(cli, args)?;
+    push_report_gate_args(cli, args)?;
     if let Some(issue_types) = args.get("issue_types") {
         for issue_type in array_strings(issue_types, "issue_types")? {
             cli.push(issue_filter_flag(issue_type)?);
@@ -301,7 +310,8 @@ fn check_changed_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Resul
     cli.extend(["--changed-since".to_owned(), since]);
     push_baseline_args(cli, args)?;
     push_string_flag(cli, args, "dart_platform", "--dart-platform")?;
-    push_bool_mode(cli, args, "production", "--production", "--no-production")
+    push_bool_mode(cli, args, "production", "--production", "--no-production")?;
+    push_report_gate_args(cli, args)
 }
 
 fn project_info_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
@@ -403,7 +413,8 @@ fn trace_clone_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<
 fn dupes_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
     push_report_scope_args(cli, args)?;
     push_baseline_args(cli, args)?;
-    push_duplicate_args(cli, args)
+    push_duplicate_args(cli, args)?;
+    push_report_gate_args(cli, args)
 }
 
 fn push_duplicate_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
@@ -429,7 +440,8 @@ fn push_duplicate_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Resu
 fn health_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
     push_report_scope_args(cli, args)?;
     push_baseline_args(cli, args)?;
-    push_health_args(cli, args)
+    push_health_args(cli, args)?;
+    push_report_gate_args(cli, args)
 }
 
 fn coverage_analyze_args(args: &Map<String, Value>) -> Result<Vec<String>, String> {
@@ -509,14 +521,14 @@ fn security_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(),
     ] {
         push_bool_flag(cli, args, key, flag)?;
     }
-    Ok(())
+    push_report_gate_args(cli, args)
 }
 
 fn flags_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
     push_report_scope_args(cli, args)?;
     push_baseline_args(cli, args)?;
     push_number_flag(cli, args, "top", "--top")?;
-    Ok(())
+    push_report_gate_args(cli, args)
 }
 
 fn impact_args(args: &Map<String, Value>) -> Result<Vec<String>, String> {
@@ -576,7 +588,11 @@ fn audit_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), St
     }
     push_number_flag(cli, args, "max_decisions", "--max-decisions")?;
     push_bool_flag(cli, args, "brief", "--brief")?;
-    Ok(())
+    push_report_gate_args(cli, args)
+}
+
+fn push_report_gate_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {
+    push_bool_flag(cli, args, "strict", "--strict")
 }
 
 fn decision_surface_args(cli: &mut Vec<String>, args: &Map<String, Value>) -> Result<(), String> {

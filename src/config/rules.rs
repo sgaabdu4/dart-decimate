@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::SecurityCategory;
 use crate::output::{
     Finding, FindingKind, JsonAttackSurfaceEntry, JsonReport, JsonSecurityCandidate, Severity,
-    Verdict,
+    Verdict, recompute_visible_duplication_summary,
 };
 
 use super::rule_aliases::{
@@ -75,12 +75,14 @@ pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Res
     report
         .findings
         .retain_mut(|finding| apply_finding_level(finding, &rules) != RuleLevel::Off);
-    report.clone_groups.retain(|_| {
-        rules.level(
-            "dart-decimate/code-duplication",
-            FindingKind::CodeDuplication,
-        ) != RuleLevel::Off
-    });
+    if rules.level(
+        "dart-decimate/code-duplication",
+        FindingKind::CodeDuplication,
+    ) == RuleLevel::Off
+    {
+        report.clone_groups.clear();
+        recompute_visible_duplication_summary(report);
+    }
     report.complexity.retain(|finding| {
         rules.level(&finding.rule_id, complexity_kind(&finding.rule_id)) != RuleLevel::Off
     });

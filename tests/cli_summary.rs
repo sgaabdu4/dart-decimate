@@ -46,7 +46,7 @@ fn non_security_summary_preserves_json_items_and_exit_code()
     let (summary_code, summary_json) = run_json(report_args("dupes", &fixture, &extra, true))?;
 
     assert_eq!(summary_code, full_code);
-    assert_eq!(summary_code, 0);
+    assert_eq!(summary_code, 1);
     assert_eq!(summary_json["summary"], full_json["summary"]);
     assert_eq!(summary_json["findings"], full_json["findings"]);
     assert_eq!(summary_json["clone_groups"], full_json["clone_groups"]);

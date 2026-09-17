@@ -86,7 +86,7 @@ impl Default for DuplicateOptions {
             ignore_imports: true,
             ignore_mapper_pairs: true,
             top: None,
-            threshold: None,
+            threshold: Some(DuplicationThreshold::ZERO),
         }
     }
 }
@@ -100,6 +100,9 @@ const fn default_ignore_mapper_pairs() -> bool {
 pub struct DuplicationThreshold(u32);
 
 impl DuplicationThreshold {
+    /// Default threshold: any duplicated lines fail the duplication gate.
+    pub const ZERO: Self = Self(0);
+
     /// Build a threshold from a human percentage in the inclusive range `0..=100`.
     ///
     /// # Errors
@@ -140,10 +143,17 @@ impl DuplicationThreshold {
     fn as_percent(self) -> f64 {
         f64::from(self.0) / 100.0
     }
+}
 
-    fn is_exceeded_by(self, percentage_basis_points: u32) -> bool {
-        percentage_basis_points > self.0
-    }
+pub(crate) fn duplication_threshold_exceeded(
+    analyzed_lines: usize,
+    duplicated_lines: usize,
+    threshold_basis_points: Option<u32>,
+) -> bool {
+    analyzed_lines > 0
+        && threshold_basis_points.is_some_and(|threshold| {
+            (duplicated_lines as u128) * 10_000 > u128::from(threshold) * (analyzed_lines as u128)
+        })
 }
 
 impl Serialize for DuplicationThreshold {
@@ -589,8 +599,11 @@ fn duplicate_stats(
         let raw = ((duplicated_lines as u128) * 10_000) / (analyzed_lines as u128);
         u32::try_from(raw).unwrap_or(u32::MAX)
     };
-    let threshold_exceeded = threshold
-        .is_some_and(|threshold| threshold.is_exceeded_by(duplication_percentage_basis_points));
+    let threshold_exceeded = duplication_threshold_exceeded(
+        analyzed_lines,
+        duplicated_lines,
+        threshold.map(DuplicationThreshold::basis_points),
+    );
 
     DuplicateStats {
         analyzed_lines,
@@ -651,7 +664,7 @@ fn clone_group_from_occurrences(
     })
 }
 
-fn is_ignored_path(path: &Path) -> bool {
+pub(crate) fn is_ignored_path(path: &Path) -> bool {
     if is_generated_dart_path(path) {
         return true;
     }

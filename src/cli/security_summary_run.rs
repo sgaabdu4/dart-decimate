@@ -23,15 +23,23 @@ pub(super) fn apply_security_summary(request: &CommandRequest, report: &mut Json
     report.attack_surface.clear();
     report.runtime_coverage = None;
     report.next_steps.clear();
+    crate::output::recompute_visible_duplication_summary(report);
 }
 
-pub(super) fn exit_code(request: &CommandRequest, report: &JsonReport, regressed: bool) -> i32 {
-    if request.security_gate.is_some() {
-        if report.verdict == Verdict::Pass {
-            0
-        } else {
-            8
-        }
+pub(super) fn exit_code(
+    request: &CommandRequest,
+    report: &JsonReport,
+    regressed: bool,
+    duplication_failed: bool,
+    strict_failed: bool,
+    verdict_before_duplication: Verdict,
+) -> i32 {
+    if request.security_gate.is_some() && verdict_before_duplication == Verdict::Fail {
+        8
+    } else if strict_failed || duplication_failed {
+        1
+    } else if request.security_gate.is_some() {
+        0
     } else if request.security_issue_mode.fails_on_issues() {
         i32::from(report.summary.findings > 0)
     } else if request.command == ReportCommand::Audit && request.audit_gate == AuditGate::NewOnly {

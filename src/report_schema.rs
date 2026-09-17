@@ -38,7 +38,10 @@ pub fn report_schema() -> Value {
         "properties": {
             "schema_version": { "const": SCHEMA_VERSION },
             "kind": { "type": "string", "enum": kind_values() },
-            "tool": { "const": "dart-decimate" },
+            "tool": {
+                "type": "string",
+                "pattern": r"^dart-decimate [0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+            },
             "command": { "type": "string", "enum": command_values() },
             "verdict": { "type": "string", "enum": ["pass", "fail"] },
             "summary": { "$ref": "#/$defs/summary" },
