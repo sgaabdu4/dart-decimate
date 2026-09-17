@@ -16,69 +16,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-assets:
-    name: Build ${{ matrix.asset }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            asset: dart-decimate-linux-x64.tar.gz
-            exe_ext: ""
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            asset: dart-decimate-darwin-x64.tar.gz
-            exe_ext: ""
-          - os: macos-14
-            target: aarch64-apple-darwin
-            asset: dart-decimate-darwin-arm64.tar.gz
-            exe_ext: ""
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            asset: dart-decimate-windows-x64.tar.gz
-            exe_ext: ".exe"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-          rustup default "$RUST_TOOLCHAIN"
-          rustup target add "${{ matrix.target }}"
-
-      - name: Build archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --release --locked --target "${{ matrix.target }}" --bin dart-decimate --bin dart-decimate-mcp
-          mkdir -p dist
-          cp "target/${{ matrix.target }}/release/dart-decimate${{ matrix.exe_ext }}" dist/
-          cp "target/${{ matrix.target }}/release/dart-decimate-mcp${{ matrix.exe_ext }}" dist/
-          if [ "${{ matrix.exe_ext }}" = "" ]; then
-            chmod +x dist/dart-decimate dist/dart-decimate-mcp
-          fi
-          tar -czf "${{ matrix.asset }}" -C dist .
-
-      - name: Upload archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
-          if-no-files-found: error
-
-  release:
-    name: Tag and publish
-    needs: build-assets
+  prepare:
+    name: Validate and tag source
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
       contents: write
-      id-token: write
+    outputs:
+      npm_exists: ${{ steps.state.outputs.npm_exists }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
@@ -95,15 +42,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
-
-      - name: Prepare trusted npm publishing
-        run: |
-          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-          if [ -f "$npmrc" ]; then
-            sed -i '/_authToken/d' "$npmrc"
-          fi
 
       - name: Resolve version
         id: version
@@ -169,6 +108,131 @@ jobs:
           npm run test:postinstall:prebuilt
           npm run test:npx:prebuilt
 
+      - name: Create and push tag
+        if: steps.state.outputs.tag_exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      - name: Verify tagged source
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
+
+  build-assets:
+    name: Build ${{ matrix.asset }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: dart-decimate-linux-x64.tar.gz
+            exe_ext: ""
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            asset: dart-decimate-darwin-x64.tar.gz
+            exe_ext: ""
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset: dart-decimate-darwin-arm64.tar.gz
+            exe_ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: dart-decimate-windows-x64.tar.gz
+            exe_ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Verify tagged source
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add "${{ matrix.target }}"
+
+      - name: Build archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked --target "${{ matrix.target }}" --bin dart-decimate --bin dart-decimate-mcp
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/dart-decimate${{ matrix.exe_ext }}" dist/
+          cp "target/${{ matrix.target }}/release/dart-decimate-mcp${{ matrix.exe_ext }}" dist/
+          if [ "${{ matrix.exe_ext }}" = "" ]; then
+            chmod +x dist/dart-decimate dist/dart-decimate-mcp
+          fi
+          tar -czf "${{ matrix.asset }}" -C dist .
+
+      - name: Upload archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish tagged source
+    needs: [prepare, build-assets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Prepare trusted npm publishing
+        run: |
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$npmrc" ]; then
+            sed -i '/_authToken/d' "$npmrc"
+          fi
+
+      - name: Verify tagged source
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
+          test "$(node -p "require('./package.json').version")" = "$VERSION"
+
       - name: Download release assets
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -181,21 +245,18 @@ jobs:
           test "$(find dist-assets -type f | wc -l)" -eq 4
           ls -la dist-assets
 
-      - name: Create and push tag
-        if: steps.state.outputs.tag_exists == 'false'
+      - name: Verify Cargo and npm install parity
         env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "$TAG"
-          git push origin "$TAG"
+          DART_DECIMATE_CARGO_GIT_URL: ${{ github.server_url }}/${{ github.repository }}
+          DART_DECIMATE_CARGO_TAG: ${{ needs.prepare.outputs.tag }}
+          DART_DECIMATE_RELEASE_ASSET_DIR: dist-assets
+        run: npm run test:release:parity
 
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist-assets/* --clobber
@@ -204,5 +265,5 @@ jobs:
           fi
 
       - name: Publish to npm
-        if: steps.state.outputs.npm_exists == 'false'
+        if: needs.prepare.outputs.npm_exists == 'false'
         run: npm publish --access public --provenance

@@ -5,6 +5,11 @@
 //! syntax facts. Phase 3 runs graph traversals without evaluating variables,
 //! types, or function bodies. Phase 4 exposes the CLI and JSON output contract.
 
+/// Version compiled into the CLI and release artifacts.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Versioned producer identity used by `dart-decimate.report.v1` reports.
+pub const REPORT_TOOL: &str = concat!("dart-decimate ", env!("CARGO_PKG_VERSION"));
+
 pub mod baseline;
 pub mod boundaries;
 pub(crate) mod changed_scope;

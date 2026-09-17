@@ -309,6 +309,7 @@ fn apply_duplication_threshold_gate(report: &mut crate::output::JsonReport) {
 
 fn command() -> Command {
     let command = Command::new("dart-decimate")
+        .version(crate::VERSION)
         .about("Rust-native Dart and Flutter module-graph intelligence")
         .subcommand_required(false)
         .arg_required_else_help(false);

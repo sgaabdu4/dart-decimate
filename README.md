@@ -81,10 +81,11 @@ Exit codes:
 
 ## Install
 
-You do not need to install anything permanently. Use `npx`:
+You do not need to install anything permanently. For a reproducible gate, pin
+the release version:
 
 ```bash
-npx --yes dart-decimate human .
+npx --yes dart-decimate@0.0.44 human .
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -95,7 +96,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.22"
+    "dart-decimate": "0.0.44"
   }
 }
 ```
@@ -106,13 +107,23 @@ Then run:
 npm run dart-decimate
 ```
 
-If you prefer Cargo:
+If you prefer Cargo, install the matching tagged source:
 
 ```bash
-cargo install --git https://github.com/sgaabdu4/dart-decimate
+cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.44 --locked
 ```
 
 Cargo installs `dart-decimate` and `dart-decimate-mcp` into `~/.cargo/bin`.
+The npm release `X.Y.Z` and Cargo tag `vX.Y.Z` are verified against each other
+before publication. Do not use an untagged `cargo install --git` command for a
+reproducible gate because it follows the repository's moving default branch.
+
+Confirm which build is running:
+
+```bash
+dart-decimate --version
+# dart-decimate 0.0.44
+```
 
 Fish:
 
@@ -549,7 +560,7 @@ Example shape:
 {
   "schema_version": "dart-decimate.report.v1",
   "kind": "combined",
-  "tool": "dart-decimate",
+  "tool": "dart-decimate 0.0.44",
   "command": "check",
   "verdict": "fail",
   "summary": {
@@ -671,7 +682,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.41`.
+Current source version: `0.0.44`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base
@@ -683,8 +694,11 @@ To release a new version:
 2. Open a PR.
 3. Let CI pass.
 4. Merge to `main`.
-5. GitHub Actions publishes `dart-decimate` to npm, creates tag `vX.Y.Z`, and
-   creates the GitHub release.
+5. GitHub Actions validates the candidate, creates tag `vX.Y.Z`, builds every
+   release asset from that tag, and compares a Cargo install from the tag with
+   the npm tarball built from the same checkout.
+6. Only after that parity check passes, GitHub Actions publishes
+   `dart-decimate@X.Y.Z` and creates or updates the GitHub release.
 
 Release reruns for the same commit may update GitHub release assets. If the npm
 package already exists for that commit, the publish step is skipped; a reused tag

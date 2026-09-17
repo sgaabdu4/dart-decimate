@@ -198,7 +198,7 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
     JsonReport {
         schema_version: SCHEMA_VERSION.to_owned(),
         kind: results.command.kind().to_owned(),
-        tool: "dart-decimate".to_owned(),
+        tool: crate::REPORT_TOOL.to_owned(),
         command: results.command,
         verdict: report_verdict(&findings),
         summary,

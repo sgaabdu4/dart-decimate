@@ -291,7 +291,7 @@ fn release_workflow_checks_existing_state_before_release_version()
     let validate = section_between(
         &release,
         "      - name: Validate release candidate",
-        "      - name: Download release assets",
+        "      - name: Create and push tag",
     )?;
 
     assert!(state_index < release_check_index);
@@ -301,6 +301,29 @@ fn release_workflow_checks_existing_state_before_release_version()
     assert!(validate.contains("npm run version:check"));
     assert!(!validate.contains("npm run release:check"));
     assert!(validate.contains("npm run migration:check"));
+    assert!(
+        index_of(&release, "      - name: Validate release candidate")?
+            < index_of(&release, "      - name: Create and push tag")?
+    );
+
+    Ok(())
+}
+
+#[test]
+fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dyn std::error::Error>>
+{
+    let release = fs::read_to_string(".github/workflows/release.yml")?;
+    let build = section_between(&release, "  build-assets:", "  release:")?;
+    let publish = section_between(&release, "  release:", "      - name: Publish to npm")?;
+
+    assert!(build.contains("needs: prepare"));
+    assert!(build.contains("ref: ${{ needs.prepare.outputs.tag }}"));
+    assert!(build.contains("git rev-list -n 1 \"$TAG\""));
+    assert!(publish.contains("needs: [prepare, build-assets]"));
+    assert!(publish.contains("ref: ${{ needs.prepare.outputs.tag }}"));
+    assert!(publish.contains("Verify Cargo and npm install parity"));
+    assert!(publish.contains("DART_DECIMATE_CARGO_TAG: ${{ needs.prepare.outputs.tag }}"));
+    assert!(publish.contains("npm run test:release:parity"));
 
     Ok(())
 }

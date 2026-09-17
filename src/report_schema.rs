@@ -38,7 +38,7 @@ pub fn report_schema() -> Value {
         "properties": {
             "schema_version": { "const": SCHEMA_VERSION },
             "kind": { "type": "string", "enum": kind_values() },
-            "tool": { "const": "dart-decimate" },
+            "tool": { "const": crate::REPORT_TOOL },
             "command": { "type": "string", "enum": command_values() },
             "verdict": { "type": "string", "enum": ["pass", "fail"] },
             "summary": { "$ref": "#/$defs/summary" },
