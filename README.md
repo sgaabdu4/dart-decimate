@@ -624,6 +624,23 @@ you need the installed binary's exact list.
 
 ## CI
 
+For a fast production-source check:
+
+```bash
+npx --yes dart-decimate@0.0.44 json lib --threshold 0
+```
+
+This runs every enabled check under `lib/` and prints the
+`dart-decimate.report.v1` JSON report. Use `.` instead of `lib` when CI must
+also scan local packages or other Dart source roots outside `lib/`.
+
+CI can use both the JSON `verdict` and the process exit code:
+
+- `0`: pass
+- `1`: error-level findings or the duplication threshold failed
+- `2`: invalid command, configuration, or runtime error
+- `8`: new security candidates failed a security gate
+
 See [docs/ci.md](docs/ci.md) for CI checks, PR gates, hook setup, CI
 templates, and review-thread reconciliation.
 
