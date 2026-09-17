@@ -40,24 +40,24 @@ It answers practical questions:
 Inside any Dart or Flutter project, run this:
 
 ```bash
-npx --yes dart-decimate human .
+npx dart-decimate@latest
 ```
 
-That is the easiest command. It checks the whole repo for dead code, circular
-dependencies, duplicated code, complex functions, dependency hygiene,
-architecture drift, Flutter graph issues, security candidates, and PR-risk
-signals.
+That checks the current project and prints a readable report covering dead
+code, circular dependencies, duplicated code, complex functions, dependency
+hygiene, architecture drift, Flutter graph issues, security candidates, and
+PR-risk signals.
 
 To open the same report in your browser:
 
 ```bash
-npx --yes dart-decimate html .
+npx dart-decimate@latest html
 ```
 
 To review only files changed from another branch or ref:
 
 ```bash
-npx --yes dart-decimate html . --compare origin/main
+npx dart-decimate@latest html --compare origin/main
 ```
 
 `--compare REF` aliases `--changed-since REF`. If the ref is not found,
@@ -66,7 +66,7 @@ Dart Decimate suggests similar local or remote branches.
 For JSON output that agents and CI can parse:
 
 ```bash
-npx --yes dart-decimate json .
+npx dart-decimate@latest json
 ```
 
 If the human report says `FAIL`, or JSON says `"verdict": "fail"`, Dart Decimate
@@ -81,11 +81,12 @@ Exit codes:
 
 ## Install
 
-You do not need to install anything permanently. For a reproducible gate, pin
-the release version:
+You do not need to install anything permanently. Use the command above.
+
+For repeatable automation, pin the version:
 
 ```bash
-npx --yes dart-decimate@0.0.44 human .
+npx --yes dart-decimate@0.0.44
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -113,43 +114,15 @@ If you prefer Cargo, install the matching tagged source:
 cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.44 --locked
 ```
 
-Cargo installs `dart-decimate` and `dart-decimate-mcp` into `~/.cargo/bin`.
 The npm release `X.Y.Z` and Cargo tag `vX.Y.Z` are verified against each other
 before publication. Do not use an untagged `cargo install --git` command for a
 reproducible gate because it follows the repository's moving default branch.
 
-Confirm which build is running:
+Confirm a Cargo build's version with:
 
 ```bash
 dart-decimate --version
 # dart-decimate 0.0.44
-```
-
-Fish:
-
-```bash
-fish_add_path ~/.cargo/bin
-```
-
-Bash or Zsh:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-```
-
-From a local checkout:
-
-```bash
-git clone https://github.com/sgaabdu4/dart-decimate.git
-cd dart-decimate
-cargo install --path . --force
-```
-
-Then run it in your app:
-
-```bash
-cd /path/to/flutter_or_dart_repo
-dart-decimate check . --format json
 ```
 
 ## npx
@@ -160,19 +133,19 @@ install.
 Check everything:
 
 ```bash
-npx --yes dart-decimate human .
+npx dart-decimate@latest
 ```
 
 Machine-readable JSON:
 
 ```bash
-npx --yes dart-decimate json .
+npx dart-decimate@latest json
 ```
 
 Open the HTML report in your browser:
 
 ```bash
-npx --yes dart-decimate html .
+npx dart-decimate@latest html
 ```
 
 The `html` shortcut opens the report by default. On report commands, use
@@ -189,18 +162,12 @@ messages; HTML reports escape user-derived content.
 Print the HTML report instead:
 
 ```bash
-npx --yes dart-decimate html . --stdout > dart-decimate-report.html
+npx dart-decimate@latest html --stdout > dart-decimate-report.html
 ```
 
-Changed files only: `npx --yes dart-decimate html . --compare origin/main`.
+Changed files only: `npx dart-decimate@latest html --compare origin/main`.
 `--compare REF` aliases `--changed-since REF` and suggests similar branches when
 the ref is not found.
-
-To run the GitHub version directly:
-
-```bash
-npx --yes --package github:sgaabdu4/dart-decimate dart-decimate check . --format json
-```
 
 ## What Dart Decimate Looks For
 
