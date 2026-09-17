@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::finding_identity::finding_identity;
-use crate::output::{Finding, FindingKind, JsonAttackSurfaceEntry, JsonReport, Severity, Verdict};
+use crate::output::{
+    Finding, FindingKind, JsonAttackSurfaceEntry, JsonReport, Severity, Verdict,
+    recompute_visible_duplication_summary,
+};
 use crate::{JsonCloneGroup, JsonComplexityFinding, JsonFeatureFlag, JsonSecurityCandidate};
 
 pub const BASELINE_SCHEMA_VERSION: &str = "dart-decimate.baseline.v1";
@@ -554,6 +557,7 @@ fn kind_suffix(kind: FindingKind) -> &'static str {
     }
 }
 fn recompute_summary(report: &mut JsonReport) {
+    recompute_visible_duplication_summary(report);
     report.summary.unresolved_dependencies =
         kind_count(&report.findings, FindingKind::UnresolvedDependency);
     report.summary.part_of_violations = kind_count(&report.findings, FindingKind::PartOfViolation);

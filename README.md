@@ -40,24 +40,25 @@ It answers practical questions:
 Inside any Dart or Flutter project, run this:
 
 ```bash
-npx --yes dart-decimate human .
+npx dart-decimate@latest
 ```
 
-That is the easiest command. It checks the whole repo for dead code, circular
-dependencies, duplicated code, complex functions, dependency hygiene,
-architecture drift, Flutter graph issues, security candidates, and PR-risk
-signals.
+That checks the current project and prints a readable report covering dead
+code, circular dependencies, duplicated code, complex functions, dependency
+hygiene, architecture drift, Flutter graph issues, security candidates, and
+PR-risk signals. The duplication threshold defaults to zero, so any detected
+duplicate group fails the check.
 
 To open the same report in your browser:
 
 ```bash
-npx --yes dart-decimate html .
+npx dart-decimate@latest html
 ```
 
 To review only files changed from another branch or ref:
 
 ```bash
-npx --yes dart-decimate html . --compare origin/main
+npx dart-decimate@latest html --compare origin/main
 ```
 
 `--compare REF` aliases `--changed-since REF`. If the ref is not found,
@@ -66,25 +67,30 @@ Dart Decimate suggests similar local or remote branches.
 For JSON output that agents and CI can parse:
 
 ```bash
-npx --yes dart-decimate json .
+npx dart-decimate@latest json
 ```
 
 If the human report says `FAIL`, or JSON says `"verdict": "fail"`, Dart Decimate
-worked. It means it found error-level issues. It does not mean the tool crashed.
+worked. It means a configured quality gate failed: an error-level issue, the
+duplication threshold, or (with `--strict`) any visible finding. It does not
+mean the tool crashed.
 
 Exit codes:
 
-- `0`: no error-level findings
-- `1`: Dart Decimate found issues
+- `0`: the configured gates passed
+- `1`: an error, any duplicated code at the default zero threshold, or any
+  finding when `--strict` is enabled
 - `2`: command, config, or runtime error
 - `8`: security gate found new review-required candidates
 
 ## Install
 
-You do not need to install anything permanently. Use `npx`:
+You do not need to install anything permanently. Use the command above.
+
+For repeatable automation, pin the version:
 
 ```bash
-npx --yes dart-decimate human .
+npx --yes dart-decimate@0.0.44
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -95,7 +101,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "^0.0.22"
+    "dart-decimate": "0.0.44"
   }
 }
 ```
@@ -106,39 +112,21 @@ Then run:
 npm run dart-decimate
 ```
 
-If you prefer Cargo:
+If you prefer Cargo, install the matching tagged source:
 
 ```bash
-cargo install --git https://github.com/sgaabdu4/dart-decimate
+cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.44 --locked
 ```
 
-Cargo installs `dart-decimate` and `dart-decimate-mcp` into `~/.cargo/bin`.
+The npm release `X.Y.Z` and Cargo tag `vX.Y.Z` are verified against each other
+before publication. Do not use an untagged `cargo install --git` command for a
+reproducible gate because it follows the repository's moving default branch.
 
-Fish:
-
-```bash
-fish_add_path ~/.cargo/bin
-```
-
-Bash or Zsh:
+Confirm a Cargo build's version with:
 
 ```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-```
-
-From a local checkout:
-
-```bash
-git clone https://github.com/sgaabdu4/dart-decimate.git
-cd dart-decimate
-cargo install --path . --force
-```
-
-Then run it in your app:
-
-```bash
-cd /path/to/flutter_or_dart_repo
-dart-decimate check . --format json
+dart-decimate --version
+# dart-decimate 0.0.44
 ```
 
 ## npx
@@ -149,19 +137,19 @@ install.
 Check everything:
 
 ```bash
-npx --yes dart-decimate human .
+npx dart-decimate@latest
 ```
 
 Machine-readable JSON:
 
 ```bash
-npx --yes dart-decimate json .
+npx dart-decimate@latest json
 ```
 
 Open the HTML report in your browser:
 
 ```bash
-npx --yes dart-decimate html .
+npx dart-decimate@latest html
 ```
 
 The `html` shortcut opens the report by default. On report commands, use
@@ -178,18 +166,12 @@ messages; HTML reports escape user-derived content.
 Print the HTML report instead:
 
 ```bash
-npx --yes dart-decimate html . --stdout > dart-decimate-report.html
+npx dart-decimate@latest html --stdout > dart-decimate-report.html
 ```
 
-Changed files only: `npx --yes dart-decimate html . --compare origin/main`.
+Changed files only: `npx dart-decimate@latest html --compare origin/main`.
 `--compare REF` aliases `--changed-since REF` and suggests similar branches when
 the ref is not found.
-
-To run the GitHub version directly:
-
-```bash
-npx --yes --package github:sgaabdu4/dart-decimate dart-decimate check . --format json
-```
 
 ## What Dart Decimate Looks For
 
@@ -549,7 +531,7 @@ Example shape:
 {
   "schema_version": "dart-decimate.report.v1",
   "kind": "combined",
-  "tool": "dart-decimate",
+  "tool": "dart-decimate 0.0.44",
   "command": "check",
   "verdict": "fail",
   "summary": {
@@ -562,6 +544,10 @@ Example shape:
   "next_steps": []
 }
 ```
+
+The `dart-decimate.report.v1` field layout is unchanged. Its existing `tool`
+string includes the producing version so saved reports identify the exact
+build, for example `dart-decimate 0.0.44`.
 
 When grouped security findings hide additional occurrences, `next_steps` can
 include `review-security-surface`, which reruns
@@ -646,6 +632,27 @@ you need the installed binary's exact list.
 
 ## CI
 
+For a complete repository check, including discovered local packages:
+
+```bash
+npx --yes dart-decimate@0.0.44 --strict
+```
+
+This runs every enabled check from the repository root. The default duplication
+threshold is zero, and `--strict` makes warnings fail too. Remove `--strict` if
+CI should fail only for error-level findings or duplicated code.
+
+Use `json --strict` instead when CI needs the `dart-decimate.report.v1` JSON
+report rather than the readable terminal report.
+
+CI can use both the JSON `verdict` and the process exit code:
+
+- `0`: pass
+- `1`: error-level findings, the duplication threshold failed, or `--strict`
+  found any warning
+- `2`: invalid command, configuration, or runtime error
+- `8`: new security candidates failed a security gate
+
 See [docs/ci.md](docs/ci.md) for CI checks, PR gates, hook setup, CI
 templates, and review-thread reconciliation.
 
@@ -671,7 +678,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current version: `0.0.41`.
+Current source version: `0.0.44`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base
@@ -679,12 +686,16 @@ branch and to an unpublished npm version.
 
 To release a new version:
 
-1. Update both `Cargo.toml` and `package.json` to the same unpublished version.
+1. Update `Cargo.toml`, `package.json`, and the pinned commands in `README.md`
+   and `docs/ci.md` to the same unpublished version.
 2. Open a PR.
 3. Let CI pass.
 4. Merge to `main`.
-5. GitHub Actions publishes `dart-decimate` to npm, creates tag `vX.Y.Z`, and
-   creates the GitHub release.
+5. GitHub Actions validates the merged commit, builds every release asset, and
+   compares a Cargo install from that exact commit with the npm tarball.
+6. Only after that parity check passes, GitHub Actions tags the verified commit
+   as `vX.Y.Z`, creates or updates the GitHub release, and publishes
+   `dart-decimate@X.Y.Z`.
 
 Release reruns for the same commit may update GitHub release assets. If the npm
 package already exists for that commit, the publish step is skipped; a reused tag

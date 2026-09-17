@@ -29,6 +29,42 @@ fn bare_command_defaults_to_check_and_preserves_flags() -> Result<(), Box<dyn st
 }
 
 #[test]
+fn bare_strict_command_fails_on_warning_findings() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let duplicate = "void shared() {\n  final values = [1, 2, 3];\n  final active = values.where((value) => value > 1);\n  print(active.length);\n}\n";
+    write(&fixture, "lib/a.dart", duplicate)?;
+    write(&fixture, "lib/b.dart", duplicate)?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+            "--min-lines",
+            "5",
+            "--min-tokens",
+            "10",
+            "--threshold",
+            "100",
+            "--strict",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 1);
+    assert_eq!(json["command"], "check");
+    assert_eq!(json["verdict"], "fail");
+    assert_eq!(json["summary"]["code_duplications"], 1);
+    assert_eq!(json["findings"][0]["severity"], "warning");
+
+    Ok(())
+}
+
+#[test]
 fn bare_command_defaults_to_check_with_root_flag() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

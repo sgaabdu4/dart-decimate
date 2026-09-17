@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fs;
 
 use super::format;
 use super::{
@@ -7,6 +8,7 @@ use super::{
     JsonRefactoringTarget, JsonSecurityCandidate,
 };
 use crate::{HealthReport, SemanticOmissionReason, SemanticReport, scan::ScannedProject};
+use crate::{dupes::is_ignored_path, graph::normalize_against};
 
 pub(super) fn file_scope(
     project: &ScannedProject,
@@ -199,6 +201,28 @@ pub(super) fn project_file_scope_count(
         .iter()
         .filter(|file| scope.contains(&format::display_path(&project.root, &file.path)))
         .count()
+}
+
+pub(super) fn scoped_duplication_analyzed_lines(
+    project: &ScannedProject,
+    scope: &BTreeSet<String>,
+) -> usize {
+    project
+        .files
+        .iter()
+        .filter_map(|file| {
+            let path = normalize_against(&project.root, &file.path);
+            if !path.starts_with(&project.root)
+                || is_ignored_path(&path)
+                || !scope.contains(&format::display_path(&project.root, &path))
+            {
+                return None;
+            }
+            fs::read_to_string(path)
+                .ok()
+                .map(|source| source.lines().count())
+        })
+        .sum()
 }
 
 pub(super) fn health_file_score_count(

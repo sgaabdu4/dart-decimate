@@ -16,7 +16,8 @@ fn github_ci_template_emits_yaml_workflow() -> Result<(), Box<dyn std::error::Er
     assert_eq!(code, 0);
     assert!(yaml.contains("name: Dart Decimate"));
     assert!(yaml.contains("pull_request:"));
-    assert!(yaml.contains("dart-decimate audit --format json --base"));
+    assert!(yaml.contains(&pinned_audit_command()));
+    assert!(yaml.contains("--strict"));
 
     Ok(())
 }
@@ -34,7 +35,8 @@ fn gitlab_ci_template_emits_yaml_template() -> Result<(), Box<dyn std::error::Er
     assert_eq!(code, 0);
     assert!(yaml.contains("stages:"));
     assert!(yaml.contains("dart-decimate:"));
-    assert!(yaml.contains("dart-decimate audit --format json --base"));
+    assert!(yaml.contains(&pinned_audit_command()));
+    assert!(yaml.contains("--strict"));
 
     Ok(())
 }
@@ -59,7 +61,7 @@ fn ci_template_json_envelope_lists_target_path_and_content()
     assert!(
         json["files"][0]["content"]
             .as_str()
-            .is_some_and(|content| content.contains("dart-decimate audit --format json --base"))
+            .is_some_and(|content| content.contains(&pinned_audit_command()))
     );
 
     Ok(())
@@ -94,7 +96,7 @@ fn gitlab_vendor_writes_scoped_files_and_refuses_overwrite()
     assert!(fixture.path().join("ci/scripts/comment.sh").is_file());
     assert!(
         fs::read_to_string(fixture.path().join("ci/scripts/review.sh"))?
-            .contains("dart-decimate audit --format json --base")
+            .contains(&pinned_audit_command())
     );
 
     let error = match run_from(
@@ -114,6 +116,13 @@ fn gitlab_vendor_writes_scoped_files_and_refuses_overwrite()
     assert!(error.to_string().contains("refusing to overwrite"));
 
     Ok(())
+}
+
+fn pinned_audit_command() -> String {
+    format!(
+        "npx --yes dart-decimate@{} audit --format json --base",
+        env!("CARGO_PKG_VERSION")
+    )
 }
 
 #[test]

@@ -111,6 +111,7 @@ pub(super) fn run_fix<W: Write>(subcommand: &ArgMatches, mut writer: W) -> Resul
         save_regression_baseline: None,
         regression_tolerance: RegressionTolerance::default(),
         fail_on_regression: false,
+        finding_gate: super::FindingGate::ErrorsOnly,
         trace_file: None,
         trace_symbol: None,
         trace_dependency: None,
