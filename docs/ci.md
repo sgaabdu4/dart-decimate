@@ -4,7 +4,7 @@ Add Dart Decimate to CI so every PR gets the same repo health check:
 
 ```yaml
 - name: Dart Decimate
-  run: npx --yes dart-decimate@0.0.44 --strict
+  run: npx --yes dart-decimate@0.0.45 --strict
 ```
 
 That is the easiest CI command. It checks everything Dart Decimate knows how to
@@ -14,7 +14,7 @@ warnings as well as errors.
 For PR-only regression checks, use:
 
 ```bash
-npx --yes dart-decimate@0.0.44 audit . --base origin/main --format json --summary --gate new-only
+npx --yes dart-decimate@0.0.45 audit . --base origin/main --format json --summary --gate new-only
 ```
 
 `--gate new-only` limits the finding gate to issues introduced by the change.
@@ -28,7 +28,7 @@ You can also put the full check in a git hook:
 mkdir -p .git/hooks
 cat > .git/hooks/pre-commit <<'SH'
 #!/usr/bin/env sh
-npx --yes dart-decimate@0.0.44 --strict
+npx --yes dart-decimate@0.0.45 --strict
 SH
 chmod +x .git/hooks/pre-commit
 ```

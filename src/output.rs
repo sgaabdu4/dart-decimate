@@ -226,6 +226,7 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
             scoped_duplication_analyzed_lines(project, scope);
         recompute_visible_duplication_summary(&mut report);
     }
+    duplication_findings::reconcile_clone_visibility(&mut report, results);
     report
 }
 

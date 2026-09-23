@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{CodeClone, CodeCloneInstance};
+#[cfg(test)]
+use super::CodeClone;
+use super::CodeCloneInstance;
 
 pub(super) struct DeclarationCloneFilter {
     files: BTreeMap<PathBuf, Option<DeclarationFileContext>>,
@@ -15,6 +17,7 @@ impl DeclarationCloneFilter {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn is_declaration_only_clone(&mut self, group: &CodeClone) -> bool {
         group
             .instances
@@ -22,7 +25,10 @@ impl DeclarationCloneFilter {
             .all(|instance| self.clone_instance_is_declaration_only(instance))
     }
 
-    fn clone_instance_is_declaration_only(&mut self, instance: &CodeCloneInstance) -> bool {
+    pub(super) fn clone_instance_is_declaration_only(
+        &mut self,
+        instance: &CodeCloneInstance,
+    ) -> bool {
         let path = instance.path.clone();
         let Some(file) = self
             .files
@@ -43,7 +49,11 @@ impl DeclarationCloneFilter {
             })
             .filter(|(_, line)| !line.is_empty())
             .collect::<Vec<_>>();
-        !lines.is_empty() && declaration_only_lines(&lines, &file.context.direct_type_body_lines)
+        !lines.is_empty()
+            && (lines
+                .iter()
+                .all(|(line, _)| file.bodyless_lines.contains(line))
+                || declaration_only_lines(&lines, &file.context.direct_type_body_lines))
     }
 
     #[cfg(test)]
@@ -55,13 +65,69 @@ impl DeclarationCloneFilter {
 struct DeclarationFileContext {
     source: String,
     context: DeclarationContext,
+    bodyless_lines: BTreeSet<usize>,
 }
 
 impl DeclarationFileContext {
     fn read(path: &Path) -> Option<Self> {
         let source = fs::read_to_string(path).ok()?;
         let context = DeclarationContext::from_source(&source);
-        Some(Self { source, context })
+        let bodyless_lines = bodyless_member_lines(path, &source);
+        Some(Self {
+            source,
+            context,
+            bodyless_lines,
+        })
+    }
+}
+
+// Class-member declaration nodes exclude concrete method bodies. Classify the
+// entire source before looking at clone windows, which may end mid-signature.
+fn bodyless_member_lines(path: &Path, source: &str) -> BTreeSet<usize> {
+    let mut lines = BTreeSet::new();
+    let Ok(parsed) = crate::dart_parser::parse_dart_source_strict(path, source) else {
+        return lines;
+    };
+    collect_bodyless_lines(parsed.tree().root_node(), parsed.source(), &mut lines);
+    lines
+}
+
+fn collect_bodyless_lines(node: tree_sitter::Node<'_>, source: &str, lines: &mut BTreeSet<usize>) {
+    if node.kind() == "class_member" {
+        let mut cursor = node.walk();
+        let bodyless = node.named_children(&mut cursor).any(|child| {
+            child.kind() == "declaration" && {
+                let mut cursor = child.walk();
+                child.named_children(&mut cursor).any(|signature| {
+                    matches!(
+                        signature.kind(),
+                        "function_signature"
+                            | "getter_signature"
+                            | "setter_signature"
+                            | "operator_signature"
+                    )
+                })
+            }
+        });
+        // Keep the existing conservative treatment of default values.
+        let text = &source[node.byte_range()];
+        if bodyless && !signature_contains_non_operator_equals(text) {
+            let start = node.start_position();
+            let end = node.end_position();
+            for (row, line) in source.lines().enumerate().take(end.row + 1).skip(start.row) {
+                let before = row != start.row || line[..start.column].trim().is_empty();
+                let after =
+                    row != end.row || strip_line_comment(&line[end.column..]).trim().is_empty();
+                if before && after {
+                    lines.insert(row + 1);
+                }
+            }
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_bodyless_lines(child, source, lines);
     }
 }
 

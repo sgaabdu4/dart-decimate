@@ -1,4 +1,6 @@
-use std::{fs, process::Command};
+mod common;
+
+use std::fs;
 
 use dart_decimate::cli::run_from;
 use serde_json::Value;
@@ -1001,7 +1003,7 @@ fn git_commit_all(fixture: &TempDir) -> Result<(), Box<dyn std::error::Error>> {
         vec!["add", "."],
         vec!["commit", "-q", "-m", "baseline"],
     ] {
-        let status = Command::new("git")
+        let status = common::isolated_git_command()
             .args(args)
             .current_dir(fixture.path())
             .status()?;

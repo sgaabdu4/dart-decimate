@@ -415,7 +415,12 @@ pub fn detect_duplicates(
     }
     clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
     let mut declaration_filter = DeclarationCloneFilter::new();
-    clone_groups.retain(|group| !declaration_filter.is_declaration_only_clone(group));
+    for group in &mut clone_groups {
+        group
+            .instances
+            .retain(|instance| !declaration_filter.clone_instance_is_declaration_only(instance));
+    }
+    clone_groups.retain(|group| group_satisfies_occurrence_options(group, options));
     if options.ignore_mapper_pairs {
         let mapping_filter = MappingBoundaryFilter::new(project);
         clone_groups.retain(|group| !mapping_filter.is_mapping_boundary_clone(group));
