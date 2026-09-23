@@ -143,6 +143,8 @@ pub(super) fn reconcile_clone_visibility(
                     .any(|group| finding.fingerprint.as_ref() == Some(&group.fingerprint))
         });
         report.summary.code_duplications = report.clone_groups.len();
+        report.summary.findings = report.findings.len();
+        report.verdict = super::report_verdict(&report.findings);
     }
     report.next_steps.retain_mut(|step| {
         if step.id != "trace-code-duplication" {

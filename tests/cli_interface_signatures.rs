@@ -133,6 +133,7 @@ fn suppression_with_top_keeps_other_groups_in_threshold() -> Result<(), Box<dyn 
     assert_eq!(code, 1, "{report}");
     assert_eq!(report["clone_groups"].as_array().map(Vec::len), Some(1));
     assert_eq!(report["findings"].as_array().map(Vec::len), Some(1));
+    assert_eq!(report["summary"]["findings"], 1);
     // Whole-file windows can include adjoining braces; all surviving groups
     // must still count even though only one group is displayed.
     let (_, unlimited) = run(
