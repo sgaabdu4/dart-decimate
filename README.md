@@ -90,7 +90,7 @@ You do not need to install anything permanently. Use the command above.
 For repeatable automation, pin the version:
 
 ```bash
-npx --yes dart-decimate@0.0.44
+npx --yes dart-decimate@0.0.45
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -101,7 +101,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "0.0.44"
+    "dart-decimate": "0.0.45"
   }
 }
 ```
@@ -115,7 +115,7 @@ npm run dart-decimate
 If you prefer Cargo, install the matching tagged source:
 
 ```bash
-cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.44 --locked
+cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.45 --locked
 ```
 
 The npm release `X.Y.Z` and Cargo tag `vX.Y.Z` are verified against each other
@@ -126,7 +126,7 @@ Confirm a Cargo build's version with:
 
 ```bash
 dart-decimate --version
-# dart-decimate 0.0.44
+# dart-decimate 0.0.45
 ```
 
 ## npx
@@ -255,8 +255,13 @@ Dart Decimate finds exact and semantic clone groups. Each clone group gets a sta
 fingerprint like `dup:abc12345`, so agents can trace it before touching code.
 Clone windows must meet both line and token thresholds; sparse duplicated blocks
 can span more than `--min-lines`, and `line_count` reports the actual match.
-Declaration-only abstract contracts are filtered, and copied local Pub package
+Bodyless contract declarations are excluded even when a clone window covers
+only part of a signature or matches a concrete implementation. Matching concrete
+implementations remain eligible for duplication checks. Copied local Pub package
 mirrors are canonicalized before same-mirror matches are ignored.
+A next-line `code-duplication` suppression on the reported group anchor removes
+that group from findings, clone details, and duplication-threshold accounting.
+`--top` limits displayed groups without reducing the remaining duplication total.
 Pair-only class clones joined by an explicit `toEntity()` or `toDomain()` mapper
 are treated as intentional boundaries by default. Set
 `dupes.ignore_mapper_pairs = false` to report those pairs.
@@ -531,7 +536,7 @@ Example shape:
 {
   "schema_version": "dart-decimate.report.v1",
   "kind": "combined",
-  "tool": "dart-decimate 0.0.44",
+  "tool": "dart-decimate 0.0.45",
   "command": "check",
   "verdict": "fail",
   "summary": {
@@ -547,7 +552,7 @@ Example shape:
 
 The `dart-decimate.report.v1` field layout is unchanged. Its existing `tool`
 string includes the producing version so saved reports identify the exact
-build, for example `dart-decimate 0.0.44`.
+build, for example `dart-decimate 0.0.45`.
 
 When grouped security findings hide additional occurrences, `next_steps` can
 include `review-security-surface`, which reruns
@@ -635,7 +640,7 @@ you need the installed binary's exact list.
 For a complete repository check, including discovered local packages:
 
 ```bash
-npx --yes dart-decimate@0.0.44 --strict
+npx --yes dart-decimate@0.0.45 --strict
 ```
 
 This runs every enabled check from the repository root. The default duplication
@@ -678,7 +683,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current source version: `0.0.44`.
+Current source version: `0.0.45`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base

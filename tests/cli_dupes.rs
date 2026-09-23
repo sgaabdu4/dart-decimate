@@ -340,6 +340,47 @@ fn top_limits_details_without_weakening_threshold() -> Result<(), Box<dyn std::e
 }
 
 #[test]
+fn zero_top_keeps_threshold_but_not_hidden_finding_count() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write_duplicate_pair(&fixture)?;
+    for (threshold, expected_code) in [("100", 0), ("0", 1)] {
+        let mut output = Vec::new();
+        let code = run_from(
+            [
+                "dart-decimate",
+                "dupes",
+                fixture.path().to_str().unwrap_or("."),
+                "--format",
+                "json",
+                "--strict",
+                "--min-lines",
+                "5",
+                "--min-tokens",
+                "10",
+                "--top",
+                "0",
+                "--threshold",
+                threshold,
+            ],
+            &mut output,
+        )?;
+        let json = serde_json::from_slice::<Value>(&output)?;
+        assert_eq!(code, expected_code, "{json}");
+        assert_eq!(json["summary"]["findings"], 0);
+        assert_eq!(json["summary"]["duplicated_lines"], 10);
+        assert_eq!(json["findings"], serde_json::json!([]));
+        assert_eq!(json["clone_groups"], serde_json::json!([]));
+        assert_eq!(
+            json["verdict"],
+            if expected_code == 0 { "pass" } else { "fail" }
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn dupes_threshold_can_come_from_config() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
