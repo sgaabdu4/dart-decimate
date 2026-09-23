@@ -112,3 +112,49 @@ fn code_duplication_finding(root: &Path, clone: &crate::CodeClone) -> Finding {
         ],
     }
 }
+
+// Findings and clone inventories share suppression semantics. Reconcile all
+// groups before limiting details so --top cannot weaken the duplication gate.
+pub(super) fn reconcile_clone_visibility(
+    report: &mut super::JsonReport,
+    results: &super::AnalysisResults,
+) {
+    let original_count = report.clone_groups.len();
+    report.clone_groups.retain(|group| {
+        report.findings.iter().any(|finding| {
+            finding.kind == FindingKind::CodeDuplication
+                && finding.fingerprint.as_ref() == Some(&group.fingerprint)
+        })
+    });
+    if report.clone_groups.len() != original_count {
+        super::recompute_visible_duplication_summary(report);
+    }
+    if let Some(top) = results
+        .duplicates
+        .as_ref()
+        .and_then(|dupes| dupes.options.top)
+    {
+        report.clone_groups.truncate(top);
+        report.findings.retain(|finding| {
+            finding.kind != FindingKind::CodeDuplication
+                || report
+                    .clone_groups
+                    .iter()
+                    .any(|group| finding.fingerprint.as_ref() == Some(&group.fingerprint))
+        });
+        report.summary.code_duplications = report.clone_groups.len();
+    }
+    report.next_steps.retain_mut(|step| {
+        if step.id != "trace-code-duplication" {
+            return true;
+        }
+        let Some(group) = report.clone_groups.first() else {
+            return false;
+        };
+        step.command = format!(
+            "dart-decimate trace-clone --format json --fingerprint {}",
+            group.fingerprint
+        );
+        true
+    });
+}
