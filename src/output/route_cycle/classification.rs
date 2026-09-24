@@ -13,6 +13,7 @@ use super::{
     registry_api::{VisibleNonRouteRegistryApi, visible_non_route_registry_api},
     route_extension_navigation_call, route_location_argument, route_location_expression_member,
     typed_route_navigation_call, visit_named,
+    wrappers::helper_has_typed_route_wrapper_call,
 };
 use crate::{
     DartFile, DependencyCycle, DependencyKind, Location, ResolvedDependency, scan::ScannedProject,
@@ -173,6 +174,14 @@ fn is_typed_go_router_navigation_helper(
         return false;
     }
     helper_has_typed_route_navigation_call(root, source, &route_classes)
+        || helper_has_typed_route_wrapper_call(
+            helper_file,
+            root,
+            source,
+            &route_classes,
+            files_by_path,
+            dependencies,
+        )
 }
 
 fn helper_references_imported_api(

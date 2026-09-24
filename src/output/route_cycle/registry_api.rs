@@ -224,7 +224,7 @@ fn is_route_registry_infrastructure_declaration(name: &str) -> bool {
     )
 }
 
-fn dependency_imports_name(dependency: &ResolvedDependency, name: &str) -> bool {
+pub(super) fn dependency_imports_name(dependency: &ResolvedDependency, name: &str) -> bool {
     let mut show_seen = false;
     let mut shown = false;
     for combinator in &dependency.visibility.combinators {

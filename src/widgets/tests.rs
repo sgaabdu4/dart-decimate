@@ -309,6 +309,36 @@ class _UsedViaStateState extends State<UsedViaState> {
 }
 
 #[test]
+fn record_rhs_reads_and_state_callback_reads_count_widget_fields()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class RecordCard extends StatelessWidget {
+  RecordCard({required this.data, required this.unused});
+  final String data;
+  final String unused;
+  Widget build(BuildContext context) {
+    final (:value) = (value: data);
+    return Text(value);
+  }
+}
+class CallbackCard extends StatefulWidget {
+  CallbackCard({this.onSubmit, this.unused});
+  final void Function()? onSubmit;
+  final String? unused;
+  State<CallbackCard> createState() => _CallbackCardState();
+}
+class _CallbackCardState extends State<CallbackCard> {
+  Widget build(BuildContext context) => Tile(
+    onPressed: () => widget.onSubmit?.call(),
+  );
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+    assert_eq!(targets, vec!["RecordCard.unused", "CallbackCard.unused"]);
+    Ok(())
+}
+
+#[test]
 fn state_field_reads_ignore_widget_root_shadows() -> Result<(), Box<dyn std::error::Error>> {
     let targets =
         unused_param_targets(parse_findings(STATE_FIELD_ROOT_SHADOWS_SOURCE)?.unused_params);
