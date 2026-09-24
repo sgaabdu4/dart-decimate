@@ -1445,6 +1445,79 @@ extension HomeRouteNavigation on HomeRoute {
 }
 
 #[test]
+fn cycles_omits_route_alias_navigation_in_for_in_iterable_named_like_loop_variable()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.dart",
+        r"import 'package:app/features/home/home_screen.dart';
+
+part 'app_routes.g.dart';
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData {
+  const HomeRoute();
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+class BuildContext {}
+class GoRouterState {}
+class GoRouteData {}
+class Widget {}
+class TypedGoRoute<T> {
+  const TypedGoRoute({required String path});
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/core/router/app_routes.g.dart",
+        "part of 'app_routes.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/features/home/home_screen.dart",
+        r"import 'package:app/core/router/app_routes.dart';
+
+class HomeScreen extends Widget {
+  HomeScreen();
+  final route = const HomeRoute();
+
+  void open(BuildContext context) {
+    for (final route in route.go(context)) {
+      route.id;
+    }
+  }
+}
+
+class RouteWrapper {
+  String get id => '';
+}
+
+extension HomeRouteNavigation on HomeRoute {
+  List<RouteWrapper> go(BuildContext context) => [];
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["verdict"], "pass");
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
+    Ok(())
+}
+
+#[test]
 fn cycles_keeps_local_function_shadowed_route_alias_navigation_as_error()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
