@@ -570,6 +570,11 @@ fn scoped_header_binding_exists(
     ) {
         return false;
     }
+    if for_in_iterable(scope, path_child) {
+        // The iterable is evaluated in the enclosing scope, so even
+        // `for (final route in route.go(context))` reads the outer `route`.
+        return false;
+    }
     if header_field_binding_exists(scope, path_child, usage_start, name, source) {
         return true;
     }
@@ -616,6 +621,13 @@ fn catch_header_binding_exists(
         }
     }
     false
+}
+
+fn for_in_iterable(scope: Node<'_>, path_child: Node<'_>) -> bool {
+    matches!(scope.kind(), "for_element" | "for_statement")
+        && scope
+            .child_by_field_name("value")
+            .is_some_and(|value| same_node(value, path_child))
 }
 
 fn catch_body_child(node: Node<'_>) -> bool {
