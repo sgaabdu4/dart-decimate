@@ -11,6 +11,7 @@ mod registry_api;
 mod state_context;
 #[cfg(test)]
 mod tests;
+mod wrappers;
 
 use aliases::{route_alias_receiver_node, route_alias_receiver_text, route_aliases_at};
 pub(super) use classification::{
