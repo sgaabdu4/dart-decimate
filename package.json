@@ -53,6 +53,6 @@
     "access": "public"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.13"
+    "@biomejs/biome": "2.5.14"
   }
 }
