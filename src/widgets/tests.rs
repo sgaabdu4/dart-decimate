@@ -2263,3 +2263,215 @@ fn unused_param_targets(unused: Vec<UnusedWidgetParam>) -> Vec<String> {
         .map(|param| format!("{}.{}", param.widget_class, param.param_name))
         .collect()
 }
+
+const FOR_IN_ITERABLE_WIDGET_READS_SOURCE: &str = r"
+class CatalogSection extends StatefulWidget {
+  CatalogSection({required this.items, this.selectedIds = const {}, this.contextId, this.unused});
+  final List<Item> items;
+  final Set<String> selectedIds;
+  final String? contextId;
+  final String? unused;
+  State<CatalogSection> createState() => _CatalogSectionState();
+}
+class _CatalogSectionState extends State<CatalogSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (final item in widget.items)
+      Tile(
+        enabled: !widget.selectedIds.contains(item.id),
+        contextId: widget.contextId,
+      ),
+  ]);
+}
+class StatementLoopSection extends StatefulWidget {
+  const StatementLoopSection({super.key, required this.items, required this.label, this.unused});
+  final List<String> items;
+  final String label;
+  final String? unused;
+  State<StatementLoopSection> createState() => _StatementLoopSectionState();
+}
+class _StatementLoopSectionState extends State<StatementLoopSection> {
+  Widget build(BuildContext context) {
+    for (final item in widget.items) {
+      Text('$item ${widget.label}');
+    }
+    return const SizedBox();
+  }
+}
+class PatternLoopSection extends StatefulWidget {
+  const PatternLoopSection({super.key, required this.pairs, required this.label, this.unused});
+  final List<(String, String)> pairs;
+  final String label;
+  final String? unused;
+  State<PatternLoopSection> createState() => _PatternLoopSectionState();
+}
+class _PatternLoopSectionState extends State<PatternLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (final (left, right) in widget.pairs) Text('$left $right ${widget.label}'),
+  ]);
+}
+class IndexedLoopSection extends StatefulWidget {
+  const IndexedLoopSection({super.key, required this.items, required this.label, this.unused});
+  final List<String> items;
+  final String label;
+  final String? unused;
+  State<IndexedLoopSection> createState() => _IndexedLoopSectionState();
+}
+class _IndexedLoopSectionState extends State<IndexedLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (var i = 0; i < widget.items.length; i++) Text(widget.label),
+  ]);
+}
+class TypedLoopSection extends StatefulWidget {
+  const TypedLoopSection({super.key, required this.items, required this.label, this.unused});
+  final List<String> items;
+  final String label;
+  final String? unused;
+  State<TypedLoopSection> createState() => _TypedLoopSectionState();
+}
+class _TypedLoopSectionState extends State<TypedLoopSection> {
+  Widget build(BuildContext context) {
+    for (String item in widget.items) {
+      Text('$item ${widget.label}');
+    }
+    return const SizedBox();
+  }
+}
+class AwaitLoopSection extends StatefulWidget {
+  const AwaitLoopSection({super.key, required this.stream, required this.label, this.unused});
+  final Stream<String> stream;
+  final String label;
+  final String? unused;
+  State<AwaitLoopSection> createState() => _AwaitLoopSectionState();
+}
+class _AwaitLoopSectionState extends State<AwaitLoopSection> {
+  Future<void> listen() async {
+    await for (final event in widget.stream) {
+      Text('$event ${widget.label}');
+    }
+  }
+  Widget build(BuildContext context) => const SizedBox();
+}
+class ObjectPatternLoopSection extends StatefulWidget {
+  const ObjectPatternLoopSection({super.key, required this.items, required this.label, this.unused});
+  final List<Item> items;
+  final String label;
+  final String? unused;
+  State<ObjectPatternLoopSection> createState() => _ObjectPatternLoopSectionState();
+}
+class _ObjectPatternLoopSectionState extends State<ObjectPatternLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (final Item(:id) in widget.items) Text('$id ${widget.label}'),
+  ]);
+}
+class InitializerLoopSection extends StatefulWidget {
+  const InitializerLoopSection({super.key, required this.start, required this.label, this.unused});
+  final int start;
+  final String label;
+  final String? unused;
+  State<InitializerLoopSection> createState() => _InitializerLoopSectionState();
+}
+class _InitializerLoopSectionState extends State<InitializerLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (var i = widget.start; i < 3; i++) Text(widget.label),
+  ]);
+}
+class ShadowInitializerLoopSection extends StatefulWidget {
+  const ShadowInitializerLoopSection({super.key, required this.title});
+  final String title;
+  State<ShadowInitializerLoopSection> createState() => _ShadowInitializerLoopSectionState();
+}
+class _ShadowInitializerLoopSectionState extends State<ShadowInitializerLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (var widget = const ShadowInitializerLoopSection(title: 'local'); widget.title.isEmpty;)
+      Text(widget.title),
+  ]);
+}
+class ShadowLoopSection extends StatefulWidget {
+  const ShadowLoopSection({super.key, required this.items, required this.title});
+  final List<ShadowLoopSection> items;
+  final String title;
+  State<ShadowLoopSection> createState() => _ShadowLoopSectionState();
+}
+class _ShadowLoopSectionState extends State<ShadowLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (final widget in widget.items) Text(widget.title),
+  ]);
+}
+class ShadowStatementLoopSection extends StatefulWidget {
+  const ShadowStatementLoopSection({super.key, required this.items, required this.title});
+  final List<ShadowStatementLoopSection> items;
+  final String title;
+  State<ShadowStatementLoopSection> createState() => _ShadowStatementLoopSectionState();
+}
+class _ShadowStatementLoopSectionState extends State<ShadowStatementLoopSection> {
+  Widget build(BuildContext context) {
+    for (final widget in widget.items) {
+      Text(widget.title);
+    }
+    return const SizedBox();
+  }
+}
+class ShadowPatternLoopSection extends StatefulWidget {
+  const ShadowPatternLoopSection({super.key, required this.pairs, required this.title});
+  final List<(ShadowPatternLoopSection, int)> pairs;
+  final String title;
+  State<ShadowPatternLoopSection> createState() => _ShadowPatternLoopSectionState();
+}
+class _ShadowPatternLoopSectionState extends State<ShadowPatternLoopSection> {
+  Widget build(BuildContext context) => Column(children: [
+    for (final (widget, _) in widget.pairs) Text(widget.title),
+  ]);
+}
+";
+
+#[test]
+fn state_field_reads_survive_for_in_iterables_over_widget() -> Result<(), Box<dyn std::error::Error>>
+{
+    let targets =
+        unused_param_targets(parse_findings(FOR_IN_ITERABLE_WIDGET_READS_SOURCE)?.unused_params);
+
+    assert_eq!(
+        targets,
+        vec![
+            "CatalogSection.unused",
+            "StatementLoopSection.unused",
+            "PatternLoopSection.unused",
+            "IndexedLoopSection.unused",
+            "TypedLoopSection.unused",
+            "AwaitLoopSection.unused",
+            "ObjectPatternLoopSection.unused",
+            "InitializerLoopSection.unused",
+            "ShadowInitializerLoopSection.title",
+            "ShadowLoopSection.title",
+            "ShadowStatementLoopSection.title",
+            "ShadowPatternLoopSection.title"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn direct_field_reads_survive_for_in_iterables_named_like_the_loop_variable()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r"
+class TagsCard extends StatelessWidget {
+  const TagsCard({super.key, required this.tags, this.unused});
+  final String tags;
+  final String? unused;
+  Widget build(BuildContext context) => Column(children: [
+    for (final tags in tags.split(',')) Text(tags),
+  ]);
+}
+class ShadowTagsCard extends StatelessWidget {
+  const ShadowTagsCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Column(children: [
+    for (final title in ['local']) Text(title),
+  ]);
+}
+";
+    let targets = unused_param_targets(parse_findings(source)?.unused_params);
+
+    assert_eq!(targets, vec!["TagsCard.unused", "ShadowTagsCard.title"]);
+    Ok(())
+}
