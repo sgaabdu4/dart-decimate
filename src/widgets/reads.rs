@@ -103,7 +103,6 @@ const PATTERN_ANCESTORS: &[&str] = &[
     "null_assert_pattern",
     "null_check_pattern",
     "object_pattern",
-    "pattern_variable_declaration",
     "record_pattern",
     "rest_pattern",
     "variable_pattern",
@@ -135,11 +134,26 @@ fn is_widget_member_access(body: Node<'_>, node: Node<'_>, name: &str, source: &
     let Some(object) = node.child_by_field_name("object") else {
         return false;
     };
+    let object = state_member_receiver(object).unwrap_or(object);
     let Some(object_name @ ("widget" | "oldWidget")) = object.utf8_text(source.as_bytes()).ok()
     else {
         return false;
     };
     state_root_receiver_available(body, object, object_name, source)
+}
+
+fn state_member_receiver(object: Node<'_>) -> Option<Node<'_>> {
+    if object.kind() != "function_expression" {
+        return None;
+    }
+    // The Dart grammar attaches `().onSubmit` to the closure instead of its
+    // expression body for `() => widget.onSubmit?.call()`.
+    let body = object.child_by_field_name("body")?;
+    if body.kind() != "function_expression_body" || body.named_child_count() != 1 {
+        return None;
+    }
+    let receiver = body.named_child(0)?;
+    matches!(receiver.kind(), "identifier" | "identifier_dollar_escaped").then_some(receiver)
 }
 
 fn state_root_receiver_available(
