@@ -422,6 +422,11 @@ pub(super) fn scoped_header_binding_exists(
     ) {
         return false;
     }
+    if for_in_iterable(scope, path_child) {
+        // The iterable is evaluated in the enclosing scope, so even
+        // `for (final widget in widget.items)` reads the outer `widget`.
+        return false;
+    }
     if header_field_binding_exists(scope, path_child, usage_start, name, source) {
         return true;
     }
@@ -432,12 +437,28 @@ pub(super) fn scoped_header_binding_exists(
         }
         if header_binding_child(scope.kind(), child)
             && child.end_byte() <= usage_start
-            && node_contains_binding_name(child, name, source)
+            && header_child_binds_name(child, name, source)
         {
             return true;
         }
     }
     false
+}
+
+fn for_in_iterable(scope: Node<'_>, path_child: Node<'_>) -> bool {
+    matches!(scope.kind(), "for_element" | "for_statement")
+        && scope
+            .child_by_field_name("value")
+            .is_some_and(|value| same_node(value, path_child))
+}
+
+fn header_child_binds_name(child: Node<'_>, name: &str, source: &str) -> bool {
+    // A classic `for` initializer binds only its declared names; its
+    // initializer expressions are reads.
+    if child.kind() == "local_variable_declaration" {
+        return declaration_binds_name(child, name, source);
+    }
+    node_contains_binding_name(child, name, source)
 }
 
 fn catch_header_binding_exists(
@@ -537,10 +558,13 @@ fn pattern_or_local_binding_owner(node: Node<'_>) -> bool {
 }
 
 fn header_binding_child(scope_kind: &str, child: Node<'_>) -> bool {
-    if matches!(scope_kind, "for_element" | "for_statement") {
-        return !is_body_statement_child(child.kind())
-            || child.kind() == "local_variable_declaration";
+    if matches!(scope_kind, "for_element" | "for_statement")
+        && child.kind() == "local_variable_declaration"
+    {
+        return true;
     }
+    // Loop iterables, conditions, updates, and element types are expressions,
+    // not bindings; only pattern-bearing header children can bind names.
     !is_body_statement_child(child.kind()) && node_can_contain_pattern_binding(child)
 }
 
