@@ -1,12 +1,12 @@
 {
   "duplicates": {
     "ignore": [
-      "npm/scripts/test-*.js"
+      "tests/npm/test-*.js"
     ]
   },
   "health": {
     "ignore": [
-      "npm/scripts/test-*.js"
+      "tests/npm/test-*.js"
     ]
   },
   "rules": {

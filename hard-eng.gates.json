@@ -361,28 +361,28 @@
       "name": "postinstall-prebuilt",
       "command": [
         "node",
-        "npm/scripts/test-postinstall-prebuilt.js"
+        "tests/npm/test-postinstall-prebuilt.js"
       ]
     },
     {
       "name": "npx-prebuilt",
       "command": [
         "node",
-        "npm/scripts/test-npx-prebuilt.js"
+        "tests/npm/test-npx-prebuilt.js"
       ]
     },
     {
       "name": "npx-local",
       "command": [
         "node",
-        "npm/scripts/test-npx-local.js"
+        "tests/npm/test-npx-local.js"
       ]
     },
     {
       "name": "npx-mcp-local",
       "command": [
         "node",
-        "npm/scripts/test-npx-mcp-local.js"
+        "tests/npm/test-npx-mcp-local.js"
       ]
     }
   ]
