@@ -48,6 +48,7 @@ Evidence: every acceptance step was run at 96c3b58 or 26d3ca6:
 - Version bump: `npm run version:check` → `version ok: 0.0.50`; `npm run version:bump:check -- origin/main` → `Cargo.toml 0.0.49 -> 0.0.50; package.json 0.0.49 -> 0.0.50`.
 - Release path: pack, postinstall-prebuilt and npx-prebuilt gates passed in the same run.
 - CI setup: the first PR run failed at `pnpm/setup` because `version: latest` conflicted with `packageManager: pnpm@12.6.0`; the step now takes the version from `packageManager` only, and PR CI reruns it.
+- zizmor online audit: CI's token-backed zizmor flagged the `codeql-action/upload-sarif` pin comment `# v4` as a ref-version mismatch (the hash is v4.38.0); the comment now names v4.38.0, and `GH_TOKEN=... uvx zizmor .github` reports no findings.
 E2E: Passed — the npx-local, npx-mcp-local, npx-prebuilt and postinstall-prebuilt gates installed and ran the CLI and MCP wrapper through npx and the prebuilt postinstall in the 26d3ca6 gate run.
 
 Delivery target: PR
