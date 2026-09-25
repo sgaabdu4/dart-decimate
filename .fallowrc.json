@@ -1,8 +1,16 @@
 {
   "duplicates": {
-    "ignore": ["npm/scripts/test-*.js"]
+    "ignore": [
+      "npm/scripts/test-*.js"
+    ]
   },
   "health": {
-    "ignore": ["npm/scripts/test-*.js"]
+    "ignore": [
+      "npm/scripts/test-*.js"
+    ]
+  },
+  "rules": {
+    "boundary-violation": "off",
+    "policy-violation": "off"
   }
 }

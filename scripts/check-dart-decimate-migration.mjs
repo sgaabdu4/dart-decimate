@@ -12,6 +12,7 @@ const skippedDirs = new Set([
   ".cargo-home",
   ".rustup-home",
   ".codebase-memory",
+  "coverage",
 ]);
 const extensions = new Set([
   ".rs",

@@ -257,6 +257,133 @@
         "--",
         ".githooks/pre-commit"
       ]
+    },
+    {
+      "name": "diff-whitespace",
+      "parallel": true,
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ]
+    },
+    {
+      "name": "version-sync",
+      "parallel": true,
+      "command": [
+        "node",
+        "scripts/check-version-sync.mjs"
+      ]
+    },
+    {
+      "name": "migration-guard",
+      "parallel": true,
+      "command": [
+        "node",
+        "scripts/check-dart-decimate-migration.mjs"
+      ]
+    },
+    {
+      "name": "version-bump",
+      "parallel": true,
+      "command": [
+        "node",
+        "scripts/check-pr-version-bump.mjs",
+        "origin/main"
+      ]
+    },
+    {
+      "name": "release-version",
+      "parallel": true,
+      "command": [
+        "node",
+        "scripts/check-release-version.mjs"
+      ]
+    },
+    {
+      "name": "fallow-audit",
+      "parallel": true,
+      "command": [
+        "fallow",
+        "audit",
+        "--base",
+        "origin/main",
+        "--gate",
+        "all",
+        "--format",
+        "json",
+        "--output-file",
+        "coverage/fallow-audit.json"
+      ],
+      "report": {
+        "type": "fallow",
+        "path": "coverage/fallow-audit.json"
+      }
+    },
+    {
+      "name": "pack",
+      "parallel": true,
+      "command": [
+        "npm",
+        "pack",
+        "--dry-run"
+      ]
+    },
+    {
+      "name": "rust-format",
+      "parallel": true,
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ]
+    },
+    {
+      "name": "rust-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "name": "rust-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--all-targets"
+      ]
+    },
+    {
+      "name": "postinstall-prebuilt",
+      "command": [
+        "node",
+        "npm/scripts/test-postinstall-prebuilt.js"
+      ]
+    },
+    {
+      "name": "npx-prebuilt",
+      "command": [
+        "node",
+        "npm/scripts/test-npx-prebuilt.js"
+      ]
+    },
+    {
+      "name": "npx-local",
+      "command": [
+        "node",
+        "npm/scripts/test-npx-local.js"
+      ]
+    },
+    {
+      "name": "npx-mcp-local",
+      "command": [
+        "node",
+        "npm/scripts/test-npx-mcp-local.js"
+      ]
     }
   ]
 }

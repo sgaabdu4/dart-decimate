@@ -25,6 +25,19 @@ test("migration check skips frozen lifecycle artifacts", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("migration check skips generated coverage reports", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "dart-decimate-migration-"));
+  write(
+    fixture,
+    "coverage/osv.json",
+    `{"path":"/tmp/${"deci" + "mate"}-checkout/pnpm-lock.yaml"}\n`,
+  );
+
+  const result = run(fixture);
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("migration check still rejects old names in product source", () => {
   const fixture = mkdtempSync(join(tmpdir(), "dart-decimate-migration-"));
   write(
