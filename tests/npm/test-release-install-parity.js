@@ -123,7 +123,12 @@ function installWithCargo() {
         "DART_DECIMATE_CARGO_GIT_URL and exactly one of DART_DECIMATE_CARGO_TAG or DART_DECIMATE_CARGO_REV must be set together",
       );
     }
-    args.push("--git", gitUrl, tag ? "--tag" : "--rev", /** @type {string} */ (tag || revision));
+    args.push(
+      "--git",
+      gitUrl,
+      tag ? "--tag" : "--rev",
+      /** @type {string} */ (tag || revision),
+    );
     args.push("dart-decimate");
   } else {
     args.push("--path", root);
