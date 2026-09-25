@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use glob::Pattern;
-use ignore::WalkBuilder;
 use ignore::gitignore::GitignoreBuilder;
+use ignore::{Walk, WalkBuilder};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -177,7 +177,7 @@ pub fn scan_project_with_options(
 fn ignored_by_parent_gitignore(root: &Path, scan_root: &Path) -> bool {
     let Some(repository_root) = root
         .ancestors()
-        .find(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists())
+        .find(|ancestor| is_repository_root(ancestor))
     else {
         return false;
     };
@@ -222,27 +222,7 @@ fn discover_dart_files(
     ignore_matcher: &IgnoreMatcher,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<(), ScanError> {
-    let filter_root = root.to_path_buf();
-    let filter_matcher = ignore_matcher.clone();
-    let has_repository_ancestor = dir
-        .ancestors()
-        .any(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists());
-    let mut builder = WalkBuilder::new(dir);
-    builder
-        .standard_filters(false)
-        .git_ignore(true)
-        .parents(has_repository_ancestor)
-        .require_git(has_repository_ancestor)
-        .filter_entry(move |entry| {
-            entry.depth() == 0
-                || !(filter_matcher.matches(&filter_root, entry.path())
-                    || entry
-                        .file_type()
-                        .is_some_and(|file_type| file_type.is_dir())
-                        && should_skip_dir(entry.path()))
-        });
-
-    for result in builder.build() {
+    for result in project_walk(root, dir, ignore_matcher) {
         let entry = result.map_err(|source| ScanError::Walk {
             path: dir.to_path_buf(),
             source,
@@ -260,6 +240,29 @@ fn discover_dart_files(
     }
 
     Ok(())
+}
+
+/// Walk `dir` with the project's ignore rules: `.gitignore`, the configured
+/// ignore patterns, skipped tool directories and nested checkouts.
+pub(crate) fn project_walk(root: &Path, dir: &Path, ignore_matcher: &IgnoreMatcher) -> Walk {
+    let filter_root = root.to_path_buf();
+    let filter_matcher = ignore_matcher.clone();
+    let has_repository_ancestor = dir.ancestors().any(is_repository_root);
+    let mut builder = WalkBuilder::new(dir);
+    builder
+        .standard_filters(false)
+        .git_ignore(true)
+        .parents(has_repository_ancestor)
+        .require_git(has_repository_ancestor)
+        .filter_entry(move |entry| {
+            entry.depth() == 0
+                || !(filter_matcher.matches(&filter_root, entry.path())
+                    || entry
+                        .file_type()
+                        .is_some_and(|file_type| file_type.is_dir())
+                        && (should_skip_dir(entry.path()) || is_repository_root(entry.path())))
+        });
+    builder.build()
 }
 
 fn tracked_dart_files(
@@ -301,6 +304,12 @@ fn has_skipped_directory(root: &Path, path: &Path) -> bool {
         .is_some_and(|parent| parent.ancestors().any(should_skip_dir))
 }
 
+/// Whether `dir` is the root of its own Git or Jujutsu checkout, such as a
+/// nested worktree or clone, which belongs to a separate package graph.
+pub(crate) fn is_repository_root(dir: &Path) -> bool {
+    dir.join(".git").exists() || dir.join(".jj").exists()
+}
+
 fn should_skip_dir(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
@@ -308,8 +317,8 @@ fn should_skip_dir(path: &Path) -> bool {
     )
 }
 
-#[derive(Debug, Clone)]
-struct IgnoreMatcher {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct IgnoreMatcher {
     patterns: Vec<Pattern>,
 }
 
