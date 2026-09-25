@@ -47,7 +47,8 @@ Evidence: every acceptance step was run at 96c3b58 or 26d3ca6:
 - Full gate: `python3 .hooks/hard-eng.py check --base main --plan-stage Ready` at 26d3ca6 exited 0 with all 30 gates passing; performance `check median 44.7ms, max 80.3ms` over 15 runs.
 - Version bump: `npm run version:check` → `version ok: 0.0.50`; `npm run version:bump:check -- origin/main` → `Cargo.toml 0.0.49 -> 0.0.50; package.json 0.0.49 -> 0.0.50`.
 - Release path: pack, postinstall-prebuilt and npx-prebuilt gates passed in the same run.
+- CI setup: the first PR run failed at `pnpm/setup` because `version: latest` conflicted with `packageManager: pnpm@12.6.0`; the step now takes the version from `packageManager` only, and PR CI reruns it.
 E2E: Passed — the npx-local, npx-mcp-local, npx-prebuilt and postinstall-prebuilt gates installed and ran the CLI and MCP wrapper through npx and the prebuilt postinstall in the 26d3ca6 gate run.
 
 Delivery target: PR
-Delivery: Pending — branch not pushed; PR CI must pass.
+Delivery: Pending — PR #117 open; PR CI must pass.
