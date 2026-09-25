@@ -1,2 +1,2 @@
 overrides:
-  undici-types: 6.23.0
+  '@types/node>undici-types': 6.23.0
