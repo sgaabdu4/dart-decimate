@@ -601,8 +601,7 @@ def check_scaffold_update(root: Path, base: str) -> bool:
     marker = root / SOURCE_FILE
     if not marker.is_file():
         return False
-    # Only a committed installation update can use this exemption. Local work
-    # and uncertain impact retain the normal application checks.
+    # Only a clean, committed installation update may skip the application checks.
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True):
         return False
     try:

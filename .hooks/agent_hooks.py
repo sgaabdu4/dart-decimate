@@ -415,9 +415,7 @@ def handle_event(root: Path, event: str, agent: str) -> int:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
             raise TypeError("Hook input must be a JSON object")
-        # Copilot also loads .claude/settings.json and adds its documented
-        # timestamp field to that payload. Its own registration handles the
-        # event, so do not run updates or checks a second time through Claude.
+        # Copilot replays Claude hooks with a timestamp; its own registration already ran them.
         if agent == "claude" and "timestamp" in payload:
             print("{}")
             return 0

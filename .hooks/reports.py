@@ -65,9 +65,7 @@ def completed_tests(path: Path, kind: str) -> int:
             and event.get("result") == "success"
             for event in events
         )
-    # JUnit comes from the configured local test command. ElementTree rejects
-    # external entities; test_junit_rejects_entities also verifies Expat's
-    # amplification limit on the supported runtime. No external XML is fetched.
+    # Local JUnit only; ElementTree rejects external entities (test_junit_rejects_entities).
     # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
     tree = ET.parse(path)
     if tree.getroot().tag not in {"testsuites", "testsuite"}:
@@ -241,8 +239,7 @@ def osv_layers(report: JsonObject) -> list[JsonObject]:
 def dependency_free_pnpm(directory: Path) -> bool:
     try:
         manifest = json.loads((directory / "package.json").read_text())
-        # PyYAML is already a scaffold dependency; uv supplies its isolated
-        # runtime here because a JavaScript consumer's Python may lack it.
+        # uv supplies PyYAML's isolated runtime; a JavaScript consumer's Python may lack it.
         lock = json.loads(
             subprocess.check_output(
                 [
