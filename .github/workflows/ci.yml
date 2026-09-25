@@ -3,11 +3,10 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 permissions:
-  contents: read
+  contents: read # Read the source; CI publishes nothing.
+  checks: read # Hard Eng verifies the upstream release for scaffold-only updates.
 
 env:
   RUST_TOOLCHAIN: stable
@@ -25,43 +24,60 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Find whether only docs changed
+        id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .hooks/hard-eng.py impact --base "$BASE_SHA" >> "$GITHUB_OUTPUT" || echo docs_only=false >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
+        if: steps.impact.outputs.docs_only != 'true'
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
           rustup default "$RUST_TOOLCHAIN"
 
-      - name: Install Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - name: Cache native tool downloads
+        if: steps.impact.outputs.docs_only != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          node-version: 22
+          path: ${{ runner.temp }}/hard-eng-tools
+          key: ${{ runner.os }}-${{ runner.arch }}-hard-eng-tools-${{ hashFiles('.github/workflows/ci.yml', '.hooks/tool_setup.py', 'hard-eng.gates.json') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-hard-eng-tools-
 
-      - name: Check version and migration guards
+      - name: Install pnpm
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          runtime: node@latest
+          install: false
+
+      - name: Run the secret scan for docs-only changes
+        if: steps.impact.outputs.docs_only == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          npm run version:check
-          npm run migration:check
+          pnpm dlx --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest &&
+          pnpm dlx --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
 
-      - name: Check release version
-        if: github.event_name == 'pull_request'
+      - name: Run Hard Eng checks
+        if: steps.impact.outputs.docs_only != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MISE_DATA_DIR: ${{ runner.temp }}/hard-eng-tools/mise/data
+          MISE_CACHE_DIR: ${{ runner.temp }}/hard-eng-tools/mise/cache
+          MISE_STATE_DIR: ${{ runner.temp }}/hard-eng-tools/mise/state
+          PNPM_CONFIG_STORE_DIR: ${{ runner.temp }}/hard-eng-tools/pnpm/store
+          PNPM_CONFIG_CACHE_DIR: ${{ runner.temp }}/hard-eng-tools/pnpm/cache
+          MISE_FETCH_REMOTE_VERSIONS_CACHE: 0s
+          MISE_PREFER_OFFLINE: 'false'
+          MISE_USE_VERSIONS_HOST: 'false'
+          MISE_MINIMUM_RELEASE_AGE: 0s
         run: |
-          git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
-          npm run version:bump:check -- "origin/$GITHUB_BASE_REF"
-          npm run release:check
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Run tests
-        run: cargo test --all-targets
-
-      - name: Check npm package
-        run: |
-          npm test
-          npm run pack:check
-          npm run test:postinstall:prebuilt
-          npm run test:npx:prebuilt
-          npm run test:npx:local
-          npm run test:npx:mcp:local
+          pnpm dlx --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest python@3.12 node@latest pnpm@12.6.0 &&
+          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h pnpm dlx --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest python@3.12 node@latest pnpm@12.6.0 -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"

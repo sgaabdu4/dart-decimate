@@ -9,3 +9,12 @@
 .env
 .env.*
 !.env.example
+.git/
+__pycache__/
+.hard-eng/
+.claude/worktrees/
+.codebase-memory/
+.context-mode/
+coverage/
+.coverage
+.coverage.*

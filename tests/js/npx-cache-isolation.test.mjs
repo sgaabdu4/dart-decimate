@@ -16,12 +16,12 @@ import { test } from "node:test";
 const cases = [
   {
     name: "CLI local npx test",
-    script: "npm/scripts/test-npx-local.js",
+    script: "tests/npm/test-npx-local.js",
     tempPrefix: "dart-decimate-npx-",
   },
   {
     name: "MCP local npx test",
-    script: "npm/scripts/test-npx-mcp-local.js",
+    script: "tests/npm/test-npx-mcp-local.js",
     tempPrefix: "dart-decimate-npx-mcp-",
   },
 ];

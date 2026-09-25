@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "pnpm",
+      "args": [
+        "dlx",
+        "codebase-memory-mcp@latest"
+      ]
+    }
+  }
+}

@@ -40,6 +40,7 @@ function sanitizedGitEnv() {
   return env;
 }
 
+/** @param {string} output */
 function parseGitEnvironmentVariables(output) {
   return output
     .split("\n")
@@ -47,6 +48,7 @@ function parseGitEnvironmentVariables(output) {
     .filter(Boolean);
 }
 
+/** @param {NodeJS.ProcessEnv} env @param {string[]} names */
 function removeGitEnvironmentVariables(env, names) {
   for (const name of names) {
     delete env[name];
@@ -55,11 +57,13 @@ function removeGitEnvironmentVariables(env, names) {
 
 const gitEnv = sanitizedGitEnv();
 
+/** @param {string} message @returns {never} */
 function exitWithError(message) {
   console.error(message);
   process.exit(1);
 }
 
+/** @param {string} baseRef @param {string} path */
 function readBaseFile(baseRef, path) {
   try {
     return execFileSync("git", ["show", `${baseRef}:${path}`], {
@@ -72,14 +76,18 @@ function readBaseFile(baseRef, path) {
   }
 }
 
+/** @param {unknown} error @param {string} baseRef @param {string} path @returns {never} */
 function reportBaseFileError(error, baseRef, path) {
-  const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`.trim();
+  const { stdout = "", stderr = "" } =
+    /** @type {{ stdout?: string, stderr?: string }} */ (error ?? {});
+  const output = `${stdout}\n${stderr}`.trim();
   if (output) {
     console.error(output);
   }
   exitWithError(`could not read ${path} from ${baseRef}`);
 }
 
+/** @param {string} contents @param {string} label */
 function readCargoVersion(contents, label) {
   const match = contents.match(/^version\s*=\s*"([^"]+)"/m);
   if (!match) {
@@ -88,6 +96,7 @@ function readCargoVersion(contents, label) {
   return match[1];
 }
 
+/** @param {string} contents @param {string} label @returns {string} */
 function readPackageVersion(contents, label) {
   let pkg;
   try {
@@ -102,6 +111,7 @@ function readPackageVersion(contents, label) {
   return pkg.version;
 }
 
+/** @param {string} version @param {string} label */
 function parseSemver(version, label) {
   const match = version.match(
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
@@ -118,6 +128,7 @@ function parseSemver(version, label) {
   };
 }
 
+/** @template {bigint | number | string} T @param {T} left @param {T} right */
 function compareNumber(left, right) {
   if (left < right) {
     return -1;
@@ -128,10 +139,12 @@ function compareNumber(left, right) {
   return 0;
 }
 
+/** @param {string} value */
 function isNumericIdentifier(value) {
   return /^(0|[1-9]\d*)$/.test(value);
 }
 
+/** @param {string[]} left @param {string[]} right */
 function comparePrerelease(left, right) {
   const presence = comparePrereleasePresence(left, right);
   if (presence !== 0 || left.length === 0) {
@@ -140,6 +153,7 @@ function comparePrerelease(left, right) {
   return comparePrereleaseParts(left, right);
 }
 
+/** @param {string[]} left @param {string[]} right */
 function comparePrereleaseParts(left, right) {
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
@@ -152,10 +166,12 @@ function comparePrereleaseParts(left, right) {
   return 0;
 }
 
+/** @param {string[]} left @param {string[]} right */
 function comparePrereleasePresence(left, right) {
   return Number(left.length === 0) - Number(right.length === 0);
 }
 
+/** @param {string} left @param {string} right */
 function comparePrereleaseIdentifier(left, right) {
   if (left === right) {
     return 0;
@@ -170,6 +186,7 @@ function comparePrereleaseIdentifier(left, right) {
   return comparePresentPrereleaseIdentifier(left, right);
 }
 
+/** @param {string} value */
 function identifierKind(value) {
   if (value === undefined) {
     return 0;
@@ -177,6 +194,7 @@ function identifierKind(value) {
   return isNumericIdentifier(value) ? 1 : 2;
 }
 
+/** @param {string} left @param {string} right */
 function comparePresentPrereleaseIdentifier(left, right) {
   if (isNumericIdentifier(left)) {
     return compareNumber(BigInt(left), BigInt(right));
@@ -184,11 +202,12 @@ function comparePresentPrereleaseIdentifier(left, right) {
   return compareNumber(left, right);
 }
 
+/** @param {string} left @param {string} right @param {string} leftLabel @param {string} rightLabel */
 function compareSemver(left, right, leftLabel, rightLabel) {
   const parsedLeft = parseSemver(left, leftLabel);
   const parsedRight = parseSemver(right, rightLabel);
 
-  for (const key of ["major", "minor", "patch"]) {
+  for (const key of /** @type {const} */ (["major", "minor", "patch"])) {
     const compared = compareNumber(parsedLeft[key], parsedRight[key]);
     if (compared !== 0) {
       return compared;
@@ -198,6 +217,7 @@ function compareSemver(left, right, leftLabel, rightLabel) {
   return comparePrerelease(parsedLeft.prerelease, parsedRight.prerelease);
 }
 
+/** @param {string} label @param {string} current @param {string} base @param {string[]} failures */
 function requireBumped(label, current, base, failures) {
   if (compareSemver(current, base, label, `base ${label}`) <= 0) {
     failures.push(`${label} version must be bumped: ${base} -> ${current}`);
@@ -228,6 +248,7 @@ const basePackageVersion = readPackageVersion(
   "base package.json",
 );
 
+/** @type {string[]} */
 const failures = [];
 if (currentCargoVersion !== currentPackageVersion) {
   failures.push(
