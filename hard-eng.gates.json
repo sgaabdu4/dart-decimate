@@ -61,7 +61,8 @@
           "command": [
             "pnpm",
             "install",
-            "--frozen-lockfile"
+            "--frozen-lockfile",
+            "--ignore-scripts"
           ]
         },
         {
