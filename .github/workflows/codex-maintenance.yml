@@ -6,17 +6,23 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  issues: read
-  pull-requests: read
+  contents: read # Jobs read the source unless they raise their own permissions.
+  issues: read # List open issues for the report.
+  pull-requests: read # List Dependabot pull requests.
+
+concurrency:
+  group: codex-maintenance
+  cancel-in-progress: false
 
 jobs:
   maintain:
+    name: Maintain dependencies and issues
     permissions:
-      contents: write
-      issues: read
-      pull-requests: write
+      contents: write # Commit the version bump after merged Dependabot updates.
+      issues: read # List open issues for the report.
+      pull-requests: write # Queue auto-merge on Dependabot pull requests.
     runs-on: ubuntu-24.04
+    environment: codex-maintenance
     env:
       GH_TOKEN: ${{ github.token }}
       OWNER_LOGIN: ${{ github.repository_owner }}
@@ -55,10 +61,12 @@ jobs:
               echo "- queued #$pr: $title" >> "$report"
             else
               blocked=$((blocked + 1))
-              echo "- could not queue #$pr: $title" >> "$report"
-              echo '```' >> "$report"
-              echo "$output" >> "$report"
-              echo '```' >> "$report"
+              {
+                echo "- could not queue #$pr: $title"
+                echo '```'
+                echo "$output"
+                echo '```'
+              } >> "$report"
             fi
           done
 
@@ -169,7 +177,7 @@ jobs:
               | select(.merged_at >= $cutoff)
               | [.number, .merged_at]
               | @tsv')
-          while IFS=$'\t' read -r pr merged_at; do
+          while IFS=$'\t' read -r pr _; do
             [ -n "$pr" ] || continue
             marker="Dependabot PR #$pr"
             if printf '%s\n' "$recent_messages" | grep -Fq "$marker"; then

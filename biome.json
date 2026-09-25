@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -9,10 +9,11 @@
     "ignoreUnknown": true,
     "includes": [
       "package.json",
-      "package-lock.json",
       "npm/**/*.js",
       "scripts/**/*.mjs",
-      "tests/js/**/*.mjs"
+      "tests/js/**/*.mjs",
+      "tests/npm/**/*.js",
+      "tests/performance/**/*.mjs"
     ]
   },
   "formatter": {

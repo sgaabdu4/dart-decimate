@@ -24,7 +24,9 @@ try {
   );
   process.exit(1);
 } catch (error) {
-  const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
+  const { stdout = "", stderr = "" } =
+    /** @type {{ stdout?: string, stderr?: string }} */ (error ?? {});
+  const output = `${stdout}\n${stderr}`;
   if (output.includes("E404") || output.includes("404 Not Found")) {
     console.log(`release version ok: ${name}@${version} is not published`);
     process.exit(0);

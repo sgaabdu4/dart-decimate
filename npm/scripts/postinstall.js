@@ -33,6 +33,7 @@ install()
 async function install() {
   fs.mkdirSync(cacheDir, { recursive: true });
 
+  /** @type {unknown} */
   let prebuiltError = null;
   if (process.env.DART_DECIMATE_SKIP_DOWNLOAD !== "1") {
     try {
@@ -61,6 +62,7 @@ async function installPrebuilt() {
   return true;
 }
 
+/** @param {string} assetName @param {string} archivePath */
 function extractArchive(assetName, archivePath) {
   const extract = spawnSync("tar", ["-xzf", archivePath, "-C", cacheDir], {
     stdio: "pipe",
@@ -79,6 +81,7 @@ function extractArchive(assetName, archivePath) {
   }
 }
 
+/** @param {string} assetName */
 function activateCachedBinaries(assetName) {
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
     const cachedBinary = path.join(cacheDir, `${binary}${exeExt}`);
@@ -117,10 +120,12 @@ function prebuiltArchitecture() {
   return new Set(["x64", "arm64"]).has(process.arch) ? process.arch : null;
 }
 
+/** @param {string} platform @param {string} arch */
 function supportsPrebuiltTarget(platform, arch) {
   return !new Set(["linux:arm64", "windows:arm64"]).has(`${platform}:${arch}`);
 }
 
+/** @param {string} url @param {string} destination @param {number} redirectCount @returns {Promise<unknown>} */
 function download(url, destination, redirectCount) {
   if (redirectCount > 5) {
     return Promise.reject(
@@ -144,6 +149,7 @@ function download(url, destination, redirectCount) {
   });
 }
 
+/** @param {import("node:http").IncomingMessage} response @param {string} url @param {string} destination @param {number} redirectCount @param {(value: unknown) => void} resolve @param {(reason: unknown) => void} reject */
 function handleDownloadResponse(
   response,
   url,
@@ -152,9 +158,10 @@ function handleDownloadResponse(
   resolve,
   reject,
 ) {
-  if (isRedirect(response)) {
+  const location = redirectLocation(response);
+  if (location) {
     response.resume();
-    const nextUrl = new URL(response.headers.location, url).toString();
+    const nextUrl = new URL(location, url).toString();
     download(nextUrl, destination, redirectCount + 1).then(resolve, reject);
     return;
   }
@@ -169,14 +176,13 @@ function handleDownloadResponse(
   );
 }
 
-function isRedirect(response) {
-  return (
-    response.statusCode >= 300 &&
-    response.statusCode < 400 &&
-    Boolean(response.headers.location)
-  );
+/** @param {import("node:http").IncomingMessage} response */
+function redirectLocation(response) {
+  const status = response.statusCode ?? 0;
+  return status >= 300 && status < 400 ? response.headers.location : undefined;
 }
 
+/** @param {unknown} prebuiltError */
 function buildFromSource(prebuiltError) {
   const build = spawnSync(cargo, ["build", "--release", "--locked"], {
     cwd: root,
@@ -190,12 +196,13 @@ function buildFromSource(prebuiltError) {
   cacheBuiltBinaries();
 }
 
+/** @param {NodeJS.ErrnoException | undefined} error @param {unknown} prebuiltError */
 function handleBuildStartError(error, prebuiltError) {
   if (!error) {
     return;
   }
   if (error.code === "ENOENT") {
-    if (prebuiltError) {
+    if (prebuiltError instanceof Error) {
       console.error(
         `dart-decimate: prebuilt install failed: ${prebuiltError.message}`,
       );

@@ -1,6 +1,6 @@
 {
   "name": "dart-decimate",
-  "version": "0.0.49",
+  "version": "0.0.50",
   "description": "Rust-native codebase intelligence for Dart and Flutter module graphs.",
   "license": "MIT",
   "bin": {
@@ -28,6 +28,8 @@
   "scripts": {
     "postinstall": "node npm/scripts/postinstall.js",
     "test": "node --test tests/js/*.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=coverage/junit.xml --test-reporter=lcov --test-reporter-destination=coverage/lcov.info tests/js/*.test.mjs",
+    "test:performance": "cargo build --release --locked --bin dart-decimate && node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=coverage/performance.xml tests/performance/*.test.mjs",
     "typecheck": "node scripts/typecheck-js.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "lint": "npm run version:check && npm run migration:check && npm run lint:js && npm run format:check",
@@ -40,19 +42,21 @@
     "pack:check": "npm pack --dry-run",
     "test:npm": "node npm/bin/dart-decimate.js --help",
     "test:npm:mcp": "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\"}}\\n' | node npm/bin/dart-decimate-mcp.js",
-    "test:postinstall:prebuilt": "node npm/scripts/test-postinstall-prebuilt.js",
-    "test:npx:prebuilt": "node npm/scripts/test-npx-prebuilt.js",
-    "test:release:parity": "node npm/scripts/test-release-install-parity.js",
-    "test:npx:local": "node npm/scripts/test-npx-local.js",
-    "test:npx:mcp:local": "node npm/scripts/test-npx-mcp-local.js"
+    "test:postinstall:prebuilt": "node tests/npm/test-postinstall-prebuilt.js",
+    "test:npx:prebuilt": "node tests/npm/test-npx-prebuilt.js",
+    "test:release:parity": "node tests/npm/test-release-install-parity.js",
+    "test:npx:local": "node tests/npm/test-npx-local.js",
+    "test:npx:mcp:local": "node tests/npm/test-npx-mcp-local.js"
   },
   "engines": {
     "node": ">=22.12.0"
   },
+  "packageManager": "pnpm@12.6.0",
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14"
+    "@biomejs/biome": "2.5.14",
+    "@types/node": "22.20.4"
   }
 }

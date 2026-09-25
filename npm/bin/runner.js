@@ -2,6 +2,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
+/** @param {string} binaryName @param {string[]} args */
 function runBinary(binaryName, args) {
   const root = path.resolve(__dirname, "../..");
   const exeName =
@@ -23,6 +24,7 @@ function runBinary(binaryName, args) {
   );
 }
 
+/** @param {string[]} candidates @param {string[]} args */
 function runFirstExisting(candidates, args) {
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -31,6 +33,7 @@ function runFirstExisting(candidates, args) {
   }
 }
 
+/** @param {string} root */
 function installCachedBinary(root) {
   if (process.env.DART_DECIMATE_SKIP_BUILD === "1") {
     return;
@@ -49,15 +52,19 @@ function installCachedBinary(root) {
   handleInstallerResult(result);
 }
 
+/** @param {import("node:child_process").SpawnSyncReturns<Buffer>} result */
 function handleInstallerResult(result) {
-  if (result.error && result.error.code !== "ENOENT") {
+  /** @type {NodeJS.ErrnoException | undefined} */
+  const error = result.error;
+  if (error && error.code !== "ENOENT") {
     console.error(
-      `dart-decimate: install step failed to start: ${result.error.message}`,
+      `dart-decimate: install step failed to start: ${error.message}`,
     );
   }
   forwardSignal(result.signal);
 }
 
+/** @param {string} command @param {string[]} commandArgs @param {string | undefined} [cwd] @param {string} [label] */
 function run(command, commandArgs, cwd = undefined, label = command) {
   const result = spawnSync(command, commandArgs, {
     cwd,
@@ -76,6 +83,7 @@ function run(command, commandArgs, cwd = undefined, label = command) {
   process.exit(result.status ?? 1);
 }
 
+/** @param {NodeJS.ErrnoException} error @param {string} command @param {string} label */
 function handleRunError(error, command, label) {
   if (error.code === "ENOENT") {
     console.error(
@@ -88,6 +96,7 @@ function handleRunError(error, command, label) {
   process.exit(1);
 }
 
+/** @param {NodeJS.Signals | null} signal */
 function forwardSignal(signal) {
   if (!signal) {
     return false;

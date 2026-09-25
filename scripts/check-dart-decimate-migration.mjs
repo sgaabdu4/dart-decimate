@@ -12,6 +12,7 @@ const skippedDirs = new Set([
   ".cargo-home",
   ".rustup-home",
   ".codebase-memory",
+  "coverage",
 ]);
 const extensions = new Set([
   ".rs",
@@ -27,6 +28,7 @@ const extensions = new Set([
 const explicitFiles = new Set([".gitignore", "CODEOWNERS"]);
 const skippedFiles = new Set(["scripts/check-dart-decimate-migration.mjs"]);
 
+/** @type {Array<[string, RegExp]>} */
 const checks = [
   ["old scoped npm package", /@sgaabdu4\/decimate/],
   ["old GitHub repo", /sgaabdu4\/decimate/],
@@ -70,6 +72,7 @@ if (findings.length > 0) {
 
 console.log("dart-decimate migration ok");
 
+/** @param {string} dir @returns {Generator<string>} */
 function* walk(dir) {
   for (const entry of scanEntries(dir)) {
     if (entry.directory) {
@@ -80,6 +83,9 @@ function* walk(dir) {
   }
 }
 
+/** @typedef {{ absolute: string, directory: boolean, file: boolean, relative: string }} ScanEntry */
+
+/** @param {string} dir */
 function scanEntries(dir) {
   return fs
     .readdirSync(dir, { withFileTypes: true })
@@ -87,6 +93,7 @@ function scanEntries(dir) {
     .filter(isIncludedEntry);
 }
 
+/** @param {string} dir @param {fs.Dirent} entry @returns {ScanEntry} */
 function scanEntry(dir, entry) {
   const absolute = path.join(dir, entry.name);
   return {
@@ -97,6 +104,7 @@ function scanEntry(dir, entry) {
   };
 }
 
+/** @param {ScanEntry} entry */
 function isIncludedEntry(entry) {
   if (entry.directory) {
     return !isSkipped(entry.relative);
@@ -104,6 +112,7 @@ function isIncludedEntry(entry) {
   return shouldScanFile(entry);
 }
 
+/** @param {ScanEntry} entry */
 function shouldScanFile(entry) {
   if (!entry.file) {
     return false;
@@ -114,14 +123,17 @@ function shouldScanFile(entry) {
   return isScannableName(entry.relative);
 }
 
+/** @param {string} relative */
 function isSkippedFile(relative) {
   return skippedFiles.has(relative) || isLifecycleArtifact(relative);
 }
 
+/** @param {string} relative */
 function isScannableName(relative) {
   return extensions.has(path.extname(relative)) || explicitFiles.has(relative);
 }
 
+/** @param {string} relative */
 function isLifecycleArtifact(relative) {
   const segments = relative.split(path.sep);
   return (
@@ -130,6 +142,7 @@ function isLifecycleArtifact(relative) {
   );
 }
 
+/** @param {string} relative */
 function isSkipped(relative) {
   return [...skippedDirs].some((skipped) => {
     return relative === skipped || relative.startsWith(`${skipped}${path.sep}`);

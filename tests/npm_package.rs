@@ -21,7 +21,7 @@ fn npm_package_exposes_dart_decimate_bin() -> Result<(), Box<dyn std::error::Err
     );
     assert_eq!(
         package["scripts"]["test:npx:local"],
-        "node npm/scripts/test-npx-local.js"
+        "node tests/npm/test-npx-local.js"
     );
     assert!(
         package["scripts"]["test:npm:mcp"]
@@ -31,33 +31,33 @@ fn npm_package_exposes_dart_decimate_bin() -> Result<(), Box<dyn std::error::Err
     assert!(
         package["scripts"]["test:npx:mcp:local"]
             .as_str()
-            .is_some_and(|script| script.contains("npm/scripts/test-npx-mcp-local.js"))
+            .is_some_and(|script| script.contains("tests/npm/test-npx-mcp-local.js"))
     );
     assert!(
         package["scripts"]["test:postinstall:prebuilt"]
             .as_str()
-            .is_some_and(|script| script.contains("npm/scripts/test-postinstall-prebuilt.js"))
+            .is_some_and(|script| script.contains("tests/npm/test-postinstall-prebuilt.js"))
     );
     assert!(
         package["scripts"]["test:npx:prebuilt"]
             .as_str()
-            .is_some_and(|script| script.contains("npm/scripts/test-npx-prebuilt.js"))
+            .is_some_and(|script| script.contains("tests/npm/test-npx-prebuilt.js"))
     );
     assert!(Path::new("npm/bin/dart-decimate.js").is_file());
     assert!(Path::new("npm/bin/dart-decimate-mcp.js").is_file());
     assert!(Path::new("npm/bin/runner.js").is_file());
     assert!(Path::new("npm/scripts/postinstall.js").is_file());
-    assert!(Path::new("npm/scripts/test-postinstall-prebuilt.js").is_file());
-    assert!(Path::new("npm/scripts/test-npx-prebuilt.js").is_file());
-    assert!(Path::new("npm/scripts/test-release-install-parity.js").is_file());
-    assert!(Path::new("npm/scripts/test-npx-local.js").is_file());
-    assert!(Path::new("npm/scripts/test-npx-mcp-local.js").is_file());
+    assert!(Path::new("tests/npm/test-postinstall-prebuilt.js").is_file());
+    assert!(Path::new("tests/npm/test-npx-prebuilt.js").is_file());
+    assert!(Path::new("tests/npm/test-release-install-parity.js").is_file());
+    assert!(Path::new("tests/npm/test-npx-local.js").is_file());
+    assert!(Path::new("tests/npm/test-npx-mcp-local.js").is_file());
     assert!(
         package["scripts"]["test:release:parity"]
             .as_str()
             .is_some_and(|script| script.contains("test-release-install-parity.js"))
     );
-    let mcp_script = fs::read_to_string("npm/scripts/test-npx-mcp-local.js")?;
+    let mcp_script = fs::read_to_string("tests/npm/test-npx-mcp-local.js")?;
     assert!(mcp_script.contains("2025-11-25"));
     assert!(mcp_script.contains("dart-decimate-mcp"));
     let readme = fs::read_to_string("README.md")?;
@@ -69,7 +69,7 @@ fn npm_package_exposes_dart_decimate_bin() -> Result<(), Box<dyn std::error::Err
     assert_only_current_npm_pins(&ci_docs, version);
     assert!(readme.contains(&format!("--tag v{version} --locked")));
     assert!(readme.contains("dart-decimate --version"));
-    let parity_script = fs::read_to_string("npm/scripts/test-release-install-parity.js")?;
+    let parity_script = fs::read_to_string("tests/npm/test-release-install-parity.js")?;
     assert!(parity_script.contains("CARGO: path.join(tempRoot, \"missing-cargo\")"));
 
     Ok(())
@@ -92,7 +92,7 @@ fn release_parity_script_rejects_a_missing_asset_cleanly() -> Result<(), Box<dyn
 {
     let fixture = tempfile::tempdir()?;
     let output = Command::new("node")
-        .arg("npm/scripts/test-release-install-parity.js")
+        .arg("tests/npm/test-release-install-parity.js")
         .env("DART_DECIMATE_RELEASE_ASSET_DIR", fixture.path())
         .env("TMPDIR", fixture.path())
         .output()?;
