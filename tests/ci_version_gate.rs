@@ -129,8 +129,7 @@ fn version_sync_script_reads_the_crate_entry_not_the_npm_name()
     let fixture = tempfile::tempdir()?;
     let root = fixture.path();
 
-    // The crate and the npm package need not share a name, and a dotted npm
-    // name would be a pattern metacharacter if the lookup were a regex.
+    // A dotted npm name would be a metacharacter if the lookup were a regex.
     fs::write(
         root.join("Cargo.toml"),
         "[package]\nname = \"crate-name\"\nversion = \"1.2.3\"\n",

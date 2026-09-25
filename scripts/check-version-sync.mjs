@@ -2,8 +2,6 @@
 
 import fs from "node:fs";
 
-// The crate name is compared rather than interpolated into a pattern, so a
-// metacharacter in it cannot change the match. CRLF is normalised first.
 /** @param {string} block @param {string} key */
 function field(block, key) {
   return block.match(new RegExp(`^${key}\\s*=\\s*"([^"]*)"$`, "m"))?.[1];
@@ -35,8 +33,6 @@ if (cargoVersion !== npmVersion) {
   process.exit(1);
 }
 
-// Lockfiles carry the version too, so leaving them out lets a manifest bump
-// ship with a stale lock that nothing downstream re-checks.
 const crate = cargo.match(/^name\s*=\s*"([^"]+)"/m)?.[1];
 const lockVersions = [];
 
