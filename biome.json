@@ -9,7 +9,6 @@
     "ignoreUnknown": true,
     "includes": [
       "package.json",
-      "package-lock.json",
       "npm/**/*.js",
       "scripts/**/*.mjs",
       "tests/js/**/*.mjs"

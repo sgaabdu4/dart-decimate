@@ -39,7 +39,7 @@ if ! git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null; then
 fi
 
 git diff --check
-npm ci --ignore-scripts
+pnpm install --frozen-lockfile --ignore-scripts
 npm run lint
 npm run version:bump:check -- "$base_ref"
 npm run release:check

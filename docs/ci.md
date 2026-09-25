@@ -55,7 +55,7 @@ Run the complete verification stack locally:
 
 ```bash
 git diff --check
-npm ci --ignore-scripts
+pnpm install --frozen-lockfile --ignore-scripts
 npm run lint
 npm run version:bump:check -- origin/main
 npm run release:check
