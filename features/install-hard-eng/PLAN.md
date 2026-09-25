@@ -1,6 +1,6 @@
 # Install Hard Eng and migrate dev tooling to pnpm
 
-Status: Draft
+Status: Ready
 
 ## Outcome + scope
 
@@ -18,7 +18,7 @@ Authority: Autonomous; the user asked to install Hard Eng, migrate dev tooling t
 
 ## Acceptance + steps
 
-- [ ] Dev installs use pnpm → `pnpm install --frozen-lockfile` passes from a clean `node_modules` without running the root postinstall.
+- [ ] Dev installs use pnpm → `pnpm install --frozen-lockfile --ignore-scripts` passes from a clean `node_modules` without running the root postinstall, as the old hook's `npm ci --ignore-scripts` did.
 - [ ] Old hook checks stay enforced → each pre-push and `.no-mistakes.yaml` command maps to a Hard Eng gate or the retained pre-commit hook.
 - [ ] Full gate → `python3 .hooks/hard-eng.py check` exits 0.
 - [ ] Version bump → `npm run version:check` and `npm run version:bump:check -- origin/main` pass at 0.0.50.
@@ -26,8 +26,8 @@ Authority: Autonomous; the user asked to install Hard Eng, migrate dev tooling t
 
 ## Baseline + execution
 
-Result: Pending
-Evidence: Pending — `python3 .hooks/hard-eng.py check --plan-stage Draft` on the installed scaffold.
+Result: Passed
+Evidence: `python3 .hooks/hard-eng.py check --base main --plan-stage Draft` at 96c3b58 (Hard Eng f1ac2ba) exited 0 in 164s with all 30 gates passing; JS line coverage 810/925 (87.57%, minimum 70%), branch 104/146 (71.23%, informational); performance samples `check median 20.8ms, max 26.6ms` and `median 53.3ms, max 117.6ms` over 15 runs each on the Flutter fixture app.
 Execution: One builder in the existing task worktree; first slice is gate configuration so the full gate can run.
 
 ## Risks + recovery
