@@ -1,6 +1,6 @@
 # Install Hard Eng and migrate dev tooling to pnpm
 
-Status: Ready
+Status: Complete
 
 ## Outcome + scope
 
@@ -18,11 +18,11 @@ Authority: Autonomous; the user asked to install Hard Eng, migrate dev tooling t
 
 ## Acceptance + steps
 
-- [ ] Dev installs use pnpm → `pnpm install --frozen-lockfile --ignore-scripts` passes from a clean `node_modules` without running the root postinstall, as the old hook's `npm ci --ignore-scripts` did.
-- [ ] Old hook checks stay enforced → each pre-push and `.no-mistakes.yaml` command maps to a Hard Eng gate or the retained pre-commit hook.
-- [ ] Full gate → `python3 .hooks/hard-eng.py check` exits 0.
-- [ ] Version bump → `npm run version:check` and `npm run version:bump:check -- origin/main` pass at 0.0.50.
-- [ ] Release path → `npm run pack:check`, `npm run test:postinstall:prebuilt` and `npm run test:npx:prebuilt` pass.
+- [x] Dev installs use pnpm → `pnpm install --frozen-lockfile --ignore-scripts` passes from a clean `node_modules` without running the root postinstall, as the old hook's `npm ci --ignore-scripts` did.
+- [x] Old hook checks stay enforced → each pre-push and `.no-mistakes.yaml` command maps to a Hard Eng gate or the retained pre-commit hook.
+- [x] Full gate → `python3 .hooks/hard-eng.py check` exits 0.
+- [x] Version bump → `npm run version:check` and `npm run version:bump:check -- origin/main` pass at 0.0.50.
+- [x] Release path → `npm run pack:check`, `npm run test:postinstall:prebuilt` and `npm run test:npx:prebuilt` pass.
 
 ## Baseline + execution
 
@@ -40,9 +40,14 @@ N/A — tooling and CI only; no report, CLI or HTML output changes.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending
-E2E: N/A — no user-facing runtime change; the npm and npx install journeys are covered by the existing `test:npx:*` and `test:postinstall:prebuilt` checks.
+Result: Passed
+Evidence: every acceptance step was run at 96c3b58 or 26d3ca6:
+- Dev installs: in a fresh clone at 96c3b58, `pnpm install --frozen-lockfile --ignore-scripts` exited 0 with no postinstall output and no `target/`; without `--ignore-scripts` the root postinstall builds the release binary.
+- Old hook checks: `git diff --check` → diff-whitespace; `npm ci --ignore-scripts` → lockfile; `npm run lint` → version-sync, migration-guard, format-lint and rust-format; `version:bump:check` → version-bump; `release:check` → release-version; `cargo fmt --check` → rust-format; clippy → rust-clippy; `fallow audit` → fallow-audit; `cargo test` → rust-tests; `npm test` → tests; `pack:check`, `test:postinstall:prebuilt`, `test:npx:prebuilt`, `test:npx:local` and `test:npx:mcp:local` → pack, postinstall-prebuilt, npx-prebuilt, npx-local and npx-mcp-local; `.githooks/pre-commit` keeps version, release and migration checks.
+- Full gate: `python3 .hooks/hard-eng.py check --base main --plan-stage Ready` at 26d3ca6 exited 0 with all 30 gates passing; performance `check median 44.7ms, max 80.3ms` over 15 runs.
+- Version bump: `npm run version:check` → `version ok: 0.0.50`; `npm run version:bump:check -- origin/main` → `Cargo.toml 0.0.49 -> 0.0.50; package.json 0.0.49 -> 0.0.50`.
+- Release path: pack, postinstall-prebuilt and npx-prebuilt gates passed in the same run.
+E2E: Passed — the npx-local, npx-mcp-local, npx-prebuilt and postinstall-prebuilt gates installed and ran the CLI and MCP wrapper through npx and the prebuilt postinstall in the 26d3ca6 gate run.
 
 Delivery target: PR
-Delivery: Pending — PR CI must pass.
+Delivery: Pending — branch not pushed; PR CI must pass.
