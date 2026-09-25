@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_yaml_ng::{Mapping, Value};
 
 use crate::graph::{GraphError, normalize_path};
+use crate::scan::is_repository_root;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PackageMap {
@@ -216,7 +217,7 @@ impl PackageMap {
             })?;
 
             if file_type.is_dir() {
-                if should_skip_dir(&path) {
+                if should_skip_dir(&path) || is_repository_root(&path) {
                     continue;
                 }
                 self.discover_nested_pubspecs(&path, visited)?;
@@ -672,6 +673,26 @@ mod tests {
             Err(GraphError::WorkspacePattern { .. }) => {}
             other => panic!("expected strict workspace pattern error, got {other:?}"),
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn skips_nested_checkouts_but_keeps_nested_local_packages()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(&fixture, "pubspec.yaml", "name: app\n")?;
+        write(&fixture, "packages/feature/pubspec.yaml", "name: feature\n")?;
+        write(
+            &fixture,
+            "worktrees/wt1/.git",
+            "gitdir: ../../.git/worktrees/wt1\n",
+        )?;
+        write(&fixture, "worktrees/wt1/pubspec.yaml", "name: app_copy\n")?;
+
+        let packages = PackageMap::discover(fixture.path())?;
+
+        assert_eq!(packages.names(), vec!["app", "feature"]);
 
         Ok(())
     }

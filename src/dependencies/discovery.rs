@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::graph::normalize_path;
+use crate::scan::is_repository_root;
 
 use super::{DependencyHygieneError, PubPackage, read_package};
 
@@ -39,7 +40,7 @@ fn discover_pubspecs(
             })?;
 
         if file_type.is_dir() {
-            if should_skip_dir(&path) {
+            if should_skip_dir(&path) || is_repository_root(&path) {
                 continue;
             }
             discover_pubspecs(&path, pubspecs)?;

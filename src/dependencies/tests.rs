@@ -630,6 +630,49 @@ fn analyzes_workspace_packages_independently() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+fn skips_nested_checkout_packages_and_sources() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let app_pubspec = "name: app\ndependencies:\n  path: ^1.0.0\n";
+    let app_main = "import 'package:path/path.dart';\nvoid main() {}\n";
+    write(&fixture, "pubspec.yaml", app_pubspec)?;
+    write(&fixture, "lib/main.dart", app_main)?;
+    write(&fixture, "packages/feature/pubspec.yaml", "name: feature\n")?;
+    write(
+        &fixture,
+        "packages/feature/lib/feature.dart",
+        "class Feature {}\n",
+    )?;
+    write(
+        &fixture,
+        "worktrees/wt1/.git",
+        "gitdir: ../../.git/worktrees/wt1\n",
+    )?;
+    write(&fixture, "worktrees/wt1/pubspec.yaml", app_pubspec)?;
+    write(&fixture, "worktrees/wt1/test/main_test.dart", app_main)?;
+    let project = scan_project(fixture.path())?;
+
+    let packages = discover_packages(&project.root)?;
+    let report = analyze_dependency_hygiene(&project)?;
+
+    assert_eq!(
+        packages
+            .iter()
+            .map(|package| package.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["app", "feature"]
+    );
+    assert!(
+        project
+            .files
+            .iter()
+            .all(|file| !file.path.to_string_lossy().contains("worktrees"))
+    );
+    assert!(report.unused_dependencies.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn reports_dev_dependency_in_production_for_owning_workspace_package()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

@@ -177,7 +177,7 @@ pub fn scan_project_with_options(
 fn ignored_by_parent_gitignore(root: &Path, scan_root: &Path) -> bool {
     let Some(repository_root) = root
         .ancestors()
-        .find(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists())
+        .find(|ancestor| is_repository_root(ancestor))
     else {
         return false;
     };
@@ -224,9 +224,7 @@ fn discover_dart_files(
 ) -> Result<(), ScanError> {
     let filter_root = root.to_path_buf();
     let filter_matcher = ignore_matcher.clone();
-    let has_repository_ancestor = dir
-        .ancestors()
-        .any(|ancestor| ancestor.join(".git").exists() || ancestor.join(".jj").exists());
+    let has_repository_ancestor = dir.ancestors().any(is_repository_root);
     let mut builder = WalkBuilder::new(dir);
     builder
         .standard_filters(false)
@@ -239,7 +237,7 @@ fn discover_dart_files(
                     || entry
                         .file_type()
                         .is_some_and(|file_type| file_type.is_dir())
-                        && should_skip_dir(entry.path()))
+                        && (should_skip_dir(entry.path()) || is_repository_root(entry.path())))
         });
 
     for result in builder.build() {
@@ -299,6 +297,12 @@ fn has_skipped_directory(root: &Path, path: &Path) -> bool {
         .ok()
         .and_then(Path::parent)
         .is_some_and(|parent| parent.ancestors().any(should_skip_dir))
+}
+
+/// Whether `dir` is the root of its own Git or Jujutsu checkout, such as a
+/// nested worktree or clone, which belongs to a separate package graph.
+pub(crate) fn is_repository_root(dir: &Path) -> bool {
+    dir.join(".git").exists() || dir.join(".jj").exists()
 }
 
 fn should_skip_dir(path: &Path) -> bool {
