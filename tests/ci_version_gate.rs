@@ -181,29 +181,41 @@ fn run_pr_bump_script(root: &Path) -> Result<std::process::Output, Box<dyn std::
         .output()?)
 }
 
+fn shared_gate_command(
+    gates: &serde_json::Value,
+    name: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let gate = gates["shared"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|gate| gate["name"] == name)
+        .ok_or_else(|| missing(name))?;
+    Ok(serde_json::from_value(gate["command"].clone())?)
+}
+
 #[test]
 fn pull_request_ci_requires_bumped_unpublished_versions() -> Result<(), Box<dyn std::error::Error>>
 {
     let ci = fs::read_to_string(".github/workflows/ci.yml")?;
+    let gates: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string("hard-eng.gates.json")?)?;
     let package = fs::read_to_string("package.json")?;
     let template = fs::read_to_string(".github/pull_request_template.md")?;
-    let release_check = section_between(
-        &ci,
-        "      - name: Check release version",
-        "      - name: Check formatting",
-    )?;
+    let trigger = section_between(&ci, "on:\n", "\npermissions:")?;
+    let checkout = section_between(&ci, "      - name: Checkout", "\n\n")?;
+    let hard_eng_check = &ci[index_of(&ci, "      - name: Run Hard Eng checks")?..];
 
-    assert!(ci.contains("if: github.event_name == 'pull_request'"));
-    assert!(release_check.contains(
-        "git fetch --no-tags --depth=1 origin \"$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF\""
-    ));
-    assert!(release_check.contains("npm run version:bump:check -- \"origin/$GITHUB_BASE_REF\""));
-    assert!(release_check.contains("npm run release:check"));
-    assert!(
-        index_of(
-            release_check,
-            "npm run version:bump:check -- \"origin/$GITHUB_BASE_REF\""
-        )? < index_of(release_check, "npm run release:check")?
+    assert!(trigger.contains("  pull_request:\n    branches: [main]"));
+    assert!(checkout.contains("fetch-depth: 0"));
+    assert!(hard_eng_check.contains(".hooks/hard-eng.py check --base \"$BASE_SHA\""));
+    assert_eq!(
+        shared_gate_command(&gates, "version-bump")?,
+        ["node", "scripts/check-pr-version-bump.mjs", "origin/main"]
+    );
+    assert_eq!(
+        shared_gate_command(&gates, "release-version")?,
+        ["node", "scripts/check-release-version.mjs"]
     );
     assert!(package.contains("\"version:bump:check\": \"node scripts/check-pr-version-bump.mjs\""));
     assert!(!ci.contains("Package versions unchanged; skipping release version check."));
