@@ -3,6 +3,39 @@
 Dart Decimate is a Rust-native codebase intelligence tool for Dart and Flutter.
 It analyzes repositories as module graphs, not as a linter or type checker.
 
+## Users
+
+- Dart and Flutter developers and reviewers who run `npx dart-decimate@latest`
+  locally or in CI to find code to delete, untangle, or review before a PR
+  lands.
+- AI coding agents that read the JSON output, traces, schemas, and MCP tools
+  before proposing cleanup.
+
+## Problem
+
+AI and fast iteration create Dart code quickly, but teams still need
+deterministic evidence to review it, remove what is dead or duplicated, and keep
+architecture from drifting. See [AI Drift Goal](#ai-drift-goal).
+
+## Product Purpose
+
+Today it parses Dart files into a module graph and reports dead code, cycles,
+duplication, complexity, dependency hygiene, architecture drift, Flutter graph
+issues, security candidates, and PR risk as human text, JSON, SARIF, HTML, and
+MCP responses. It ships as a Rust crate and as the `dart-decimate` npm package,
+whose install downloads a prebuilt binary or builds one with Cargo. Planned
+work is tracked in [Phase Scope](#phase-scope) and
+[Fallow Parity Target](#fallow-parity-target).
+
+## Boundaries
+
+- It is not a formatter, a replacement for `dart analyze`, or a Flutter style
+  guide, and it does not enforce team-specific choices such as generated
+  Riverpod ownership.
+- It does not evaluate variables, types, or inner function logic.
+- JavaScript-specific or hosted-backend Fallow features return clear
+  unsupported JSON instead of pretending to work.
+
 ## Principles
 
 - Treat Dart code as graph data: files, declarations, imports, exports, parts,
