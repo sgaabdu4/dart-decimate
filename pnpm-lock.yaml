@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  undici-types: 6.23.0
+
 importers:
 
   .:
@@ -169,6 +172,9 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.14
         version: 2.5.14
+      '@types/node':
+        specifier: 22.20.4
+        version: 22.20.4
 
 packages:
 
@@ -229,6 +235,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@types/node@22.20.4':
+    resolution: {integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA==}
+
+  undici-types@6.23.0:
+    resolution: {integrity: sha512-HN7GeXgBUs1StmY/vf9hIH11LrNI5SfqmFVtxKyp9Dhuf1P1cDSRlS+H1NJDaGOWzlI08q+NmiHgu11Vx6QnhA==}
+
 snapshots:
 
   '@biomejs/biome@2.5.14':
@@ -265,3 +277,9 @@ snapshots:
 
   '@biomejs/cli-win32-x64@2.5.14':
     optional: true
+
+  '@types/node@22.20.4':
+    dependencies:
+      undici-types: 6.23.0
+
+  undici-types@6.23.0: {}

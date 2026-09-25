@@ -50,10 +50,14 @@ async function main() {
       response.writeHead(200, { "content-type": "application/gzip" });
       fs.createReadStream(assetPath).pipe(response);
     });
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    );
 
     try {
-      const { port } = server.address();
+      const { port } = /** @type {import("node:net").AddressInfo} */ (
+        server.address()
+      );
       await installNpmTarball(tarball, projectDir, port);
     } finally {
       await new Promise((resolve) => server.close(resolve));
@@ -98,6 +102,7 @@ async function main() {
   }
 }
 
+/** @param {string} filePath */
 function isFile(filePath) {
   try {
     return fs.statSync(filePath).isFile();
@@ -118,7 +123,7 @@ function installWithCargo() {
         "DART_DECIMATE_CARGO_GIT_URL and exactly one of DART_DECIMATE_CARGO_TAG or DART_DECIMATE_CARGO_REV must be set together",
       );
     }
-    args.push("--git", gitUrl, tag ? "--tag" : "--rev", tag || revision);
+    args.push("--git", gitUrl, tag ? "--tag" : "--rev", /** @type {string} */ (tag || revision));
     args.push("dart-decimate");
   } else {
     args.push("--path", root);
@@ -142,6 +147,7 @@ function packNpmPackage() {
   return path.join(tempRoot, metadata.filename);
 }
 
+/** @param {string} tarball @param {string} projectDir @param {number} port */
 async function installNpmTarball(tarball, projectDir, port) {
   const result = await spawnResult(
     "npm",
@@ -165,6 +171,7 @@ async function installNpmTarball(tarball, projectDir, port) {
   }
 }
 
+/** @param {string} projectDir */
 function assertInstalledPackageVersion(projectDir) {
   const installed = JSON.parse(
     fs.readFileSync(
@@ -179,6 +186,7 @@ function assertInstalledPackageVersion(projectDir) {
   }
 }
 
+/** @param {string} binary @param {string} label */
 function assertVersion(binary, label) {
   const result = run(binary, ["--version"], fixture, `${label} --version`);
   const expected = `dart-decimate ${packageJson.version}`;
@@ -189,6 +197,7 @@ function assertVersion(binary, label) {
   }
 }
 
+/** @param {string} binary @param {string} label */
 function runReport(binary, label) {
   return run(
     binary,
@@ -204,6 +213,7 @@ function releaseAssetName() {
   return `dart-decimate-${platform}-${arch}.tar.gz`;
 }
 
+/** @param {string} command @param {string[]} args @param {string} cwd @param {string} label */
 function run(command, args, cwd, label) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8" });
   if (result.status !== 0 || result.error) {
@@ -216,6 +226,9 @@ function run(command, args, cwd, label) {
   return result;
 }
 
+/** @typedef {{ error?: Error, status: number | null, stderr: string, stdout: string }} ChildResult */
+
+/** @param {string} command @param {string[]} args @param {import("node:child_process").SpawnOptionsWithoutStdio} options @returns {Promise<ChildResult>} */
 function spawnResult(command, args, options) {
   return new Promise((resolve) => {
     const child = spawn(command, args, options);

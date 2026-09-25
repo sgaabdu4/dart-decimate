@@ -83,8 +83,12 @@ async function main() {
     fs.createReadStream(assetPath).pipe(response);
   });
 
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
+  await new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve(undefined)),
+  );
+  const { port } = /** @type {import("node:net").AddressInfo} */ (
+    server.address()
+  );
 
   try {
     const result = await runNpx(tarball, projectDir, {
@@ -117,6 +121,9 @@ async function main() {
   }
 }
 
+/** @typedef {{ error?: Error, status: number | null, stderr: string, stdout: string }} ChildResult */
+
+/** @param {string} tarball @param {string} cwd @param {NodeJS.ProcessEnv} env @returns {Promise<ChildResult>} */
 function runNpx(tarball, cwd, env) {
   return new Promise((resolve) => {
     const child = spawn(

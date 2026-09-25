@@ -18,6 +18,7 @@ for (const file of files) {
 
 console.log(`Checked ${files.length} JavaScript files.`);
 
+/** @param {string} root @returns {string[]} */
 function javascriptFiles(root) {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
     const path = join(root, entry.name);

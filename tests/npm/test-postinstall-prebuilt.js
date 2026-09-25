@@ -75,8 +75,12 @@ async function main() {
     fs.createReadStream(assetPath).pipe(response);
   });
 
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
+  await new Promise((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve(undefined)),
+  );
+  const { port } = /** @type {import("node:net").AddressInfo} */ (
+    server.address()
+  );
 
   try {
     const result = await runPostinstall(
@@ -120,6 +124,9 @@ async function main() {
   }
 }
 
+/** @typedef {{ error?: Error, status: number | null, stderr: string, stdout: string }} ChildResult */
+
+/** @param {string} script @param {import("node:child_process").SpawnOptionsWithoutStdio} options @returns {Promise<ChildResult>} */
 function runPostinstall(script, options) {
   return new Promise((resolve) => {
     const child = spawn("node", [script], options);

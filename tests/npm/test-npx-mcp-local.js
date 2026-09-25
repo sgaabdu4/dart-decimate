@@ -20,7 +20,9 @@ try {
   );
   if (pack.error) {
     process.stderr.write(`failed to execute npm: ${pack.error.message}\n`);
-    process.exit(pack.error.code === "ENOENT" ? 127 : 1);
+    process.exit(
+      "code" in pack.error && pack.error.code === "ENOENT" ? 127 : 1,
+    );
   }
   if (pack.status !== 0) {
     process.stderr.write(pack.stderr || "");
@@ -49,7 +51,9 @@ try {
   }
   if (result.error) {
     process.stderr.write(`failed to execute npx: ${result.error.message}\n`);
-    process.exit(result.error.code === "ENOENT" ? 127 : 1);
+    process.exit(
+      "code" in result.error && result.error.code === "ENOENT" ? 127 : 1,
+    );
   }
   if (result.status !== 0) {
     process.exit(result.status || 1);

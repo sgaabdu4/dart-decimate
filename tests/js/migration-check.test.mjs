@@ -52,6 +52,7 @@ test("migration check still rejects old names in product source", () => {
   assert.match(result.stderr, /old product name/);
 });
 
+/** @param {string} cwd */
 function run(cwd) {
   return spawnSync(process.execPath, [migrationCheck], {
     cwd,
@@ -59,6 +60,7 @@ function run(cwd) {
   });
 }
 
+/** @param {string} root @param {string} relative @param {string} contents */
 function write(root, relative, contents) {
   const file = join(root, relative);
   mkdirSync(dirname(file), { recursive: true });
