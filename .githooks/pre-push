@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+import subprocess
+import sys
+
+root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+sys.exit(subprocess.call([sys.executable, root + "/.hooks/hard-eng.py", "pre-push"]))

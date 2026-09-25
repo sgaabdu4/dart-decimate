@@ -1,0 +1,8 @@
+
+[mcp_servers."context-mode"]
+command = "pnpm"
+args = ["dlx", "context-mode@latest"]
+
+[mcp_servers."codebase-memory-mcp"]
+command = "pnpm"
+args = ["dlx", "codebase-memory-mcp@latest"]
