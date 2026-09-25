@@ -328,6 +328,8 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
     let publish = section_between(&release, "  release:", "      - name: Publish to npm")?;
 
     assert!(build.contains("needs: prepare"));
+    assert!(build.contains("windows-latest"));
+    assert!(build.contains("    defaults:\n      run:\n        shell: bash\n"));
     assert!(build.contains("ref: ${{ github.sha }}"));
     assert!(build.contains("git rev-parse HEAD"));
     assert!(publish.contains("needs: [prepare, build-assets]"));
