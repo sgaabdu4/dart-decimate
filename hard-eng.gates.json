@@ -385,5 +385,17 @@
         "tests/npm/test-npx-mcp-local.js"
       ]
     }
-  ]
+  ],
+  "shipping": {
+    "base": "main",
+    "checks": [
+      "Rust and npm checks",
+      "Dependency audit",
+      "OpenSSF Scorecard"
+    ],
+    "ui_paths": [],
+    "ci_seconds": 1800,
+    "pre_push_seconds": 1800,
+    "delivery": []
+  }
 }

@@ -47,28 +47,15 @@ This repository already runs:
 
 Local gate settings live in `.no-mistakes.yaml`. They allow three auto-fix
 attempts for rebase, review, test, document, lint, and CI work, with deterministic
-`test`, `lint`, and `format` commands. The checked-in pre-push hook uses
-`DART_DECIMATE_BASE_REF` or `origin/main`, fetches a missing remote base, and
-runs the same lint/test stack before allowing a push.
+`test`, `lint`, and `format` commands. Hard Eng owns the full gate: the
+checked-in pre-push hook and the `Rust and npm checks` CI job both run
+`python3 .hooks/hard-eng.py check`, which runs every check listed in
+`hard-eng.gates.json`.
 
 Run the complete verification stack locally:
 
 ```bash
-git diff --check
-pnpm install --frozen-lockfile --ignore-scripts
-npm run lint
-npm run version:bump:check -- origin/main
-npm run release:check
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-npx fallow audit --base origin/main --quiet
-cargo test --all-targets
-npm test
-npm run pack:check
-npm run test:postinstall:prebuilt
-npm run test:npx:prebuilt
-npm run test:npx:local
-npm run test:npx:mcp:local
+python3 .hooks/hard-eng.py check
 ```
 
 Generate CI templates:
