@@ -112,6 +112,9 @@ jobs:
     name: Build ${{ matrix.asset }}
     needs: prepare
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 30
     strategy:
       fail-fast: false
