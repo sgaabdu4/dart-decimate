@@ -673,6 +673,29 @@ fn skips_nested_checkout_packages_and_sources() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+fn skips_gitignored_nested_package_dependencies() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, ".gitignore", "scratch/\n")?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "scratch/pkg/pubspec.yaml",
+        "name: pkg\ndependencies:\n  http: ^1.0.0\n",
+    )?;
+    let project = scan_project(fixture.path())?;
+
+    let packages = discover_packages(&project.root)?;
+    let report = analyze_dependency_hygiene(&project)?;
+
+    assert_eq!(packages.len(), 1);
+    assert_eq!(packages[0].name, "app");
+    assert!(report.unused_dependencies.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn reports_dev_dependency_in_production_for_owning_workspace_package()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
