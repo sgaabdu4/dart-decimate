@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_yaml_ng::{Mapping, Value};
 
 use crate::graph::{GraphError, normalize_path};
+use crate::scan::{IgnoreMatcher, project_walk};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PackageMap {
@@ -199,28 +200,15 @@ impl PackageMap {
         dir: &Path,
         visited: &mut BTreeSet<PathBuf>,
     ) -> Result<(), GraphError> {
-        let entries = fs::read_dir(dir).map_err(|source| GraphError::ReadDir {
-            path: dir.to_path_buf(),
-            source,
-        })?;
-
-        for entry in entries {
-            let entry = entry.map_err(|source| GraphError::ReadDirEntry {
+        for entry in project_walk(dir, dir, &IgnoreMatcher::default()) {
+            let entry = entry.map_err(|error| GraphError::ReadDir {
                 path: dir.to_path_buf(),
-                source,
+                source: std::io::Error::other(error),
             })?;
             let path = entry.path();
-            let file_type = entry.file_type().map_err(|source| GraphError::FileType {
-                path: path.clone(),
-                source,
-            })?;
-
-            if file_type.is_dir() {
-                if should_skip_dir(&path) {
-                    continue;
-                }
-                self.discover_nested_pubspecs(&path, visited)?;
-            } else if file_type.is_file()
+            if entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
                 && path.file_name().is_some_and(|name| name == "pubspec.yaml")
                 && let Some(package_root) = path.parent()
             {
@@ -565,13 +553,6 @@ fn contains_glob_pattern(value: &str) -> bool {
     value.contains('*') || value.contains('?') || value.contains('[')
 }
 
-fn should_skip_dir(path: &Path) -> bool {
-    matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some(".dart_tool" | ".git" | ".idea" | ".pub-cache" | "build" | "target")
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -672,6 +653,40 @@ mod tests {
             Err(GraphError::WorkspacePattern { .. }) => {}
             other => panic!("expected strict workspace pattern error, got {other:?}"),
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn skips_nested_checkouts_but_keeps_nested_local_packages()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(&fixture, "pubspec.yaml", "name: app\n")?;
+        write(&fixture, "packages/feature/pubspec.yaml", "name: feature\n")?;
+        write(
+            &fixture,
+            "worktrees/wt1/.git",
+            "gitdir: ../../.git/worktrees/wt1\n",
+        )?;
+        write(&fixture, "worktrees/wt1/pubspec.yaml", "name: app_copy\n")?;
+
+        let packages = PackageMap::discover(fixture.path())?;
+
+        assert_eq!(packages.names(), vec!["app", "feature"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn skips_gitignored_nested_pubspecs() -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(&fixture, ".gitignore", "scratch/\n")?;
+        write(&fixture, "pubspec.yaml", "name: app\n")?;
+        write(&fixture, "scratch/pkg/pubspec.yaml", "name: pkg\n")?;
+
+        let packages = PackageMap::discover(fixture.path())?;
+
+        assert_eq!(packages.names(), vec!["app"]);
 
         Ok(())
     }
