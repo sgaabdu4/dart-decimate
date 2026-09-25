@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: read # Jobs read the source unless they raise their own permissions.
 
 env:
   RUST_TOOLCHAIN: stable
@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install Rust
         run: |
@@ -139,29 +140,36 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Verify release source
         shell: bash
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Install Rust
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
           rustup default "$RUST_TOOLCHAIN"
-          rustup target add "${{ matrix.target }}"
+          rustup target add "$TARGET"
 
       - name: Build archive
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXE_EXT: ${{ matrix.exe_ext }}
+          ASSET: ${{ matrix.asset }}
         run: |
           set -euo pipefail
-          cargo build --release --locked --target "${{ matrix.target }}" --bin dart-decimate --bin dart-decimate-mcp
+          cargo build --release --locked --target "$TARGET" --bin dart-decimate --bin dart-decimate-mcp
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/dart-decimate${{ matrix.exe_ext }}" dist/
-          cp "target/${{ matrix.target }}/release/dart-decimate-mcp${{ matrix.exe_ext }}" dist/
-          if [ "${{ matrix.exe_ext }}" = "" ]; then
+          cp "target/$TARGET/release/dart-decimate$EXE_EXT" dist/
+          cp "target/$TARGET/release/dart-decimate-mcp$EXE_EXT" dist/
+          if [ "$EXE_EXT" = "" ]; then
             chmod +x dist/dart-decimate dist/dart-decimate-mcp
           fi
-          tar -czf "${{ matrix.asset }}" -C dist .
+          tar -czf "$ASSET" -C dist .
 
       - name: Upload archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -176,8 +184,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
-      contents: write
-      id-token: write
+      contents: write # Push the release tag and create the GitHub release.
+      id-token: write # Publish to npm with provenance through trusted publishing.
 
     steps:
       - name: Checkout
@@ -185,6 +193,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Install Rust
         run: |
@@ -235,11 +244,15 @@ jobs:
         if: needs.prepare.outputs.tag_exists == 'false'
         env:
           TAG: ${{ needs.prepare.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "$TAG"
-          git push origin "$TAG"
+          # The checkout does not persist credentials, so pass the token for this push only.
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin "$TAG"
 
       - name: Verify tagged source
         env:

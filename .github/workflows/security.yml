@@ -9,8 +9,8 @@ on:
     - cron: "22 4 * * 1"
 
 permissions:
-  contents: read
-  actions: read
+  contents: read # Read the source and lockfiles to audit them.
+  actions: read # Scorecard reads workflow run metadata.
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         run: |
@@ -55,10 +57,10 @@ jobs:
     timeout-minutes: 20
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
-      contents: read
-      actions: read
-      security-events: write
-      id-token: write
+      contents: read # Scorecard reads the repository.
+      actions: read # Scorecard reads workflow run metadata.
+      security-events: write # Upload the Scorecard SARIF to code scanning.
+      id-token: write # Sign published Scorecard results.
 
     steps:
       - name: Checkout

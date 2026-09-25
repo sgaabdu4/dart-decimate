@@ -1,0 +1,22 @@
+# Dart Decimate's security detector is tested against secret-shaped Dart
+# fixtures. These exact synthetic values are not credentials: two hex
+# counting sequences, a made-up API secret, and the public jwt.io sample
+# token. Both the value and the test file must match, so the rules stay
+# active everywhere else.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic secret fixtures in the security detector tests"
+condition = "AND"
+paths = [
+  '''^tests/cli_security_issue_18\.rs$''',
+  '''^tests/cli_issue_54_false_positives\.rs$''',
+  '''^src/security/tests\.rs$''',
+]
+regexes = [
+  '''^0123456789abcdef0123456789abcdef$''',
+  '''^fedcba9876543210fedcba9876543210$''',
+  '''^N7kQ9vR2mX4cT8pL6zW3$''',
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c$''',
+]
