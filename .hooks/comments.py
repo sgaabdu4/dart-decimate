@@ -5,6 +5,7 @@ Installed agent skills under .agents/ are vendored tooling and are not checked.
 
 import io
 import re
+import subprocess
 import tokenize
 from pathlib import Path
 
@@ -222,8 +223,29 @@ def comment_blocks(path: Path) -> list[tuple[int, int]]:
     return blocks
 
 
-def validate_comments(root: Path, base: str) -> None:
-    names = changed_files(root, base)
+def branch_point(root: Path) -> str:
+    """Where HEAD left the shipping base, so committed branch changes count; else HEAD."""
+    from shipping import ShippingError, load_policy
+
+    try:
+        policy = load_policy(root, required=False)
+    except ShippingError:
+        policy = None
+    for reference in (f"origin/{policy['base']}", policy["base"]) if policy else ():
+        found = subprocess.run(
+            ["git", "merge-base", "HEAD", reference],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if found.returncode == 0:
+            return found.stdout.strip()
+    return "HEAD"
+
+
+def validate_comments(root: Path, base: str | None) -> None:
+    names = changed_files(root, base or branch_point(root))
     if names is None:
         raise ValueError(
             "Cannot verify comment scope; fetch or supply a valid Git --base"
