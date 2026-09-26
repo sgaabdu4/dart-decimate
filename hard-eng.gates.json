@@ -394,8 +394,8 @@
       "OpenSSF Scorecard"
     ],
     "ui_paths": [],
-    "ci_seconds": 1800,
-    "pre_push_seconds": 1800,
+    "ci_seconds": 900,
+    "pre_push_seconds": 600,
     "delivery": []
   }
 }
