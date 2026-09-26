@@ -16,7 +16,7 @@ REPOSITORY = f"https://github.com/{UPSTREAM}.git"
 SOURCE_FILE = ".hooks/hard-eng-source.json"
 
 
-def github_json(endpoint: str) -> object:
+def github_token() -> str | None:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token and shutil.which("gh"):
         auth = subprocess.run(
@@ -28,6 +28,11 @@ def github_json(endpoint: str) -> object:
         )
         if auth.returncode == 0:
             token = auth.stdout.strip()
+    return token or None
+
+
+def github_json(endpoint: str) -> object:
+    token = github_token()
     headers = {"Accept": "application/vnd.github+json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

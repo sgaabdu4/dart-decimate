@@ -149,6 +149,7 @@ def provision_batch(
         "MISE_MINIMUM_RELEASE_AGE=0s",
         "pnpm",
         "dlx",
+        "--config.ignore-scripts=false",
         "--allow-build=@jdxcode/mise",
         "--package=@jdxcode/mise@latest",
         "mise",

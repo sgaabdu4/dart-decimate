@@ -196,12 +196,18 @@ def run_gate_command(
     """Run ordinary gates directly and snapshot only the native files scan."""
     if role == "secrets-files":
         return run_current_files(command, directory, timeout, stdout, stderr)
+    environment = {**os.environ, "PNPM_CONFIG_DLX_CACHE_MAX_AGE": "0"}
+    if role == "ci-security":
+        from update import github_token
+
+        if token := github_token():
+            environment["GH_TOKEN"] = token
     return subprocess.run(
         command,
         cwd=directory,
         check=False,
         timeout=timeout,
-        env={**os.environ, "PNPM_CONFIG_DLX_CACHE_MAX_AGE": "0"},
+        env=environment,
         stdout=stdout,
         stderr=stderr,
     )
