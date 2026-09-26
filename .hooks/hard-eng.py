@@ -2,6 +2,7 @@
 """Run native gate commands and handle the three agreed hook events."""
 
 import configparser
+import fcntl
 import json
 import os
 import shlex
@@ -12,8 +13,9 @@ import tempfile
 import threading
 import tomllib
 import xml.etree.ElementTree as ET
+from collections.abc import Generator
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import TypedDict, cast
 from urllib.parse import unquote, urljoin, urlparse
@@ -583,6 +585,21 @@ def run_gate(
     return failed
 
 
+@contextmanager
+def check_lock(root: Path) -> Generator[None]:
+    """Gates write fixed report paths, so one check runs per checkout at a time."""
+    name = subprocess.check_output(
+        ["git", "rev-parse", "--git-path", "hard-eng-check.lock"], cwd=root, text=True
+    ).strip()
+    with (root / name).open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("Waiting for another Hard Eng check in this checkout", flush=True)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def check(
     timeout: float = 600,
     base: str | None = None,
@@ -596,43 +613,46 @@ def check(
     if base is not None and check_scaffold_update(ROOT, base):
         return 0
 
-    groups = load_groups(ROOT, base)
-    from comments import validate_comments
-    from plans import report_stage, validate_plans
+    with check_lock(ROOT):
+        groups = load_groups(ROOT, base)
+        from comments import validate_comments
+        from plans import report_stage, validate_plans
 
-    if verify_plan:
-        plan_stage = validate_plans(ROOT, base, plan_stage)
-    validate_comments(ROOT, base)
-    provision_tools(ROOT, groups, timeout)
-    output_lock = threading.Lock()
+        if verify_plan:
+            plan_stage = validate_plans(ROOT, base, plan_stage)
+        validate_comments(ROOT, base)
+        provision_tools(ROOT, groups, timeout)
+        output_lock = threading.Lock()
 
-    failed = False
-    pending: set[Future[bool]] = set()
-    checks = [(group, gate) for group in groups for gate in group["checks"]]
-    ordered = [item for item in checks if item[1].get("role") == "lockfiles"]
-    ordered += [item for item in checks if item[1].get("role") != "lockfiles"]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        for group, gate in ordered:
-            if gate.get("parallel", False) and gate.get("role") != "lockfiles":
-                if len(pending) == 2:
-                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
-                    for future in done:
+        failed = False
+        pending: set[Future[bool]] = set()
+        checks = [(group, gate) for group in groups for gate in group["checks"]]
+        ordered = [item for item in checks if item[1].get("role") == "lockfiles"]
+        ordered += [item for item in checks if item[1].get("role") != "lockfiles"]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            for group, gate in ordered:
+                if gate.get("parallel", False) and gate.get("role") != "lockfiles":
+                    if len(pending) == 2:
+                        done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            failed |= future.result()
+                    pending.add(
+                        pool.submit(run_gate, group, gate, timeout, output_lock)
+                    )
+                else:
+                    for future in pending:
                         failed |= future.result()
-                pending.add(pool.submit(run_gate, group, gate, timeout, output_lock))
-            else:
-                for future in pending:
-                    failed |= future.result()
-                pending.clear()
-                result = run_gate(group, gate, timeout, output_lock)
-                failed |= result
-                if result and gate.get("role") == "lockfiles":
-                    print("Dependency setup failed; remaining checks were not run.")
-                    report_stage(True, plan_stage)
-                    return 1
-        for future in pending:
-            failed |= future.result()
-    report_stage(failed, plan_stage)
-    return int(failed)
+                    pending.clear()
+                    result = run_gate(group, gate, timeout, output_lock)
+                    failed |= result
+                    if result and gate.get("role") == "lockfiles":
+                        print("Dependency setup failed; remaining checks were not run.")
+                        report_stage(True, plan_stage)
+                        return 1
+            for future in pending:
+                failed |= future.result()
+        report_stage(failed, plan_stage)
+        return int(failed)
 
 
 def impact(base: str) -> int:
@@ -708,6 +728,9 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
+        # ssh under `git push` shares this pipe and leaves it non-blocking.
+        for stream in (sys.stdout, sys.stderr):
+            os.set_blocking(stream.fileno(), True)
         raise SystemExit(main())
     except (
         ImportError,
