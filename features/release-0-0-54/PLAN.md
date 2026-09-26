@@ -1,6 +1,6 @@
 # Release 0.0.54 with the latest Hard Eng and measured budgets
 
-Status: Ready
+Status: Complete
 
 ## Outcome + scope
 
@@ -23,8 +23,8 @@ Authority: Autonomous. The owner asked to set the budgets, update Hard Eng and r
 
 ## Acceptance + steps
 
-- [ ] `.hooks/hard-eng-source.json` names a7693e7 → updater output.
-- [ ] Full gate passes with the new hooks and budgets → `python3 .hooks/hard-eng.py check --base origin/main`.
+- [x] `.hooks/hard-eng-source.json` names a7693e7 → updater output.
+- [x] Full gate passes with the new hooks and budgets → `python3 .hooks/hard-eng.py check --base origin/main`.
 
 ## Baseline + execution
 
@@ -42,8 +42,8 @@ N/A — tooling update with no visual surface.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending
+Result: Passed
+Evidence: Updater: "Updated Hard Eng to a7693e74…"; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Ready` → exit 0, 30/30 gates PASS.
 E2E: N/A — no product journey changes; PR CI and the release run cover delivery.
 
 Delivery target: Merge
