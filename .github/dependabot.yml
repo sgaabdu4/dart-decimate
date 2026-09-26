@@ -1,5 +1,4 @@
-# Every merge to main publishes a release, so each pull request must carry one
-# version bump. Grouping keeps that to one bump per ecosystem per week.
+# Every merge releases, so grouping keeps version bumps to one per ecosystem a week.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -25,6 +24,10 @@ updates:
       npm:
         patterns:
           - "*"
+    ignore:
+      # Types track the oldest supported Node in engines.node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

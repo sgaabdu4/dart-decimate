@@ -197,17 +197,38 @@ def run_gate_command(
     if role == "secrets-files":
         return run_current_files(command, directory, timeout, stdout, stderr)
     environment = {**os.environ, "PNPM_CONFIG_DLX_CACHE_MAX_AGE": "0"}
-    if role == "ci-security":
-        from update import github_token
+    with tempfile.TemporaryDirectory(prefix="hard-eng-zizmor-") as temporary:
+        if role == "ci-security":
+            from update import github_token
 
-        if token := github_token():
-            environment["GH_TOKEN"] = token
-    return subprocess.run(
-        command,
-        cwd=directory,
-        check=False,
-        timeout=timeout,
-        env=environment,
-        stdout=stdout,
-        stderr=stderr,
-    )
+            if token := github_token():
+                environment["GH_TOKEN"] = token
+            environment["ZIZMOR_CONFIG"] = zizmor_config(directory, Path(temporary))
+        return subprocess.run(
+            command,
+            cwd=directory,
+            check=False,
+            timeout=timeout,
+            env=environment,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+
+def zizmor_config(directory: Path, temporary: Path) -> str:
+    """actionlint rejects `$/`, zizmor's only fix for self-repository, so that audit is off."""
+    import yaml
+
+    empty: dict[str, object] = {}
+    config: object = empty
+    for name in ("zizmor.yml", ".github/zizmor.yml"):
+        if (directory / name).is_file():
+            config = yaml.safe_load((directory / name).read_text()) or empty
+            break
+    rules = config.setdefault("rules", {}) if isinstance(config, dict) else None
+    if not isinstance(rules, dict):
+        raise TypeError("zizmor configuration must map rules to settings")
+    rules["self-repository"] = {"disable": True}
+    path = temporary / "zizmor.yml"
+    path.write_text(yaml.safe_dump(config))
+    return str(path)
