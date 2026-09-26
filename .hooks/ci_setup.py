@@ -207,17 +207,32 @@ def maintenance_workflows_only(workflows: list[Path]) -> bool:
         )
         if not events or not events <= MAINTENANCE_EVENTS:
             return False
-        jobs = workflow.get("jobs")
-        if isinstance(jobs, dict) and any(
-            isinstance(step, dict)
-            and isinstance(step.get("run"), str)
-            and re.search(r"\.hooks/hard-eng\.py\s+check(?:\s|$)", step["run"])
-            for job in jobs.values()
-            if isinstance(job, dict) and isinstance(job.get("steps"), list)
-            for step in job["steps"]
-        ):
+        if runs_hard_eng_check(workflow):
             return False
     return True
+
+
+def runs_hard_eng_check(workflow: object) -> bool:
+    jobs = workflow.get("jobs") if isinstance(workflow, dict) else None
+    return isinstance(jobs, dict) and any(
+        isinstance(step, dict)
+        and isinstance(step.get("run"), str)
+        and re.search(r"\.hooks/hard-eng\.py\s+check(?:\s|$)", step["run"])
+        for job in jobs.values()
+        if isinstance(job, dict) and isinstance(job.get("steps"), list)
+        for step in job["steps"]
+    )
+
+
+def integrated(workflows: list[Path]) -> bool:
+    """Existing CI that already runs the check needs no integration reminder."""
+    for path in workflows:
+        try:
+            if runs_hard_eng_check(yaml.safe_load(path.read_text())):
+                return True
+        except yaml.YAMLError:
+            continue
+    return False
 
 
 def configure_ci(
@@ -240,6 +255,8 @@ def configure_ci(
         if path.is_file() and path.suffix in {".yml", ".yaml"}
     ]
     if workflows and not maintenance_workflows_only(workflows):
+        if integrated(workflows):
+            return
         print(
             "Existing CI retained: integrate missing Hard Eng checks into their current jobs and require those results in shipping.checks; do not add a duplicate full pipeline.",
             file=sys.stderr,
