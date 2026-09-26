@@ -80,8 +80,12 @@ def migrate_workflow_pins(content: str) -> str:
     return content
 
 
+OLD_LAUNCHER = "pnpm dlx --allow-build=@jdxcode/mise"
+LAUNCHER = "pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise"
+
+
 def migrate_workflow_tools(content: str) -> str:
-    launcher = "pnpm dlx --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config"
+    launcher = f"{LAUNCHER} --package=@jdxcode/mise@latest mise --no-config"
     return re.sub(
         r"(?m)^        run: >-\n"
         r"          pnpm dlx --allow-build=@jdxcode/mise\n"
@@ -95,7 +99,7 @@ def migrate_workflow_tools(content: str) -> str:
             f"          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h {launcher} exec {match['tools']} -- {match['check']}\n"
         ),
         content,
-    )
+    ).replace(f"{OLD_LAUNCHER} ", f"{LAUNCHER} ")
 
 
 def migrate_docs_path(source: Path, content: str) -> str:
@@ -155,7 +159,7 @@ def migrate_workflow_sdks(root: Path, config: GateConfig, content: str) -> str:
     """Add SDKs that packages added after CI generation need; keep project tools."""
     required = workflow_tools(root, config)[3:]
     pattern = re.compile(
-        r"(?m)^(?P<indent> +)(?P<launcher>pnpm dlx \S+ \S+ mise --no-config) "
+        r"(?m)^(?P<indent> +)(?P<launcher>pnpm dlx (?:\S+ )+?mise --no-config) "
         r"install (?P<tools>[^&\n]+) &&\n"
         r"(?P=indent)MISE_FETCH_REMOTE_VERSIONS_CACHE=1h (?P=launcher) exec (?P=tools) -- "
     )

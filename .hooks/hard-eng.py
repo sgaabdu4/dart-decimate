@@ -602,7 +602,7 @@ def check(
 
     if verify_plan:
         plan_stage = validate_plans(ROOT, base, plan_stage)
-    validate_comments(ROOT, base or "HEAD")
+    validate_comments(ROOT, base)
     provision_tools(ROOT, groups, timeout)
     output_lock = threading.Lock()
 
