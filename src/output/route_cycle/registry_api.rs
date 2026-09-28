@@ -10,6 +10,7 @@ use crate::{
 pub(super) struct VisibleNonRouteRegistryApi {
     pub(super) top_level_names: BTreeSet<String>,
     pub(super) member_names: BTreeSet<String>,
+    pub(super) extension_members: BTreeSet<String>,
 }
 
 impl VisibleNonRouteRegistryApi {
@@ -100,16 +101,19 @@ impl ExportApiCollector<'_> {
                     })
                     .map(|declaration| declaration.name.clone()),
             );
-            api.member_names.extend(
-                file.members
-                    .iter()
-                    .filter(|member| {
-                        is_non_route_registry_api_member(member, self.navigation_member_owners)
-                            && dependency_imports_name(self.dependency, &member.owner)
-                            && is_visible_through_export_chain(&member.owner, chain)
-                    })
-                    .map(|member| member.name.clone()),
-            );
+            for member in file.members.iter().filter(|member| {
+                is_non_route_registry_api_member(member, self.navigation_member_owners)
+                    && dependency_imports_name(self.dependency, &member.owner)
+                    && is_visible_through_export_chain(&member.owner, chain)
+            }) {
+                api.member_names.insert(member.name.clone());
+                if file.declarations.iter().any(|declaration| {
+                    declaration.kind == DeclarationKind::Extension
+                        && declaration.name == member.owner
+                }) {
+                    api.extension_members.insert(member.name.clone());
+                }
+            }
         }
     }
 }
