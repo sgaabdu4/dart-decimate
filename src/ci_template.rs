@@ -140,13 +140,9 @@ pub fn ci_template_report(platform: CiTemplatePlatform, vendor: bool) -> CiTempl
     }
 }
 
-/// Write the selected CI template files under `root`.
-///
 /// # Errors
 ///
-/// Returns [`CiTemplateError`] when a target file already exists without
-/// `force`, or when directories, files, or executable permissions cannot be
-/// written.
+/// Fails if a target exists without `force` or the filesystem cannot write it.
 pub fn vendor_ci_template(
     root: impl AsRef<Path>,
     platform: CiTemplatePlatform,
@@ -161,12 +157,9 @@ pub fn vendor_ci_template(
     Ok(report)
 }
 
-/// Build a dry-run CI review reconciliation report.
-///
 /// # Errors
 ///
-/// Returns [`CiTemplateError`] when the envelope cannot be read or parsed, or
-/// when provider mutation is requested.
+/// Fails if the envelope cannot be read or parsed, or provider mutation is requested.
 pub fn ci_reconcile_review_report(
     options: CiReconcileReviewOptions,
 ) -> Result<CiReconcileReviewReport, CiTemplateError> {
@@ -331,7 +324,7 @@ fn collect_fingerprints(value: &Value, fingerprints: &mut BTreeSet<String>) {
     }
 }
 
-const GITHUB_WORKFLOW: &str = r"name: Dart Decimate
+const GITHUB_WORKFLOW: &str = r#"name: Dart Decimate
 
 on:
   pull_request:
@@ -344,11 +337,22 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          version: latest
+          runtime: node@latest
+          install: false
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: npx --yes dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base origin/${{ github.base_ref || 'main' }} --strict
-";
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE="$(git hash-object -t tree -w /dev/null)"
+          fi
+          pnpm dlx dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "$BASE" --strict
+"#;
 
 const GITLAB_CI: &str = r#"stages:
   - quality
@@ -356,32 +360,60 @@ const GITLAB_CI: &str = r#"stages:
 dart-decimate:
   stage: quality
   image: node:24
+  variables:
+    GIT_DEPTH: "0"
+    PNPM_HOME: "$CI_PROJECT_DIR/.pnpm"
+  before_script:
+    - mkdir -p "$PNPM_HOME"
+    - curl -fsSL https://get.pnpm.io/install.sh -o "$PNPM_HOME/install.sh"
+    - env PNPM_VERSION=12.6.0 SHELL=/bin/sh ENV="$HOME/.shrc" sh "$PNPM_HOME/install.sh"
+    - export PATH="$PNPM_HOME/bin:$PATH"
   script:
-    - npx --yes dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}" --strict
+    - |
+      BASE="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}}"
+      if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+        BASE="$(git hash-object -t tree -w /dev/null)"
+      fi
+      pnpm dlx dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "$BASE" --strict
   rules:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 "#;
 
-const GITLAB_VENDORED_CI: &str = r".dart-decimate:
+const GITLAB_VENDORED_CI: &str = r#".dart-decimate:
   stage: quality
   image: node:24
+  variables:
+    GIT_DEPTH: "0"
+    PNPM_HOME: "$CI_PROJECT_DIR/.pnpm"
+  before_script:
+    - mkdir -p "$PNPM_HOME"
+    - curl -fsSL https://get.pnpm.io/install.sh -o "$PNPM_HOME/install.sh"
+    - env PNPM_VERSION=12.6.0 SHELL=/bin/sh ENV="$HOME/.shrc" sh "$PNPM_HOME/install.sh"
+    - export PATH="$PNPM_HOME/bin:$PATH"
   script:
     - ci/scripts/review.sh
   rules:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-";
+"#;
 
 const GITLAB_REVIEW_SCRIPT: &str = r#"#!/usr/bin/env sh
 set -eu
 
-BASE="origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
-npx --yes dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "$BASE" --strict
+BASE="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}}"
+if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+  BASE="$(git hash-object -t tree -w /dev/null)"
+fi
+pnpm dlx dart-decimate@__DART_DECIMATE_VERSION__ audit --format json --base "$BASE" --strict
 "#;
 
 const GITLAB_COMMENT_SCRIPT: &str = r#"#!/usr/bin/env sh
 set -eu
 
-npx --yes dart-decimate@__DART_DECIMATE_VERSION__ review --format json --base "origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-main}"
+BASE="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}}"
+if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+  BASE="$(git hash-object -t tree -w /dev/null)"
+fi
+pnpm dlx dart-decimate@__DART_DECIMATE_VERSION__ review --format json --base "$BASE"
 "#;

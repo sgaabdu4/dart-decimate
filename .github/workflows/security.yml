@@ -38,13 +38,11 @@ jobs:
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - name: Install Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - name: Install Node and pnpm
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
         with:
-          node-version: 22
+          runtime: node@22
+          install: false
 
       - name: pnpm audit
         run: |

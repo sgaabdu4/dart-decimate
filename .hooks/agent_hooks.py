@@ -8,23 +8,95 @@ import sys
 import tempfile
 from pathlib import Path
 
-from gate_config import JsonObject, nonproduction_source, repository_files
+from gate_config import JsonObject, JsonValue, nonproduction_source, repository_files
 from update import require_current
 
 # The HE Build handoff line, not a quoted or negated mention of it.
 SHIP_CLAIM = re.compile(r"^[*_ ]*Ready for ship[*_]*\s*[—–-]", re.MULTILINE)
 
 
+def replaces_agents(path: Path) -> bool:
+    return path.is_symlink() or path.exists()
+
+
 def configure_instructions(
     root: Path, source: Path, previous: Path | None, changes: dict[str, str]
-) -> None:
+) -> list[str]:
+    from update import contained
+
     start, end = "<!-- hard-eng:start -->", "<!-- hard-eng:end -->"
     instructions = {
         "AGENTS.md": (source / "AGENTS.md").read_text().rstrip(),
     }
-    claude = root / "CLAUDE.md"
-    if not (claude.is_symlink() and claude.resolve() == root / "AGENTS.md"):
-        instructions["CLAUDE.md"] = "@AGENTS.md"
+    listed = subprocess.check_output(
+        [
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--",
+            ":(glob)**/CLAUDE.md",
+            ":(glob)**/CLAUDE.local.md",
+            ":(glob,exclude)**/node_modules/**",
+            ":(glob,exclude)**/vendor/**",
+            ":(glob,exclude)**/.venv/**",
+            ":(glob,exclude)**/.dart_tool/**",
+            ":(glob,exclude)**/build/**",
+            ":(glob,exclude).agents/**",
+            ":(glob,exclude).hard-eng/**",
+        ],
+        cwd=root,
+        text=True,
+    ).split("\0")
+    retired: list[str] = []
+    replacing: list[str] = []
+    for name in sorted(
+        name
+        for name in {*listed, "CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"}
+        if Path(name).name in {"CLAUDE.md", "CLAUDE.local.md"}
+        and replaces_agents(root / name)
+    ):
+        path = root / name
+        linked = path.is_symlink() and path.resolve() in {
+            (root / "AGENTS.md").resolve(),
+            path.with_name("AGENTS.md").resolve(),
+        }
+        imported = (
+            not path.is_symlink()
+            and path.is_file()
+            and path.read_text().strip()
+            in {CLAUDE_IMPORT.strip(), "@.agents/hard-eng/current/AGENTS.md"}
+        )
+        if linked or imported:
+            if not contained(root, path):
+                raise ValueError(
+                    f"{name} is reached through a linked directory; preserve and review its shared instructions before retiring it"
+                )
+            retired.append(name)
+        else:
+            replacing.append(name)
+    if replacing:
+        raise ValueError(
+            "Repository CLAUDE instructions prevent native AGENTS.md loading: "
+            + ", ".join(replacing)
+            + "; review their rules and imports, move shared guidance to the matching AGENTS.md, "
+            "keep private/local guidance out of tracked files, then remove these CLAUDE files and rerun setup"
+        )
+    ancestors = [
+        parent / name
+        for parent in root.parents
+        for name in ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
+        if replaces_agents(parent / name)
+        and not (parent == Path.home() and name == ".claude/CLAUDE.md")
+    ]
+    if ancestors:
+        raise ValueError(
+            "Ancestor CLAUDE instructions prevent native AGENTS.md loading: "
+            + ", ".join(map(str, ancestors))
+            + "; review their rules and imports at their owning directory before retiring them; "
+            "setup cannot change instruction files outside the target repository"
+        )
     if (root / "AGENTS.override.md").exists():
         instructions["AGENTS.override.md"] = (
             "Read and follow [shared instructions](AGENTS.md) before repository work."
@@ -49,6 +121,7 @@ def configure_instructions(
                 )
             existing = existing[len(prefix) :]
         changes[name] = f"{start}\n{content}\n{end}\n\n{existing}"
+    return retired
 
 
 def project_pre_push(root: Path, hook: Path) -> Path:
@@ -83,6 +156,8 @@ def project_pre_push(root: Path, hook: Path) -> Path:
 
 
 def hook_events(agent: str) -> dict[str, str]:
+    if agent not in HOOK_FILES:
+        raise ValueError("Unsupported native agent; use Claude or Codex")
     events = {
         "session": "SessionStart",
         "failure": "PostToolUseFailure",
@@ -90,12 +165,6 @@ def hook_events(agent: str) -> dict[str, str]:
     }
     if agent == "codex":
         del events["failure"]
-    if agent == "copilot":
-        events.update(
-            session="sessionStart",
-            failure="postToolUseFailure",
-            stop="agentStop",
-        )
     return events
 
 
@@ -108,8 +177,6 @@ def owned_hook_entry(
 ) -> JsonObject:
     """Build one exact managed hook entry for setup and legacy migration."""
     call = f"{command} {event} {agent}"
-    if agent == "copilot":
-        return {"type": "command", "bash": call, "timeoutSec": timeout}
     handler: JsonObject = {"type": "command", "command": call, "timeout": timeout}
     if status_message is not None:
         handler["statusMessage"] = status_message
@@ -133,20 +200,15 @@ def _remove_owned_entry(hooks: JsonObject, native: str, owned: JsonObject) -> No
 
 
 def remove_routine_hooks(current: JsonObject, agent: str, command: str) -> None:
-    """Remove only the exact routine registrations previously installed by us."""
+    """Remove only registrations previously installed by us, including old-generation scripts."""
     hooks = current.get("hooks", {})
     if not isinstance(hooks, dict):
         raise TypeError("Conflicting hooks: expected an object")
     for event, native in (("prompt", "UserPromptSubmit"), ("tool", "PostToolUse")):
-        if agent == "copilot" and event == "prompt":
-            continue
         call = f"{command} {event} {agent}"
         owned: JsonObject = {
             "hooks": [{"type": "command", "command": call, "timeout": 10}]
         }
-        if agent == "copilot":
-            native = "postToolUse"
-            owned = {"type": "command", "bash": call, "timeoutSec": 10}
         _remove_owned_entry(hooks, native, owned)
     if agent == "codex":
         for event in CODEX_HOOK_STATUS:
@@ -155,6 +217,120 @@ def remove_routine_hooks(current: JsonObject, agent: str, command: str) -> None:
                 hook_events(agent)[event],
                 owned_hook_entry(agent, event, command, 3600),
             )
+    remove_old_generation(hooks)
+    if current.get("outputStyle") == "Plain English":
+        del current["outputStyle"]
+
+
+HOOK_FILES = {
+    "claude": ".claude/settings.json",
+    "codex": ".codex/hooks.json",
+}
+
+
+def retired_copilot_entry(native: str, entry: JsonValue, command: str) -> bool:
+    events = {
+        "sessionStart": ("session", 3600),
+        "postToolUseFailure": ("failure", 10),
+        "agentStop": ("stop", 3600),
+        "postToolUse": ("tool", 10),
+    }
+    event, timeout = events.get(native, ("", 0))
+    if entry == {
+        "type": "command",
+        "bash": f"{command} {event} copilot",
+        "timeoutSec": timeout,
+    }:
+        return True
+    return (
+        isinstance(entry, dict)
+        and entry.keys() <= {"type", "bash", "timeoutSec"}
+        and entry.get("type") == "command"
+        and isinstance(call := entry.get("bash"), str)
+        and re.fullmatch(
+            r'(?:bash|sh) (?:"\$\((?:env -u GIT_DIR )?git rev-parse --show-toplevel\)/)?'
+            r'\.hard-eng/(?:bootstrap|hook)\.sh"? copilot(?: [a-z]+)?',
+            call,
+        )
+        is not None
+    )
+
+
+def retire_copilot_hooks(root: Path, command: str) -> list[str]:
+    from update import contained
+
+    retired: list[str] = []
+    for target in root.glob(".github/hooks/*.json"):
+        name = str(target.relative_to(root))
+        current: JsonObject = json.loads(target.read_text())
+        wiring = current.get("hooks")
+        if not isinstance(wiring, dict):
+            raise TypeError(f"Conflicting hooks in {name}; expected an object")
+        if current.keys() - {"version", "hooks"} or any(
+            not isinstance(entries, list)
+            or any(
+                not retired_copilot_entry(native, entry, command) for entry in entries
+            )
+            for native, entries in wiring.items()
+        ):
+            raise ValueError(
+                f"Harness migration required: {name} contains project hooks; preserve their checks in Claude or Codex and remove the retired registration before setup."
+            )
+        if target.is_symlink() or not contained(root, target):
+            raise ValueError(f"Preserve linked retired harness config: {name}")
+        retired.append(name)
+    return retired
+
+
+CLAUDE_IMPORT = "<!-- hard-eng:start -->\n@AGENTS.md\n<!-- hard-eng:end -->\n\n"
+OLD_GENERATION_SCRIPT = re.compile(r"\.hard-eng\b|\.agents/hard-eng/")
+
+
+def _old_generation(handler: JsonValue) -> bool:
+    if not isinstance(handler, dict):
+        return False
+    calls = [
+        handler[key] for key in ("command", "bash", "powershell") if key in handler
+    ]
+    obsolete = any(
+        isinstance(call, str) and OLD_GENERATION_SCRIPT.search(call) for call in calls
+    )
+    legacy = (
+        r'(?:bash|sh) (?:"\$\((?:env -u GIT_DIR )?git rev-parse --show-toplevel\)/|[^ \n;&|"\']*/)?'
+        r'(?:\.hard-eng/(?:bootstrap|hook)\.sh|\.agents/hard-eng/current/scripts/hooks/agent-hook\.sh)"?(?: [a-z-]+)*'
+    )
+    if obsolete and any(
+        not isinstance(call, str) or not re.fullmatch(legacy, call) for call in calls
+    ):
+        raise ValueError(
+            "Legacy Hard Eng hook contains custom commands; preserve the separate project checks and remove the retired command before setup."
+        )
+    return obsolete
+
+
+def remove_old_generation(hooks: JsonObject) -> None:
+    for native, entries in list(hooks.items()):
+        if isinstance(entries, list):
+            kept = _without_old_generation(entries)
+            if not kept and entries:
+                del hooks[native]
+            elif kept != entries:
+                hooks[native] = kept
+
+
+def _without_old_generation(entries: list[JsonValue]) -> list[JsonValue]:
+    kept: list[JsonValue] = []
+    for entry in entries:
+        inner = entry.get("hooks") if isinstance(entry, dict) else None
+        if isinstance(entry, dict) and isinstance(inner, list):
+            handlers = [item for item in inner if not _old_generation(item)]
+            if handlers:
+                kept.append(
+                    entry if handlers == inner else {**entry, "hooks": handlers}
+                )
+        elif not _old_generation(entry):
+            kept.append(entry)
+    return kept
 
 
 def learning_context(event: str) -> str:
@@ -165,9 +341,7 @@ def learning_context(event: str) -> str:
     )
 
 
-def context_output(agent: str, native: str, message: str) -> JsonObject:
-    if agent == "copilot":
-        return {"additionalContext": message}
+def context_output(native: str, message: str) -> JsonObject:
     return {
         "hookSpecificOutput": {
             "hookEventName": native,
@@ -446,10 +620,6 @@ def handle_event(root: Path, event: str, agent: str) -> int:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
             raise TypeError("Hook input must be a JSON object")
-        # Copilot replays Claude hooks with a timestamp; its own registration already ran them.
-        if agent == "claude" and "timestamp" in payload:
-            print("{}")
-            return 0
         native = hook_events(agent).get(event)
         if native is None:
             raise ValueError("Unsupported native hook event")
@@ -461,8 +631,8 @@ def handle_event(root: Path, event: str, agent: str) -> int:
                 if event == "session"
                 else learning_context(event)
             )
-            output = context_output(agent, native, message)
-            if event == "session" and agent in {"claude", "codex"}:
+            output = context_output(native, message)
+            if event == "session":
                 output["systemMessage"] = "Hard Eng startup: " + " ".join(
                     message.splitlines()[:2]
                 )

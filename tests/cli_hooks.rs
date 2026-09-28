@@ -160,9 +160,45 @@ fn hooks_install_agent_manages_claude_gate_and_agents_block()
     assert_eq!(code, 0);
     assert_eq!(json["target"], "agent");
     assert_eq!(json["files"].as_array().map_or(0, Vec::len), 3);
-    assert!(fs::read_to_string(script)?.contains("dart-decimate-managed-hook"));
+    let source = fs::read_to_string(&script)?;
+    assert!(source.contains("dart-decimate-managed-hook"));
+    assert!(source.contains("pnpm exec dart-decimate"));
     assert!(fs::read_to_string(settings)?.contains("dart-decimate-gate.sh"));
     assert!(fs::read_to_string(agents)?.contains("origin/dev"));
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::{Command, Stdio};
+
+        let binaries = fixture.path().join("bin");
+        fs::create_dir(&binaries)?;
+        let scanner = binaries.join("dart-decimate");
+        for (report, scanner_exit, hook_exit) in
+            [(r#"{"verdict":"fail"}"#, 1, 2), (r#"{"error":true}"#, 2, 0)]
+        {
+            fs::write(
+                &scanner,
+                format!("#!/bin/sh\nprintf '%s\\n' '{report}'\nexit {scanner_exit}\n"),
+            )?;
+            fs::set_permissions(&scanner, fs::Permissions::from_mode(0o755))?;
+            let mut child = Command::new("sh")
+                .arg(&script)
+                .env("PATH", format!("{}:/usr/bin:/bin", binaries.display()))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            child
+                .stdin
+                .take()
+                .ok_or("missing hook input")?
+                .write_all(b"git push")?;
+            let output = child.wait_with_output()?;
+            assert_eq!(output.status.code(), Some(hook_exit));
+        }
+    }
 
     Ok(())
 }

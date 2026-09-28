@@ -15,7 +15,7 @@ if (process.env.DART_DECIMATE_ALLOW_EXISTING_VERSION === "1") {
 }
 
 try {
-  execFileSync("npm", ["view", `${name}@${version}`, "version"], {
+  execFileSync("pnpm", ["view", `${name}@${version}`, "version"], {
     stdio: "pipe",
     encoding: "utf8",
   });
@@ -27,7 +27,11 @@ try {
   const { stdout = "", stderr = "" } =
     /** @type {{ stdout?: string, stderr?: string }} */ (error ?? {});
   const output = `${stdout}\n${stderr}`;
-  if (output.includes("E404") || output.includes("404 Not Found")) {
+  if (
+    output.includes("ERR_PNPM_PACKAGE_NOT_FOUND") ||
+    output.includes("ERR_PNPM_FETCH_404") ||
+    output.includes("404 Not Found")
+  ) {
     console.log(`release version ok: ${name}@${version} is not published`);
     process.exit(0);
   }

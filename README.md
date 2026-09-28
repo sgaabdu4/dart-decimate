@@ -40,7 +40,7 @@ It answers practical questions:
 Inside any Dart or Flutter project, run this:
 
 ```bash
-npx dart-decimate@latest
+pnpm dlx dart-decimate@latest
 ```
 
 That checks the current project and prints a readable report covering dead
@@ -52,13 +52,13 @@ duplicate group fails the check.
 To open the same report in your browser:
 
 ```bash
-npx dart-decimate@latest html
+pnpm dlx dart-decimate@latest html
 ```
 
 To review only files changed from another branch or ref:
 
 ```bash
-npx dart-decimate@latest html --compare origin/main
+pnpm dlx dart-decimate@latest html --compare origin/main
 ```
 
 `--compare REF` aliases `--changed-since REF`. If the ref is not found,
@@ -67,7 +67,7 @@ Dart Decimate suggests similar local or remote branches.
 For JSON output that agents and CI can parse:
 
 ```bash
-npx dart-decimate@latest json
+pnpm dlx dart-decimate@latest json
 ```
 
 If the human report says `FAIL`, or JSON says `"verdict": "fail"`, Dart Decimate
@@ -90,7 +90,7 @@ You do not need to install anything permanently. Use the command above.
 For repeatable automation, pin the version:
 
 ```bash
-npx --yes dart-decimate@0.0.54
+pnpm dlx dart-decimate@0.0.55
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -101,21 +101,23 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "0.0.54"
+    "dart-decimate": "0.0.55"
   }
 }
 ```
 
+Install with `pnpm install`, approve the package's required postinstall with `pnpm approve-builds`, and commit the resulting lockfile and build policy. The postinstall downloads the native release binaries or uses Cargo when a prebuilt binary is unavailable.
+
 Then run:
 
 ```bash
-npm run dart-decimate
+pnpm run dart-decimate
 ```
 
 If you prefer Cargo, install the matching tagged source:
 
 ```bash
-cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.54 --locked
+cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.55 --locked
 ```
 
 The npm release `X.Y.Z` and Cargo tag `vX.Y.Z` are verified against each other
@@ -126,10 +128,10 @@ Confirm a Cargo build's version with:
 
 ```bash
 dart-decimate --version
-# dart-decimate 0.0.54
+# dart-decimate 0.0.55
 ```
 
-## npx
+## pnpm dlx
 
 The npm package name is `dart-decimate`. These commands do not require a global
 install.
@@ -137,19 +139,19 @@ install.
 Check everything:
 
 ```bash
-npx dart-decimate@latest
+pnpm dlx dart-decimate@latest
 ```
 
 Machine-readable JSON:
 
 ```bash
-npx dart-decimate@latest json
+pnpm dlx dart-decimate@latest json
 ```
 
 Open the HTML report in your browser:
 
 ```bash
-npx dart-decimate@latest html
+pnpm dlx dart-decimate@latest html
 ```
 
 The `html` shortcut opens the report by default. On report commands, use
@@ -166,10 +168,10 @@ messages; HTML reports escape user-derived content.
 Print the HTML report instead:
 
 ```bash
-npx dart-decimate@latest html --stdout > dart-decimate-report.html
+pnpm dlx dart-decimate@latest html --stdout > dart-decimate-report.html
 ```
 
-Changed files only: `npx dart-decimate@latest html --compare origin/main`.
+Changed files only: `pnpm dlx dart-decimate@latest html --compare origin/main`.
 `--compare REF` aliases `--changed-since REF` and suggests similar branches when
 the ref is not found.
 
@@ -536,7 +538,7 @@ Example shape:
 {
   "schema_version": "dart-decimate.report.v1",
   "kind": "combined",
-  "tool": "dart-decimate 0.0.54",
+  "tool": "dart-decimate 0.0.55",
   "command": "check",
   "verdict": "fail",
   "summary": {
@@ -552,7 +554,7 @@ Example shape:
 
 The `dart-decimate.report.v1` field layout is unchanged. Its existing `tool`
 string includes the producing version so saved reports identify the exact
-build, for example `dart-decimate 0.0.54`.
+build, for example `dart-decimate 0.0.55`.
 
 When grouped security findings hide additional occurrences, `next_steps` can
 include `review-security-surface`, which reruns
@@ -640,7 +642,7 @@ you need the installed binary's exact list.
 For a complete repository check, including discovered local packages:
 
 ```bash
-npx --yes dart-decimate@0.0.54 --strict
+pnpm dlx dart-decimate@0.0.55 --strict
 ```
 
 This runs every enabled check from the repository root. The default duplication
@@ -683,7 +685,7 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current source version: `0.0.54`.
+Current source version: `0.0.55`.
 
 After the first public release, changes should go through pull requests. Every
 PR to `main` must bump both `Cargo.toml` and `package.json` above the base
@@ -708,7 +710,7 @@ or npm version from another commit fails.
 
 Local hooks block direct pushes to `main`, fetch the configured base ref when
 needed, and run the same version, release, lint, Fallow, package, and test gates
-as the local no-mistakes configuration.
+defined in `hard-eng.gates.json`.
 
 ## License
 
