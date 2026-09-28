@@ -39,7 +39,7 @@ N/A — CI workflow configuration only; no rendered interface.
 ## Verification
 
 Result: Passed
-Evidence: Version 0.0.60 added; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
+Evidence: Version 0.0.60 added; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS, and again after merging main `4218980` (0.0.59, Hard Eng 2e24660).
 E2E: Passed — PR #124 CI run 36448280678: `Install pnpm` with v3 succeeded (the job then stopped only at the missing plan), and the Security `Dependency audit` job's `Install Node and pnpm` and `pnpm audit` succeeded.
 
 Delivery target: Merge
