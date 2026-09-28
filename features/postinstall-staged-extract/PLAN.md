@@ -39,7 +39,7 @@ N/A — install tooling only; no rendered interface.
 ## Verification
 
 Result: Passed
-Evidence: Acceptance commands above passed; no staging directory remains in `npm/bin-cache`.
+Evidence: Acceptance commands above passed; no staging directory remains in `npm/bin-cache`. Full gate on the branch merged with main: `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
 E2E: Passed — `node tests/npm/test-postinstall-prebuilt.js` and `node tests/npm/test-npx-prebuilt.js` installed from packed tarballs and exited 0.
 
 Delivery target: Merge

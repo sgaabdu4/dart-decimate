@@ -42,7 +42,7 @@ N/A — this changes static CLI findings, not a rendered interface.
 ## Verification
 
 Result: Passed
-Evidence: Both clearing tests failed before the change (1 error each); `cargo test --test cli_issue_26_false_positives` → 85 passed and `cargo test --all-targets` → 1003 passed after it. Disabling each condition in turn fails a test: `widget` typing, route-class owner, local owner extending a route class, registry extension member, `dynamic`, type parameter, and unknown receivers.
+Evidence: Both clearing tests failed before the change (1 error each); `cargo test --test cli_issue_26_false_positives` → 85 passed and `cargo test --all-targets` → 1003 passed after it. Disabling each condition in turn fails a test: `widget` typing, route-class owner, local owner extending a route class, registry extension member, `dynamic`, type parameter, and unknown receivers. Full gate on the branch merged with main: `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
 E2E: Passed — built CLI: a `State` reading `widget.user` → `pass`, 0 cycles; a screen reading `route.user` from an `InviteRoute` field → `fail`, 1 cycle; the issue 126 fixture → `pass`, 0 cycles.
 
 Delivery target: Merge
