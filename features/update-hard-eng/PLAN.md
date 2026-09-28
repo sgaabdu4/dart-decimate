@@ -1,6 +1,6 @@
 # Update Hard Eng to 97cc783
 
-Status: Draft
+Status: Complete
 
 ## Outcome + scope
 
@@ -18,13 +18,13 @@ Authority: Autonomous. On 2026-09-29 the owner asked to finish all shipping work
 
 ## Acceptance + steps
 
-- [ ] `.hooks/hard-eng-source.json` names 97cc783 → updater output "Updated Hard Eng to 97cc783…".
-- [ ] Full gate passes with the new hooks → `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete`.
+- [x] `.hooks/hard-eng-source.json` names 97cc783 → updater output "Updated Hard Eng to 97cc783…".
+- [x] Full gate passes with the new hooks → `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete`.
 
 ## Baseline + execution
 
-Result: Pending
-Evidence: Pending — main `e27fc08` state.
+Result: Passed
+Evidence: Main `e27fc08` released 0.0.60 with Release and Security green; its content passed the full gate 30/30 on the PR #124 branch. The first updater run failed only on the pre-commit version check.
 Execution: One change: bump, update, gate.
 
 ## Risks + recovery
@@ -37,9 +37,9 @@ N/A — tooling update with no visual surface.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending — updater output and full gate.
-E2E: Required — PR CI and the release run exercise the updated hooks.
+Result: Passed
+Evidence: Updater: "Updated Hard Eng to 97cc783afd75c81b08a28f0ce392414aa50cef7e"; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
+E2E: N/A — no product journey changes; PR CI and the release run cover delivery.
 
 Delivery target: Merge
 Delivery: Pending — PR checks green, squash merge, release run publishes 0.0.61.
