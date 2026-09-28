@@ -1,19 +1,38 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { gzipSync } from "node:zlib";
 import { cleanEnv, runNode, withServer } from "./child-process.mjs";
 
 const postinstall = resolve("npm/scripts/postinstall.js");
+const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 const emptyTarball = gzipSync(Buffer.alloc(1024));
 
 /** @param {import("node:http").RequestListener} handler @param {NodeJS.ProcessEnv} [env] */
 function install(handler, env = {}) {
   const temp = mkdtempSync(join(tmpdir(), "dart-decimate-postinstall-"));
+  after(() => rmSync(temp, { recursive: true, force: true }));
+  const scriptDir = join(temp, "npm", "scripts");
+  mkdirSync(scriptDir, { recursive: true });
+  const script = join(scriptDir, "postinstall.js");
+  copyFileSync(postinstall, script);
+  writeFileSync(
+    join(temp, "package.json"),
+    JSON.stringify({ name: "dart-decimate", version: packageVersion }),
+  );
   return withServer(handler, (baseUrl) =>
-    runNode([postinstall], {
+    runNode([script], {
+      cwd: temp,
       env: {
         ...cleanEnv,
         CARGO: join(temp, "missing-cargo"),
@@ -91,6 +110,7 @@ test("postinstall rejects an asset without the CLI binaries", async () => {
 
 test("postinstall exits with the source build's status when Cargo fails", async () => {
   const temp = mkdtempSync(join(tmpdir(), "dart-decimate-cargo-"));
+  after(() => rmSync(temp, { recursive: true, force: true }));
   const cargo = join(temp, "cargo");
   writeFileSync(cargo, "#!/bin/sh\nexit 3\n");
   chmodSync(cargo, 0o755);
