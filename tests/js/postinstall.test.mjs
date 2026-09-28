@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
-  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -24,23 +23,34 @@ function install(handler, env = {}) {
   after(() => rmSync(temp, { recursive: true, force: true }));
   const scriptDir = join(temp, "npm", "scripts");
   mkdirSync(scriptDir, { recursive: true });
-  const script = join(scriptDir, "postinstall.js");
-  copyFileSync(postinstall, script);
   writeFileSync(
     join(temp, "package.json"),
     JSON.stringify({ name: "dart-decimate", version: packageVersion }),
   );
   return withServer(handler, (baseUrl) =>
-    runNode([script], {
-      cwd: temp,
-      env: {
-        ...cleanEnv,
-        CARGO: join(temp, "missing-cargo"),
-        DART_DECIMATE_RELEASE_BASE_URL: baseUrl,
-        TMPDIR: temp,
-        ...env,
+    runNode(
+      [
+        "--input-type=commonjs",
+        "--eval",
+        `const filename = process.argv[1];
+const source = require("node:fs").readFileSync(filename, "utf8");
+require("node:vm").compileFunction(source, ["require", "__dirname"], { filename })(
+  require("node:module").createRequire(process.argv[2]),
+  require("node:path").dirname(process.argv[2]));`,
+        postinstall,
+        join(scriptDir, "postinstall.js"),
+      ],
+      {
+        cwd: temp,
+        env: {
+          ...cleanEnv,
+          CARGO: join(temp, "missing-cargo"),
+          DART_DECIMATE_RELEASE_BASE_URL: baseUrl,
+          TMPDIR: temp,
+          ...env,
+        },
       },
-    }),
+    ),
   );
 }
 
