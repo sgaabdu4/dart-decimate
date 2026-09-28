@@ -221,6 +221,7 @@ fn helper_references_imported_api(
         }
         if imported_api.member_names.contains(name)
             && member_reference_uses_imported_api(dependency, root, node, source)
+            && !own_instance_member_reference(node, name, source, imported_api, route_classes)
             && !typed_route_navigation_member_reference(root, node, source, route_classes)
         {
             found = true;
@@ -276,6 +277,56 @@ fn member_reference_uses_imported_api(
             && !term_identifier_shadowed_at(root, node, prefix, source);
     }
     identifier_has_prefix(source, node.start_byte())
+}
+
+fn own_instance_member_reference(
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+    imported_api: &VisibleNonRouteRegistryApi,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let Some(receiver) = node
+        .parent()
+        .filter(|member| {
+            member
+                .child_by_field_name("property")
+                .is_some_and(|property| same_node(property, node))
+        })
+        .and_then(|member| member.child(0))
+    else {
+        return false;
+    };
+    let own_instance_receiver = match receiver.kind() {
+        "this" => !imported_api.extension_members.contains(name),
+        "super" => true,
+        _ => false,
+    };
+    own_instance_receiver
+        && enclosing_type_header(receiver, source).is_some_and(|header| {
+            !header
+                .split(|character: char| !is_identifier_character(character))
+                .any(|word| route_classes.contains(word))
+        })
+}
+
+fn enclosing_type_header<'source>(node: Node<'_>, source: &'source str) -> Option<&'source str> {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if matches!(
+            parent.kind(),
+            "class_declaration"
+                | "enum_declaration"
+                | "extension_declaration"
+                | "extension_type_declaration"
+                | "mixin_declaration"
+        ) {
+            let body = parent.child_by_field_name("body")?;
+            return source.get(parent.start_byte()..body.start_byte());
+        }
+        current = parent.parent();
+    }
+    None
 }
 
 fn typed_route_navigation_member_reference(
@@ -467,6 +518,12 @@ fn identifier_is_declaration_name(node: Node<'_>) -> bool {
     }
     if parent.kind() == "identifier_list" {
         return true;
+    }
+    if matches!(
+        parent.kind(),
+        "constructor_param" | "super_formal_parameter"
+    ) {
+        return node.kind() == "identifier";
     }
     DECLARATION_NAME_OWNER_KINDS.contains(&parent.kind()) && is_child_field(parent, node, "name")
 }

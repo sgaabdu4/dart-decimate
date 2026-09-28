@@ -116,6 +116,7 @@ def configure_instructions(
                 else content
             )
             prefix = f"{start}\n{old}\n{end}\n\n"
+            existing = prefix if existing == prefix.removesuffix("\n") else existing
             if (
                 existing.count(start) != 1
                 or existing.count(end) != 1

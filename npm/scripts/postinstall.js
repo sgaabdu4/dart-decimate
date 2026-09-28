@@ -57,6 +57,9 @@ async function installPrebuilt() {
   const archivePath = path.join(os.tmpdir(), assetName);
   const url = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
   await download(url, archivePath, 0);
+  for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
+    fs.rmSync(path.join(cacheDir, `${binary}${exeExt}`), { force: true });
+  }
   extractArchive(assetName, archivePath);
   activateCachedBinaries(assetName);
   return true;
