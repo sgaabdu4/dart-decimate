@@ -1,12 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test, { after } from "node:test";
@@ -14,43 +7,22 @@ import { gzipSync } from "node:zlib";
 import { cleanEnv, runNode, withServer } from "./child-process.mjs";
 
 const postinstall = resolve("npm/scripts/postinstall.js");
-const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 const emptyTarball = gzipSync(Buffer.alloc(1024));
 
 /** @param {import("node:http").RequestListener} handler @param {NodeJS.ProcessEnv} [env] */
 function install(handler, env = {}) {
   const temp = mkdtempSync(join(tmpdir(), "dart-decimate-postinstall-"));
   after(() => rmSync(temp, { recursive: true, force: true }));
-  const scriptDir = join(temp, "npm", "scripts");
-  mkdirSync(scriptDir, { recursive: true });
-  writeFileSync(
-    join(temp, "package.json"),
-    JSON.stringify({ name: "dart-decimate", version: packageVersion }),
-  );
   return withServer(handler, (baseUrl) =>
-    runNode(
-      [
-        "--input-type=commonjs",
-        "--eval",
-        `const filename = process.argv[1];
-const source = require("node:fs").readFileSync(filename, "utf8");
-require("node:vm").compileFunction(source, ["require", "__dirname"], { filename })(
-  require("node:module").createRequire(process.argv[2]),
-  require("node:path").dirname(process.argv[2]));`,
-        postinstall,
-        join(scriptDir, "postinstall.js"),
-      ],
-      {
-        cwd: temp,
-        env: {
-          ...cleanEnv,
-          CARGO: join(temp, "missing-cargo"),
-          DART_DECIMATE_RELEASE_BASE_URL: baseUrl,
-          TMPDIR: temp,
-          ...env,
-        },
+    runNode([postinstall], {
+      env: {
+        ...cleanEnv,
+        CARGO: join(temp, "missing-cargo"),
+        DART_DECIMATE_RELEASE_BASE_URL: baseUrl,
+        TMPDIR: temp,
+        ...env,
       },
-    ),
+    }),
   );
 }
 
