@@ -1,6 +1,6 @@
 # Accept the released commit in the version gates
 
-Status: Draft
+Status: Complete
 
 ## Outcome + scope
 
@@ -18,18 +18,18 @@ Authority: Autonomous. On 2026-09-28 the owner asked to fix the failing stop che
 
 ## Acceptance + steps
 
-- [ ] Version bump accepts an unchanged version when a clean HEAD carries its release tag → JS test, exit 0.
-- [ ] Version bump still rejects tracked changes on top of the tagged commit → JS test, exit 1.
-- [ ] Release check accepts a published version released from a clean HEAD → JS test, exit 0.
-- [ ] Release check rejects a published version whose tag points at another commit → JS test, exit 1.
-- [ ] Existing bump and registry cases hold → `node --test tests/js/release-guards.test.mjs` passes.
-- [ ] Persistent checkout at a released main passes both gates → `node scripts/check-pr-version-bump.mjs` and `node scripts/check-release-version.mjs` exit 0 there.
-- [ ] Full gate passes → `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete`.
+- [x] Version bump accepts an unchanged version when a clean HEAD carries its release tag → JS test, exit 0.
+- [x] Version bump still rejects tracked changes on top of the tagged commit → JS test, exit 1.
+- [x] Release check accepts a published version released from a clean HEAD → JS test, exit 0.
+- [x] Release check rejects a published version whose tag points at another commit → JS test, exit 1.
+- [x] Existing bump and registry cases hold → `node --test tests/js/release-guards.test.mjs` passes.
+- [x] Persistent checkout at a released main passes both gates → `node scripts/check-pr-version-bump.mjs` and `node scripts/check-release-version.mjs` exit 0 there.
+- [x] Full gate passes → `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete`.
 
 ## Baseline + execution
 
-Result: Pending
-Evidence: Pending — Draft check on `2c4c42c`.
+Result: Passed
+Evidence: `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Draft` on `2c4c42c` → exit 0. On the persistent checkout at `2c4c42c`, `node scripts/check-pr-version-bump.mjs` → exit 1, `version must be bumped: 0.0.57 -> 0.0.57`.
 Execution: One builder: failing JS tests first, then one shared release-tag check used by both scripts, version 0.0.58.
 
 ## Risks + recovery
@@ -42,9 +42,9 @@ N/A — release tooling only; no rendered interface.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending — acceptance commands above.
-E2E: Required — run both gate scripts in the persistent checkout at the released main and the full Hard Eng gate there.
+Result: Passed
+Evidence: Both acceptance tests failed before the change; `node --test tests/js/release-guards.test.mjs` → 26 passed after it. Replacing the tag-to-HEAD match with tag existence fails the other-commit test; dropping the clean-tree condition fails the tracked-changes test. Full gate: `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
+E2E: Passed — in the persistent checkout at `2c4c42c` (tag `v0.0.57`, npm 0.0.57 published), the fixed scripts printed `version bump ok: v0.0.57 was released from HEAD` and `release version ok: dart-decimate@0.0.57 was released from HEAD`, both exit 0.
 
 Delivery target: Merge
 Delivery: Pending — PR checks green, squash merge, release run publishes 0.0.58.
