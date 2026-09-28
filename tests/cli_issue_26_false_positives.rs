@@ -4974,6 +4974,207 @@ Type marker() => (() => DeadCard)();
     Ok(())
 }
 
+#[test]
+fn cycles_omits_typed_navigation_with_own_initializing_formal_named_like_route_field()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = invite_route_fixture(
+        r"import 'package:app/routes.dart';
+
+class InviteScreen extends StatelessWidget {
+  const InviteScreen({required this.user, super.key});
+  final String? user;
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(onTap: () => const HomeRoute().go(context), child: Text(user ?? ''));
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
+    Ok(())
+}
+
+#[test]
+fn cycles_omits_typed_navigation_with_own_this_and_super_members_named_like_route_members()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = invite_route_fixture(
+        r"import 'package:app/routes.dart';
+
+abstract class InviteBase extends StatefulWidget {
+  const InviteBase({this.user, super.key});
+  final String? user;
+}
+
+class InviteScreen extends InviteBase {
+  const InviteScreen({super.user, super.key});
+  @override
+  State<InviteScreen> createState() => _InviteScreenState();
+}
+
+class _InviteScreenState extends State<InviteScreen> with AutomaticKeepAliveClientMixin {
+  String? user;
+  @override
+  bool get wantKeepAlive => true;
+  void rename(String? user) => setState(() => this.user = user ?? this.user);
+  int get length => this.user?.length ?? 0;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return GestureDetector(onTap: () => const HomeRoute().go(context), child: Text(user ?? ''));
+  }
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
+    Ok(())
+}
+
+#[test]
+fn cycles_keeps_this_route_member_reads_in_route_class_extensions_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = invite_route_fixture(
+        r"import 'package:app/routes.dart';
+
+class InviteScreen extends StatelessWidget {
+  const InviteScreen({required this.user, super.key});
+  final String? user;
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(onTap: () => const HomeRoute().go(context), child: Text(user ?? ''));
+}
+
+extension InviteRouteLabel on InviteRoute {
+  String get label => this.user ?? '';
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    Ok(())
+}
+
+#[test]
+fn cycles_keeps_this_registry_extension_member_reads_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = invite_route_fixture(
+        r"import 'package:app/routes.dart';
+
+class InviteScreen extends StatelessWidget {
+  const InviteScreen({required this.user, super.key});
+  final String? user;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => this.requiresInvite() ? const HomeRoute().go(context) : null,
+        child: Text(user ?? ''),
+      );
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert_eq!(json["summary"]["cycles"], 1);
+    assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    Ok(())
+}
+
+fn invite_route_fixture(invite_screen: &str) -> Result<TempDir, Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/routes.dart",
+        r"import 'package:app/home_screen.dart';
+import 'package:app/invite_screen.dart';
+
+part 'routes.g.dart';
+
+extension InviteGate on StatelessWidget {
+  bool requiresInvite() => true;
+}
+
+@TypedGoRoute<HomeRoute>(path: '/')
+class HomeRoute extends GoRouteData with $HomeRoute {
+  const HomeRoute();
+  @override
+  Widget build(BuildContext context, GoRouterState state) => const HomeScreen();
+}
+
+@TypedGoRoute<InviteRoute>(path: '/invite')
+class InviteRoute extends GoRouteData with $InviteRoute {
+  const InviteRoute({this.user});
+  final String? user;
+  @override
+  Widget build(BuildContext context, GoRouterState state) => InviteScreen(user: user);
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/routes.g.dart",
+        r"part of 'routes.dart';
+
+mixin $HomeRoute on GoRouteData {
+  void go(BuildContext context) {}
+}
+
+mixin $InviteRoute on GoRouteData {
+  void go(BuildContext context) {}
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/home_screen.dart",
+        r"class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+  @override
+  Widget build(BuildContext context) => const Text('home');
+}
+",
+    )?;
+    write(&fixture, "lib/invite_screen.dart", invite_screen)?;
+    Ok(fixture)
+}
+
 fn run_json<const N: usize>(args: [&str; N]) -> Result<(i32, Value), Box<dyn std::error::Error>> {
     let mut output = Vec::new();
     let code = run_from(args, &mut output)?;

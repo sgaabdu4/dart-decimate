@@ -149,7 +149,7 @@ function packNpmPackage() {
     "pnpm pack",
   );
   const metadata = JSON.parse(result.stdout);
-  return path.join(tempRoot, metadata.filename);
+  return path.resolve(tempRoot, metadata.filename);
 }
 
 /** @param {string} tarball @param {string} projectDir @param {number} port */
