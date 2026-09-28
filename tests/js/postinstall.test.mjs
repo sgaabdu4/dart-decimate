@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { gzipSync } from "node:zlib";
 import { cleanEnv, runNode, withServer } from "./child-process.mjs";
 
@@ -12,6 +12,7 @@ const emptyTarball = gzipSync(Buffer.alloc(1024));
 /** @param {import("node:http").RequestListener} handler @param {NodeJS.ProcessEnv} [env] */
 function install(handler, env = {}) {
   const temp = mkdtempSync(join(tmpdir(), "dart-decimate-postinstall-"));
+  after(() => rmSync(temp, { recursive: true, force: true }));
   return withServer(handler, (baseUrl) =>
     runNode([postinstall], {
       env: {
@@ -91,6 +92,7 @@ test("postinstall rejects an asset without the CLI binaries", async () => {
 
 test("postinstall exits with the source build's status when Cargo fails", async () => {
   const temp = mkdtempSync(join(tmpdir(), "dart-decimate-cargo-"));
+  after(() => rmSync(temp, { recursive: true, force: true }));
   const cargo = join(temp, "cargo");
   writeFileSync(cargo, "#!/bin/sh\nexit 3\n");
   chmodSync(cargo, 0o755);

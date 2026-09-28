@@ -18,4 +18,3 @@
 - Hard Eng defects = a reproduced fault in Hard Eng's own files (`.hooks/`, `.agents/skills/he*`, setup), not in the project → tell the user, search [hard-eng issues](https://github.com/sgaabdu4/hard-eng/issues) for a duplicate, and with their approval file a terse one: Problem, Reproduction, installed revision, Suggestion. Apply publication privacy; keep the required gates.
 - Hard Eng = follow `.agents/skills/he/SKILL.md` when working on this repository; use `python3 .hooks/hard-eng.py --help` for commands.
 <!-- hard-eng:end -->
-

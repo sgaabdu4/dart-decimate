@@ -233,7 +233,7 @@ jobs:
           DART_DECIMATE_CARGO_GIT_URL: ${{ github.server_url }}/${{ github.repository }}
           DART_DECIMATE_CARGO_REV: ${{ github.sha }}
           DART_DECIMATE_RELEASE_ASSET_DIR: dist-assets
-        run: pnpm run test:release:parity
+        run: node tests/npm/test-release-install-parity.js
 
       - name: Create and push verified tag
         if: needs.prepare.outputs.tag_exists == 'false'
