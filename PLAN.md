@@ -1,6 +1,6 @@
 # pnpm tooling and Claude/Codex scaffold migration
 
-Status: Draft
+Status: Complete
 
 ## Outcome + scope
 
@@ -12,25 +12,25 @@ Owners: `package.json`, `scripts/`, and `hard-eng.gates.json` own checks; `src/c
 
 ## Decisions + authorization
 
-Blockers: Integrated verification against published Hard Eng revision d2085f745de39214aaaf6b34192378c9d1094a3d is pending.
-Handoff: Clarification
+Blockers: None
+Handoff: Ready-for-ship
 Authority: The user authorized one combined repository cleanup PR, pnpm migration, scaffold update, merge, and the resulting native package release. Keep the existing quality and compatibility assertions; add no alternate runner or artificial tests.
 
 ## Acceptance + steps
 
-- [ ] Migrate supported npm/npx producers to pnpm while preserving npm registry metadata and actual npm/npx consumer tests.
-- [ ] Preserve published-version, source/tag, provenance, and Cargo/npm parity assertions for version 0.0.55.
-- [ ] Use native pnpm bootstrap in generated CI and local-only pnpm execution in agent hooks.
-- [ ] Audit the actual PR/push comparison and block native failure verdicts in generated agent hooks.
-- [ ] Retire obsolete no-mistakes configuration and unsupported agent/tool wiring through the released installer.
-- [ ] Preserve all native checks, benchmark, and coverage; verify the final public diff and exact required CI results.
+- [x] Migrate supported npm/npx producers to pnpm while preserving npm registry metadata and actual npm/npx consumer tests.
+- [x] Preserve published-version, source/tag, provenance, and Cargo/npm parity assertions for version 0.0.55.
+- [x] Use native pnpm bootstrap in generated CI and local-only pnpm execution in agent hooks.
+- [x] Audit the actual PR/push comparison and block native failure verdicts in generated agent hooks.
+- [x] Retire obsolete no-mistakes configuration and unsupported agent/tool wiring through the released installer.
+- [x] Preserve all native checks, benchmark, and coverage; review the final public diff.
 
 ## Baseline + execution
 
-Result: Failed
-Evidence: Fresh released updater candidate passed 37 JavaScript tests at 87.89% line coverage, Rust format/clippy/all-target tests, performance (13.0ms median, 17.5ms max), native scans, and prebuilt/npx CLI/MCP compatibility. It refused installation because 0.0.54 was unchanged and already published. The candidate overlapped another local suite; no timing assertion failed. The target remained unchanged.
+Result: Passed
+Evidence: The committed 0.0.55 candidate passed all 30 native gates against published Hard Eng d2085f745de39214aaaf6b34192378c9d1094a3d before installation. The initial baseline had passed native tests and scans but refused installation because 0.0.54 was unchanged and already published; its target remained unchanged.
 Additional baseline evidence: A native two-commit fixture proved that comparing HEAD with itself skips a newly introduced finding. A real cyclic-import audit returned exit 1 and a failure verdict, but the existing generated agent hook returned 0. Bare pnpm exec also installed dependencies and ran root postinstall before executing its command.
-Execution: Bump the authorized release version, adapt existing native producers and assertions, and commit the reviewed application changes before running the updater, whose isolated candidate starts from committed HEAD. An uncommitted retry was stopped after identifying its stale 0.0.54 snapshot and is not verification of this change. Repeat the candidate gate in a coordinated full-suite slot before final pre-push verification.
+Execution: Bumped the authorized release version, adapted existing native producers and assertions, and committed the reviewed application changes before the successful updater run. Its isolated candidate starts from committed HEAD; an uncommitted retry was stopped after identifying its stale 0.0.54 snapshot and is not verification of this change. The released installer then committed the verified scaffold update.
 
 ## Risks + recovery
 
@@ -42,8 +42,8 @@ N/A — this migration changes CLI installation, generated commands, and reposit
 
 ## Verification
 
-Result: Pending
-Evidence: Existing release-guard tests pass all 22 cases through pnpm; published/unpublished cases also pass with the parent repair exception enabled. Native pnpm bootstrap and pinned dlx passed with isolated state, including Cargo-disabled binary resolution. Pack dry-run confirmed the 0.0.55 metadata object. Native before-commit and empty-tree comparisons detect the injected finding. The revised hook blocks a native cycle verdict with exit 2 and preserves runtime-error handling with exit 0; deliberately mismatched package-manager/runtime pins cause no bootstrap, lockfile, or postinstall. Generated YAML/actionlint, shellcheck, JavaScript syntax/Biome, Rust format and comment policy pass. Integrated updated-source checks remain to run.
-E2E: Required — generated pnpm commands, local agent-hook outcomes, package CLI/MCP initialization, and the existing Cargo/npm install parity must pass through their native boundaries.
+Result: Passed
+Evidence: Integrated candidate passed 996 Rust tests, 37 JavaScript tests, and the existing performance check (13.5ms median, 17.5ms maximum over 15 runs). Line coverage is 818/932 (87.77%). All native scans, format/type checks, version/registry guards, package checks, and prebuilt/npx CLI/MCP compatibility passed. The existing generated-shell regression proves failure verdict exit 1 blocks with exit 2 while runtime errors remain allowed. Independent release and hook review found no remaining defect; the final public diff preserves the native assertions and removes only obsolete registrations and configuration.
+E2E: Passed — isolated native pnpm bootstrap and pinned dlx resolved the binary with Cargo disabled; the local 0.0.55 tarball passed the existing CLI and MCP consumer journeys. Native before-commit and empty-tree comparisons detect an injected finding. A real cycle blocks the hook, a runtime error remains allowed, and mismatched package-manager/runtime pins cause no bootstrap, lockfile, or postinstall.
 Delivery target: Merge
-Delivery: Pending — require current PR and merged-commit checks, then verify the native GitHub release/tag and npm version produced by the exact merged revision. Hosted OIDC publication remains unproven until the release workflow succeeds.
+Delivery: Pending — require native pre-push, current PR and merged-commit checks, then verify the native GitHub release/tag and npm version produced by the exact merged revision. The retained release workflow must pass Cargo/npm install parity and hosted OIDC publication; local package proof does not replace those checks.
