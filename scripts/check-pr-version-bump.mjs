@@ -2,60 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-
-const gitEnvironmentVariables = [
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_COMMON_DIR",
-  "GIT_CONFIG",
-  "GIT_CONFIG_COUNT",
-  "GIT_CONFIG_PARAMETERS",
-  "GIT_DIR",
-  "GIT_GRAFT_FILE",
-  "GIT_IMPLICIT_WORK_TREE",
-  "GIT_INDEX_FILE",
-  "GIT_INDEX_VERSION",
-  "GIT_NAMESPACE",
-  "GIT_NO_REPLACE_OBJECTS",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_PREFIX",
-  "GIT_QUARANTINE_PATH",
-  "GIT_REPLACE_REF_BASE",
-  "GIT_SHALLOW_FILE",
-  "GIT_WORK_TREE",
-];
-
-function sanitizedGitEnv() {
-  const env = { ...process.env };
-  removeGitEnvironmentVariables(env, gitEnvironmentVariables);
-  try {
-    const reported = execFileSync("git", ["rev-parse", "--local-env-vars"], {
-      encoding: "utf8",
-      env,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    removeGitEnvironmentVariables(env, parseGitEnvironmentVariables(reported));
-  } catch {
-    // The baseline still covers Git's hook-scoped repository variables.
-  }
-  return env;
-}
-
-/** @param {string} output */
-function parseGitEnvironmentVariables(output) {
-  return output
-    .split("\n")
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
-
-/** @param {NodeJS.ProcessEnv} env @param {string[]} names */
-function removeGitEnvironmentVariables(env, names) {
-  for (const name of names) {
-    delete env[name];
-  }
-}
-
-const gitEnv = sanitizedGitEnv();
+import { gitEnv, releasedFromHead } from "./released-head.mjs";
 
 /** @param {string} message @returns {never} */
 function exitWithError(message) {
@@ -242,6 +189,16 @@ const currentPackageVersion = readPackageVersion(
   fs.readFileSync("package.json", "utf8"),
   "package.json",
 );
+if (
+  currentCargoVersion === currentPackageVersion &&
+  releasedFromHead(currentCargoVersion)
+) {
+  console.log(
+    `version bump ok: v${currentCargoVersion} was released from HEAD`,
+  );
+  process.exit(0);
+}
+
 const baseCargoVersion = readCargoVersion(
   readBaseFile(baseRef, "Cargo.toml"),
   "base Cargo.toml",
