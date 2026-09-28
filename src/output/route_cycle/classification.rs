@@ -8,11 +8,11 @@ use petgraph::visit::EdgeRef;
 use tree_sitter::Node;
 
 use super::{
-    argument_list, helper_has_typed_route_navigation_call,
-    navigation::term_identifier_shadowed_at,
+    argument_list, helper_has_typed_route_navigation_call, is_identifier_text,
+    navigation::{expression_declared_type, term_identifier_shadowed_at},
     registry_api::{VisibleNonRouteRegistryApi, visible_non_route_registry_api},
     route_extension_navigation_call, route_location_argument, route_location_expression_member,
-    typed_route_navigation_call, visit_named,
+    simple_type_name, typed_route_navigation_call, visit_named,
     wrappers::helper_has_typed_route_wrapper_call,
 };
 use crate::{
@@ -221,6 +221,15 @@ fn helper_references_imported_api(
         }
         if imported_api.member_names.contains(name)
             && member_reference_uses_imported_api(dependency, root, node, source)
+            && !own_instance_member_reference(node, name, source, imported_api, route_classes)
+            && !typed_receiver_outside_registry(
+                root,
+                node,
+                name,
+                source,
+                imported_api,
+                route_classes,
+            )
             && !typed_route_navigation_member_reference(root, node, source, route_classes)
         {
             found = true;
@@ -277,6 +286,130 @@ fn member_reference_uses_imported_api(
     }
     identifier_has_prefix(source, node.start_byte())
 }
+
+fn own_instance_member_reference(
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+    imported_api: &VisibleNonRouteRegistryApi,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let Some(receiver) = node
+        .parent()
+        .filter(|member| {
+            member
+                .child_by_field_name("property")
+                .is_some_and(|property| same_node(property, node))
+        })
+        .and_then(|member| member.child(0))
+    else {
+        return false;
+    };
+    let own_instance_receiver = match receiver.kind() {
+        "this" => !imported_api.extension_members.contains(name),
+        "super" => true,
+        _ => false,
+    };
+    own_instance_receiver
+        && enclosing_type_header(receiver, source)
+            .is_some_and(|header| !header_names_route_class(header, route_classes))
+}
+
+fn typed_receiver_outside_registry(
+    root: Node<'_>,
+    node: Node<'_>,
+    name: &str,
+    source: &str,
+    imported_api: &VisibleNonRouteRegistryApi,
+    route_classes: &BTreeSet<String>,
+) -> bool {
+    let Some(receiver) = node
+        .parent()
+        .filter(|member| {
+            member
+                .child_by_field_name("property")
+                .is_some_and(|property| same_node(property, node))
+        })
+        .and_then(|member| member.child_by_field_name("object"))
+    else {
+        return false;
+    };
+    let Some(owner) = receiver
+        .utf8_text(source.as_bytes())
+        .ok()
+        .and_then(|text| expression_declared_type(root, receiver, text, source))
+        .map(|type_name| simple_type_name(&type_name))
+    else {
+        return false;
+    };
+    is_identifier_text(&owner)
+        && owner != "dynamic"
+        && !route_classes.contains(&owner)
+        && !imported_api.extension_members.contains(name)
+        && !type_parameter_declared(root, &owner, source)
+        && local_type_header(root, &owner, source)
+            .is_none_or(|header| !header_names_route_class(header, route_classes))
+}
+
+fn type_parameter_declared(root: Node<'_>, name: &str, source: &str) -> bool {
+    let mut found = false;
+    visit_named(root, &mut |node| {
+        found = found
+            || (node.kind() == "type_parameter"
+                && node
+                    .child_by_field_name("name")
+                    .and_then(|type_name| type_name.utf8_text(source.as_bytes()).ok())
+                    == Some(name));
+    });
+    found
+}
+
+fn header_names_route_class(header: &str, route_classes: &BTreeSet<String>) -> bool {
+    header
+        .split(|character: char| !is_identifier_character(character))
+        .any(|word| route_classes.contains(word))
+}
+
+fn local_type_header<'source>(
+    root: Node<'_>,
+    name: &str,
+    source: &'source str,
+) -> Option<&'source str> {
+    let mut cursor = root.walk();
+    root.named_children(&mut cursor)
+        .find(|declaration| {
+            TYPE_DECLARATION_KINDS.contains(&declaration.kind())
+                && declaration
+                    .child_by_field_name("name")
+                    .and_then(|type_name| type_name.utf8_text(source.as_bytes()).ok())
+                    == Some(name)
+        })
+        .and_then(|declaration| type_header(declaration, source))
+}
+
+fn enclosing_type_header<'source>(node: Node<'_>, source: &'source str) -> Option<&'source str> {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if TYPE_DECLARATION_KINDS.contains(&parent.kind()) {
+            return type_header(parent, source);
+        }
+        current = parent.parent();
+    }
+    None
+}
+
+fn type_header<'source>(declaration: Node<'_>, source: &'source str) -> Option<&'source str> {
+    let body = declaration.child_by_field_name("body")?;
+    source.get(declaration.start_byte()..body.start_byte())
+}
+
+const TYPE_DECLARATION_KINDS: &[&str] = &[
+    "class_declaration",
+    "enum_declaration",
+    "extension_declaration",
+    "extension_type_declaration",
+    "mixin_declaration",
+];
 
 fn typed_route_navigation_member_reference(
     root: Node<'_>,
@@ -467,6 +600,12 @@ fn identifier_is_declaration_name(node: Node<'_>) -> bool {
     }
     if parent.kind() == "identifier_list" {
         return true;
+    }
+    if matches!(
+        parent.kind(),
+        "constructor_param" | "super_formal_parameter"
+    ) {
+        return node.kind() == "identifier";
     }
     DECLARATION_NAME_OWNER_KINDS.contains(&parent.kind()) && is_child_field(parent, node, "name")
 }

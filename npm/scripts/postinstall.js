@@ -57,14 +57,19 @@ async function installPrebuilt() {
   const archivePath = path.join(os.tmpdir(), assetName);
   const url = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
   await download(url, archivePath, 0);
-  extractArchive(assetName, archivePath);
-  activateCachedBinaries(assetName);
+  const staging = fs.mkdtempSync(path.join(cacheDir, ".staging-"));
+  try {
+    extractArchive(assetName, archivePath, staging);
+    activateCachedBinaries(assetName, staging);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
   return true;
 }
 
-/** @param {string} assetName @param {string} archivePath */
-function extractArchive(assetName, archivePath) {
-  const extract = spawnSync("tar", ["-xzf", archivePath, "-C", cacheDir], {
+/** @param {string} assetName @param {string} archivePath @param {string} destination */
+function extractArchive(assetName, archivePath, destination) {
+  const extract = spawnSync("tar", ["-xzf", archivePath, "-C", destination], {
     stdio: "pipe",
     windowsHide: false,
   });
@@ -81,16 +86,23 @@ function extractArchive(assetName, archivePath) {
   }
 }
 
-/** @param {string} assetName */
-function activateCachedBinaries(assetName) {
-  for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
-    const cachedBinary = path.join(cacheDir, `${binary}${exeExt}`);
-    if (!fs.existsSync(cachedBinary)) {
-      throw new Error(`${assetName} did not contain ${binary}${exeExt}`);
-    }
+/** @param {string} assetName @param {string} staging */
+function activateCachedBinaries(assetName, staging) {
+  const binaries = ["dart-decimate", "dart-decimate-mcp"].map(
+    (binary) => `${binary}${exeExt}`,
+  );
+  const missing = binaries.find(
+    (binary) => !fs.existsSync(path.join(staging, binary)),
+  );
+  if (missing) {
+    throw new Error(`${assetName} did not contain ${missing}`);
+  }
+  for (const binary of binaries) {
+    const stagedBinary = path.join(staging, binary);
     if (process.platform !== "win32") {
-      fs.chmodSync(cachedBinary, 0o755);
+      fs.chmodSync(stagedBinary, 0o755);
     }
+    fs.renameSync(stagedBinary, path.join(cacheDir, binary));
   }
 }
 
