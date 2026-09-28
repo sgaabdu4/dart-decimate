@@ -3,8 +3,13 @@
 Add Dart Decimate to CI so every PR gets the same repo health check:
 
 ```yaml
+- uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+  with:
+    version: latest
+    runtime: node@latest
+    install: false
 - name: Dart Decimate
-  run: npx --yes dart-decimate@0.0.54 --strict
+  run: pnpm dlx dart-decimate@0.0.55 --strict
 ```
 
 That is the easiest CI command. It checks everything Dart Decimate knows how to
@@ -14,7 +19,7 @@ warnings as well as errors.
 For PR-only regression checks, use:
 
 ```bash
-npx --yes dart-decimate@0.0.54 audit . --base origin/main --format json --summary --gate new-only
+pnpm dlx dart-decimate@0.0.55 audit . --base origin/main --format json --summary --gate new-only
 ```
 
 `--gate new-only` limits the finding gate to issues introduced by the change.
@@ -28,7 +33,7 @@ You can also put the full check in a git hook:
 mkdir -p .git/hooks
 cat > .git/hooks/pre-commit <<'SH'
 #!/usr/bin/env sh
-npx --yes dart-decimate@0.0.54 --strict
+pnpm dlx dart-decimate@0.0.55 --strict
 SH
 chmod +x .git/hooks/pre-commit
 ```
@@ -45,12 +50,10 @@ This repository already runs:
 - Fallow audit against the base branch
 - Dependabot and weekly dependency/security audits
 
-Local gate settings live in `.no-mistakes.yaml`. They allow three auto-fix
-attempts for rebase, review, test, document, lint, and CI work, with deterministic
-`test`, `lint`, and `format` commands. Hard Eng owns the full gate: the
-checked-in pre-push hook and the `Rust and npm checks` CI job both run
-`python3 .hooks/hard-eng.py check`, which runs every check listed in
-`hard-eng.gates.json`.
+Hard Eng owns the full local gate in `hard-eng.gates.json`. The checked-in
+pre-push hook and the `Rust and npm checks` CI job both run
+`python3 .hooks/hard-eng.py check`. Registry package names and npm/npx consumer
+compatibility tests remain supported; repository tooling uses pnpm.
 
 Run the complete verification stack locally:
 

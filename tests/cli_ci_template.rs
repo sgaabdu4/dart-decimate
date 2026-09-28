@@ -16,6 +16,11 @@ fn github_ci_template_emits_yaml_workflow() -> Result<(), Box<dyn std::error::Er
     assert_eq!(code, 0);
     assert!(yaml.contains("name: Dart Decimate"));
     assert!(yaml.contains("pull_request:"));
+    assert!(yaml.contains("uses: pnpm/setup@"));
+    assert!(yaml.contains("runtime: node@latest"));
+    assert!(yaml.find("uses: pnpm/setup@") < yaml.find("uses: actions/checkout@"));
+    assert!(yaml.contains("github.event.pull_request.base.sha || github.event.before"));
+    assert!(yaml.contains("git hash-object -t tree -w /dev/null"));
     assert!(yaml.contains(&pinned_audit_command()));
     assert!(yaml.contains("--strict"));
 
@@ -35,6 +40,10 @@ fn gitlab_ci_template_emits_yaml_template() -> Result<(), Box<dyn std::error::Er
     assert_eq!(code, 0);
     assert!(yaml.contains("stages:"));
     assert!(yaml.contains("dart-decimate:"));
+    assert!(yaml.contains("PNPM_VERSION=12.6.0"));
+    assert!(yaml.contains("export PATH=\"$PNPM_HOME/bin:$PATH\""));
+    assert!(yaml.contains("CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}"));
+    assert!(yaml.contains("git hash-object -t tree -w /dev/null"));
     assert!(yaml.contains(&pinned_audit_command()));
     assert!(yaml.contains("--strict"));
 
@@ -95,6 +104,10 @@ fn gitlab_vendor_writes_scoped_files_and_refuses_overwrite()
     assert!(fixture.path().join("ci/scripts/review.sh").is_file());
     assert!(fixture.path().join("ci/scripts/comment.sh").is_file());
     assert!(
+        fs::read_to_string(fixture.path().join("ci/gitlab-ci.yml"))?
+            .contains("export PATH=\"$PNPM_HOME/bin:$PATH\"")
+    );
+    assert!(
         fs::read_to_string(fixture.path().join("ci/scripts/review.sh"))?
             .contains(&pinned_audit_command())
     );
@@ -120,7 +133,7 @@ fn gitlab_vendor_writes_scoped_files_and_refuses_overwrite()
 
 fn pinned_audit_command() -> String {
     format!(
-        "npx --yes dart-decimate@{} audit --format json --base",
+        "pnpm dlx dart-decimate@{} audit --format json --base",
         env!("CARGO_PKG_VERSION")
     )
 }

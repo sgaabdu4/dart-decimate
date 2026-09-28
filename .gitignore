@@ -13,8 +13,6 @@
 __pycache__/
 .hard-eng/
 .claude/worktrees/
-.codebase-memory/
-.context-mode/
 coverage/
 .coverage
 .coverage.*

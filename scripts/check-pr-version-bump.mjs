@@ -226,7 +226,10 @@ function requireBumped(label, current, base, failures) {
 
 const baseRef =
   process.argv[2] ??
-  (process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : "");
+  process.env.BASE_SHA ??
+  (process.env.GITHUB_BASE_REF
+    ? `origin/${process.env.GITHUB_BASE_REF}`
+    : "origin/main");
 if (!baseRef) {
   exitWithError("usage: check-pr-version-bump.mjs <base-ref>");
 }

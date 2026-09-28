@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
 
-npm run version:check
-npm run release:check
-npm run migration:check
+pnpm run version:check
+pnpm run release:check
+pnpm run migration:check

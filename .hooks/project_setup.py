@@ -16,6 +16,7 @@ from gate_config import (
     Group,
     JsonObject,
     Report,
+    dart_scan_includes_boundaries,
     generated_sources,
     nonproduction_source,
     repository_files,
@@ -359,6 +360,27 @@ def adapt_packages(root: Path, config: GateConfig) -> None:
 
 
 def adapt_boundaries(package: Group, typescript: set[str]) -> None:
+    if package.get("language") == "dart" and any(
+        dart_scan_includes_boundaries(gate) for gate in package["checks"]
+    ):
+        generated = [
+            {
+                "name": name,
+                "role": "boundaries",
+                "command": [
+                    "dart-decimate",
+                    "check",
+                    ".",
+                    "--boundary-violations",
+                    "--strict",
+                ],
+            }
+            for name in ("import-boundaries", "lint:boundaries")
+        ]
+        package["checks"] = [
+            gate for gate in package["checks"] if gate not in generated
+        ]
+        return
     required = (
         str(Path(package["path"])) in typescript or package.get("language") == "dart"
     )
@@ -578,32 +600,46 @@ BROWSER_IMPORT = re.compile(
 SELECT_BROWSER_TESTS = (
     'tests=$(grep -rlE "^@TestOn\\([\'\\"] *(browser|chrome)" test || true); '
 )
-RUN_BROWSER_TESTS = (
-    'if [ -z "$tests" ]; then echo "Browser libraries need tests under test/ marked'
-    " @TestOn('browser') that import package:test/test.dart (not flutter_test);"
-    ' declare test as a dev dependency and provide Chrome." >&2; exit 0; fi; '
-    "dart test --platform=chrome --reporter=json --coverage-path=coverage/browser.lcov $tests; "
-    "cat coverage/browser.lcov >> coverage/lcov.info"
-)
+
+
+def run_browser_tests(options: str) -> str:
+    return (
+        'if [ -z "$tests" ]; then echo "Browser libraries need tests under test/ marked'
+        " @TestOn('browser') that import package:test/test.dart (not flutter_test);"
+        ' declare test as a dev dependency and provide Chrome." >&2; exit 0; fi; '
+        f"dart test --platform=chrome{options} --reporter=json"
+        " --coverage-path=coverage/browser.lcov $tests; "
+        "cat coverage/browser.lcov >> coverage/lcov.info"
+    )
+
+
+def browser_tests(options: str) -> list[str]:
+    return [
+        "sh",
+        "-c",
+        "set -e; rm -f coverage/browser.lcov coverage/lcov.info; "
+        + SELECT_BROWSER_TESTS
+        + 'if find test -name "*_test.dart" | grep -qvxF -e "$tests"; then '
+        + shlex.join(FLUTTER_TESTS)
+        + "; fi; "
+        + run_browser_tests(options),
+    ]
+
+
 PREVIOUS_BROWSER_TESTS = [
-    "sh",
-    "-c",
-    "set -e; rm -f coverage/browser.lcov; "
-    + shlex.join(FLUTTER_TESTS)
-    + "; "
-    + SELECT_BROWSER_TESTS
-    + RUN_BROWSER_TESTS,
+    [
+        "sh",
+        "-c",
+        "set -e; rm -f coverage/browser.lcov; "
+        + shlex.join(FLUTTER_TESTS)
+        + "; "
+        + SELECT_BROWSER_TESTS
+        + run_browser_tests(""),
+    ],
+    browser_tests(""),
 ]
-BROWSER_TESTS = [
-    "sh",
-    "-c",
-    "set -e; rm -f coverage/browser.lcov coverage/lcov.info; "
-    + SELECT_BROWSER_TESTS
-    + 'if find test -name "*_test.dart" | grep -qvxF -e "$tests"; then '
-    + shlex.join(FLUTTER_TESTS)
-    + "; fi; "
-    + RUN_BROWSER_TESTS,
-]
+# dart2js inlining leaves one-line forwarders without source-map coverage lines.
+BROWSER_TESTS = browser_tests(" --dart2js-args=--disable-inlining")
 
 
 def browser_test_coverage(directory: Path, package: Group) -> None:
@@ -622,7 +658,7 @@ def browser_test_coverage(directory: Path, package: Group) -> None:
     for gate in package["checks"]:
         if gate.get("role") == "tests" and gate["command"] in (
             FLUTTER_TESTS,
-            PREVIOUS_BROWSER_TESTS,
+            *PREVIOUS_BROWSER_TESTS,
         ):
             gate["command"] = list(BROWSER_TESTS)
 
@@ -675,16 +711,19 @@ def python_interpreter(directory: Path, timeout: float) -> str:
     ).strip()
 
 
-def javascript_files(directory: Path) -> list[str]:
+def javascript_files(directory: Path, excluded: tuple[Path, ...] = ()) -> list[str]:
+    directory = directory.resolve()
+    excluded = tuple(owner.resolve() for owner in excluded)
     extensions = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"}
     files = [
         str(path.relative_to(directory))
         for path in repository_files(directory)
         if path.suffix in extensions
+        and not any(path.is_relative_to(owner) for owner in excluded)
         and not {"node_modules", "vendor", ".hooks", ".agents"}
         & set(path.relative_to(directory).parts)
     ]
-    if not files:
+    if not files and not excluded:
         raise ValueError("No JavaScript or TypeScript source files found")
     return files
 

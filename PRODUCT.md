@@ -5,7 +5,7 @@ It analyzes repositories as module graphs, not as a linter or type checker.
 
 ## Users
 
-- Dart and Flutter developers and reviewers who run `npx dart-decimate@latest`
+- Dart and Flutter developers and reviewers who run `pnpm dlx dart-decimate@latest`
   locally or in CI to find code to delete, untangle, or review before a PR
   lands.
 - AI coding agents that read the JSON output, traces, schemas, and MCP tools

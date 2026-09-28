@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { cleanEnv, runNode, withServer } from "./child-process.mjs";
 
 const versionSync = resolve("scripts/check-version-sync.mjs");
@@ -14,6 +14,7 @@ const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 /** @param {{ cargo: string, npm: string, lock?: string }} versions */
 function project({ cargo, npm, lock = cargo }) {
   const root = mkdtempSync(join(tmpdir(), "dart-decimate-release-guard-"));
+  after(() => rmSync(root, { recursive: true, force: true }));
   writeVersions(root, cargo, npm);
   writeFileSync(
     join(root, "Cargo.lock"),
@@ -96,12 +97,16 @@ function git(root, args) {
 /** @param {string} base @param {string} next @param {string} [nextNpm] */
 async function bump(base, next, nextNpm = next) {
   const root = mkdtempSync(join(tmpdir(), "dart-decimate-version-bump-"));
+  after(() => rmSync(root, { recursive: true, force: true }));
   git(root, ["init", "-q"]);
   writeVersions(root, base, base);
   git(root, ["add", "."]);
   git(root, ["commit", "-q", "-m", "base"]);
   writeVersions(root, next, nextNpm);
-  return runNode([versionBump, "HEAD"], { cwd: root });
+  return runNode([versionBump], {
+    cwd: root,
+    env: { ...cleanEnv, BASE_SHA: "HEAD" },
+  });
 }
 
 for (const [base, next] of [
@@ -158,6 +163,7 @@ test("version bump rejects an invalid version", async () => {
 
 test("version bump reports a base it cannot read", async () => {
   const root = mkdtempSync(join(tmpdir(), "dart-decimate-version-bump-"));
+  after(() => rmSync(root, { recursive: true, force: true }));
   git(root, ["init", "-q"]);
   writeVersions(root, "1.0.0", "1.0.0");
 
@@ -169,14 +175,16 @@ test("version bump reports a base it cannot read", async () => {
 
 /** @param {import("node:http").RequestListener} registry */
 function checkRelease(registry) {
-  const cache = mkdtempSync(join(tmpdir(), "dart-decimate-npm-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "dart-decimate-pnpm-cache-"));
+  after(() => rmSync(cache, { recursive: true, force: true }));
   return withServer(registry, (baseUrl) =>
     runNode([releaseVersion], {
       env: {
         ...cleanEnv,
-        npm_config_cache: cache,
-        npm_config_fetch_retries: "0",
-        npm_config_registry: `${baseUrl}/`,
+        DART_DECIMATE_ALLOW_EXISTING_VERSION: "0",
+        PNPM_CONFIG_CACHE_DIR: cache,
+        PNPM_CONFIG_FETCH_RETRIES: "0",
+        PNPM_CONFIG_REGISTRY: `${baseUrl}/`,
       },
     }),
   );
@@ -217,9 +225,9 @@ test("release check rejects a version already on the registry", async () => {
   );
 });
 
-test("release check fails when the registry cannot answer", async () => {
+test("release check fails when the registry rejects the lookup", async () => {
   const result = await checkRelease((_request, response) => {
-    response.writeHead(500);
+    response.writeHead(401);
     response.end();
   });
 
