@@ -42,7 +42,7 @@ N/A — CLI findings only; no rendered interface changes.
 ## Verification
 
 Result: Passed
-Evidence: New tests failed before the fix (1 error each for the two clear cases); `cargo test --test cli_issue_26_false_positives` → 82 passed after it. Disabling each branch in turn (initializing formals, `this`/`super` receivers, route-class header, extension members) fails its matching test. Known gap: a `State` reading `widget.user` still reports; that receiver belongs to `features/typed-route-member-ownership/`.
+Evidence: New tests failed before the fix (1 error each for the two clear cases); `cargo test --test cli_issue_26_false_positives` → 82 passed after it. Disabling each branch in turn (initializing formals, `this`/`super` receivers, route-class header, extension members) fails its matching test. Known gap: a `State` reading `widget.user` still reports; that receiver belongs to `features/typed-route-member-ownership/`. Full gate on the combined branch: `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
 E2E: Passed — built CLI on the issue's exact files → `pass`, 0 cycles; the renamed-field control → 0 cycles.
 
 Delivery target: Merge

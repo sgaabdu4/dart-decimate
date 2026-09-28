@@ -38,7 +38,7 @@ N/A — release tooling only; no rendered interface.
 ## Verification
 
 Result: Passed
-Evidence: `node tests/npm/test-release-install-parity.js` with the local asset → exit 0, `release install parity ok: Cargo source and npm 0.0.55 emitted identical reports`; `cargo test --test npm_package` → 2 passed.
+Evidence: `node tests/npm/test-release-install-parity.js` with the local asset → exit 0, `release install parity ok: Cargo source and npm 0.0.55 emitted identical reports`; `cargo test --test npm_package` → 2 passed. Full gate on the combined branch: `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, 30/30 PASS.
 E2E: Passed — ran `node tests/npm/test-release-install-parity.js` against a locally built release asset and got the parity success line.
 
 Delivery target: Merge
