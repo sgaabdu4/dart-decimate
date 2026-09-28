@@ -1,6 +1,6 @@
 # Verify scaffold maintenance before skipping publication
 
-Status: Ready
+Status: Complete
 
 ## Outcome + scope
 
@@ -13,17 +13,17 @@ Owners: `.githooks/pre-commit` repeats the registry check before a committed sna
 ## Decisions + authorization
 
 Blockers: None
-Handoff: Ready for build
-Authority: The user authorized supported-tool cleanup, final scaffold adoption, repository delivery, and resulting native releases. The reviewed implementation is limited to the three existing flow owners, their existing tests/docs, and established version fields. Preserve independently delivered upstream work and advance normally from published 0.0.61 to the verified unused 0.0.62. Heavy verification waits for the coordinated slot; source97 is already inherited through the upstream supported updater.
+Handoff: Ready for ship
+Authority: The user authorized supported-tool cleanup, final scaffold adoption, repository delivery, and resulting native releases. The reviewed implementation is limited to the three existing flow owners, their existing tests/docs, and established version fields. Preserve independently delivered upstream work and advance normally from published 0.0.61 to the verified unused 0.0.62. Integrated native verification passed in the coordinated slot; source97 is inherited through the upstream supported updater.
 
 ## Acceptance + steps
 
-- [ ] Normal commits retain version synchronization and migration checks; required committed-snapshot CI owns the registry assertion, including docs-only PRs.
-- [ ] The unconditional Rust and npm preparation job executes the existing native scaffold verifier before making a publication decision; only explicit true skips artifact jobs.
-- [ ] False, unknown, mixed, dirty, or failed proof cannot authorize skipped product/release checks; exact-tag repair, collision checks, and release scripts retain their behavior.
-- [ ] Existing tests execute the proof integration and preserved docs assertions; the final real updater commit passes native proof against its clean parent while the combined policy PR requires normal release verification.
-- [ ] Preserve the supported final Hard Eng update, synchronize 0.0.62 across established version owners, and pass required native full/pre-push checks.
-- [ ] Document the exact verified maintenance exception without introducing an arbitrary unchanged-version waiver.
+- [x] Normal commits retain version synchronization and migration checks; required committed-snapshot CI owns the registry assertion, including docs-only PRs.
+- [x] The unconditional Rust and npm preparation job executes the existing native scaffold verifier before making a publication decision; only explicit true skips artifact jobs.
+- [x] False, unknown, mixed, dirty, or failed proof cannot authorize skipped product/release checks; exact-tag repair, collision checks, and release scripts retain their behavior.
+- [x] Existing tests execute the proof integration and preserved docs assertions; the final real updater commit passes native proof against its clean parent while the combined policy PR requires normal release verification.
+- [x] Preserve the supported final Hard Eng update, synchronize 0.0.62 across established version owners, and pass the required integrated native checks; retain the normal committed-snapshot pre-push as a delivery requirement.
+- [x] Document the exact verified maintenance exception without introducing an arbitrary unchanged-version waiver.
 
 ## Baseline + execution
 
@@ -42,8 +42,8 @@ N/A — this change affects Git hooks and CI publication decisions, with no prod
 
 ## Verification
 
-Result: Pending
-Evidence: Direct execution of the actual workflow proof passed five controlled outcomes: boolean true authorizes maintenance, false/unknown/string results keep the normal path, and an exception fails without a success output. Four real Git fixtures passed the installed native verifier's negative paths for mixed package/configuration changes, dirty state, and unknown base. Parsed workflow wiring, actionlint 1.7.12, offline Zizmor 1.30.1, ShellCheck, Rust formatting, and diff whitespace pass. Version synchronization, the 0.0.61-to-0.0.62 bump, unpublished-release check, and migration assertions pass. Independent review found no material defect in the eight-file policy delta. The extended Rust tests are not yet compiled; canonical positive proof and combined checks remain pending. Existing release scripts and real npm consumer compatibility contracts remain unchanged.
-E2E: Required — execute the actual workflow proof with controlled outcomes, then verify the final supported updater commit against its parent and demonstrate that the mixed policy PR still takes the full path. Retain the normal package installation and release-parity journeys in final native/hosted checks.
+Result: Passed
+Evidence: Direct execution of the actual workflow proof passed five controlled outcomes: boolean true authorizes maintenance, false/unknown/string results keep the normal path, and an exception fails without a success output. Four real Git fixtures passed the installed native verifier's negative paths for mixed package/configuration changes, dirty state, and unknown base. Parsed workflow wiring, actionlint 1.7.12, offline Zizmor 1.30.1, ShellCheck, Rust formatting, and diff whitespace pass. Version synchronization, the 0.0.61-to-0.0.62 bump, unpublished-release check, and migration assertions pass. Independent review found no material defect in the eight-file policy delta. The actual workflow proof verified real supported updater 396e01d8 against clean parent 1c22e150 as scaffold-only, then rejected the combined policy commit b04f2d22 against main 966def44; this native proof completed in 37.584 seconds. The integrated native check passed all 30 gates in 213.033 seconds: 1,005 Rust tests including both new workflow-boundary cases, 41 JavaScript tests, one performance test, strict scans, packaging, and native npm CLI/MCP installation journeys. JavaScript line coverage is 867/989 (87.66%) against the unchanged 70% minimum. Complete plan validation and its selected secret checks passed. Existing release scripts and real npm consumer compatibility contracts remain unchanged.
+E2E: Passed — actual workflow execution accepted the real canonical updater commit against its clean parent and kept the mixed policy branch on the full path. Controlled outcomes and unsafe Git fixtures passed. Integrated native npm CLI and MCP installation journeys passed in 31.760 and 44.469 seconds; the hosted bootstrap release must still prove packaged/Cargo parity and publication.
 Delivery target: Merge
-Delivery: Pending — one follow-up PR, exact-head required CI, guarded merge, merged-main checks, one normal bootstrap release, tag/four assets/registry provenance, and isolated published-binary proof. Future source-only publication savings require an actual maintenance merge; local positive proof does not claim that hosted outcome.
+Delivery: Pending — the normal committed-snapshot pre-push, one follow-up PR, exact-head required CI, guarded merge, merged-main checks, one normal bootstrap release, tag/four assets/registry provenance, and isolated published-binary proof. Future source-only publication savings require an actual maintenance merge; local positive proof does not claim that hosted outcome.
