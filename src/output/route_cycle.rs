@@ -22,7 +22,7 @@ use navigation::{
     navigation_receiver_accepts_route_location, route_extension_navigation_has_context_argument,
 };
 use receivers::route_extension_receiver_node;
-use state_context::class_extends_state;
+use state_context::{class_extends_state, state_widget_type};
 
 fn helper_has_typed_route_navigation_call(
     root: Node<'_>,
