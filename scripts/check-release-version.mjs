@@ -2,6 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { releasedFromHead } from "./released-head.mjs";
 
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const name = pkg.name;
@@ -19,6 +20,12 @@ try {
     stdio: "pipe",
     encoding: "utf8",
   });
+  if (releasedFromHead(version)) {
+    console.log(
+      `release version ok: ${name}@${version} was released from HEAD`,
+    );
+    process.exit(0);
+  }
   console.error(
     `${name}@${version} is already published; bump Cargo.toml and package.json`,
   );

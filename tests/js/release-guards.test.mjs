@@ -161,6 +161,53 @@ test("version bump rejects an invalid version", async () => {
   assert.match(result.stderr, /Cargo.toml has invalid semver: 1.0/);
 });
 
+/** @param {string} version @param {{ tagged?: "head" | "parent", dirty?: boolean }} [options] */
+function releasedCheckout(version, { tagged = "head", dirty = false } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "dart-decimate-released-"));
+  after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, ["init", "-q"]);
+  writeVersions(root, version, version);
+  writeFileSync(join(root, "lib.rs"), "fn main() {}\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-q", "-m", "release"]);
+  git(root, ["tag", "-a", `v${version}`, "-m", `v${version}`]);
+  if (tagged === "parent") {
+    git(root, ["commit", "-q", "--allow-empty", "-m", "after release"]);
+  }
+  if (dirty) {
+    writeFileSync(join(root, "lib.rs"), "fn main() { todo!() }\n");
+  }
+  return root;
+}
+
+/** @param {string} root */
+function bumpAt(root) {
+  return runNode([versionBump], {
+    cwd: root,
+    env: { ...cleanEnv, BASE_SHA: "HEAD" },
+  });
+}
+
+test("version bump accepts the clean commit its release tag points at", async () => {
+  const result = await bumpAt(releasedCheckout("0.0.50"));
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    /version bump ok: v0.0.50 was released from HEAD/,
+  );
+});
+
+test("version bump rejects tracked changes on a released commit", async () => {
+  const result = await bumpAt(releasedCheckout("0.0.50", { dirty: true }));
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /Cargo.toml version must be bumped: 0.0.50 -> 0.0.50/,
+  );
+});
+
 test("version bump reports a base it cannot read", async () => {
   const root = mkdtempSync(join(tmpdir(), "dart-decimate-version-bump-"));
   after(() => rmSync(root, { recursive: true, force: true }));
@@ -173,12 +220,16 @@ test("version bump reports a base it cannot read", async () => {
   assert.match(result.stderr, /could not read Cargo.toml from missing-base/);
 });
 
-/** @param {import("node:http").RequestListener} registry */
-function checkRelease(registry) {
+/** @param {import("node:http").RequestListener} registry @param {string} [cwd] */
+function checkRelease(
+  registry,
+  cwd = project({ cargo: packageVersion, npm: packageVersion }),
+) {
   const cache = mkdtempSync(join(tmpdir(), "dart-decimate-pnpm-cache-"));
   after(() => rmSync(cache, { recursive: true, force: true }));
   return withServer(registry, (baseUrl) =>
     runNode([releaseVersion], {
+      cwd,
       env: {
         ...cleanEnv,
         DART_DECIMATE_ALLOW_EXISTING_VERSION: "0",
@@ -200,29 +251,57 @@ test("release check accepts a version the registry does not have", async () => {
   assert.match(result.stdout, /release version ok: .* is not published/);
 });
 
-test("release check rejects a version already on the registry", async () => {
-  const result = await checkRelease((_request, response) => {
+/** @param {string} version @returns {import("node:http").RequestListener} */
+function published(version) {
+  return (_request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(
       JSON.stringify({
         name: "dart-decimate",
-        "dist-tags": { latest: packageVersion },
+        "dist-tags": { latest: version },
         versions: {
-          [packageVersion]: {
+          [version]: {
             name: "dart-decimate",
-            version: packageVersion,
+            version,
             dist: { tarball: "http://127.0.0.1/dart-decimate.tgz" },
           },
         },
       }),
     );
-  });
+  };
+}
+
+test("release check rejects a version already on the registry", async () => {
+  const result = await checkRelease(published(packageVersion));
 
   assert.equal(result.status, 1);
   assert.match(
     result.stderr,
     new RegExp(`dart-decimate@${packageVersion} is already published`),
   );
+});
+
+test("release check accepts a published version released from a clean HEAD", async () => {
+  const result = await checkRelease(
+    published("0.0.50"),
+    releasedCheckout("0.0.50"),
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    /release version ok: dart-decimate@0.0.50 was released from HEAD/,
+  );
+});
+
+test("release check rejects a published version tagged on another commit", async () => {
+  const result = await checkRelease(
+    published("0.0.50"),
+    releasedCheckout("0.0.50", { tagged: "parent" }),
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /dart-decimate@0.0.50 is already published/);
 });
 
 test("release check fails when the registry rejects the lookup", async () => {
