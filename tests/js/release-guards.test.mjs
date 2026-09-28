@@ -101,7 +101,10 @@ async function bump(base, next, nextNpm = next) {
   git(root, ["add", "."]);
   git(root, ["commit", "-q", "-m", "base"]);
   writeVersions(root, next, nextNpm);
-  return runNode([versionBump, "HEAD"], { cwd: root });
+  return runNode([versionBump], {
+    cwd: root,
+    env: { ...cleanEnv, BASE_SHA: "HEAD" },
+  });
 }
 
 for (const [base, next] of [
@@ -169,14 +172,15 @@ test("version bump reports a base it cannot read", async () => {
 
 /** @param {import("node:http").RequestListener} registry */
 function checkRelease(registry) {
-  const cache = mkdtempSync(join(tmpdir(), "dart-decimate-npm-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "dart-decimate-pnpm-cache-"));
   return withServer(registry, (baseUrl) =>
     runNode([releaseVersion], {
       env: {
         ...cleanEnv,
-        npm_config_cache: cache,
-        npm_config_fetch_retries: "0",
-        npm_config_registry: `${baseUrl}/`,
+        DART_DECIMATE_ALLOW_EXISTING_VERSION: "0",
+        PNPM_CONFIG_CACHE_DIR: cache,
+        PNPM_CONFIG_FETCH_RETRIES: "0",
+        PNPM_CONFIG_REGISTRY: `${baseUrl}/`,
       },
     }),
   );

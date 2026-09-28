@@ -182,6 +182,11 @@
             "typecheck"
           ]
         }
+      ],
+      "depends_on": [],
+      "impact_inputs": [
+        "README.md",
+        "docs/ci.md"
       ]
     }
   ],
@@ -288,8 +293,7 @@
       "parallel": true,
       "command": [
         "node",
-        "scripts/check-pr-version-bump.mjs",
-        "origin/main"
+        "scripts/check-pr-version-bump.mjs"
       ]
     },
     {
@@ -304,16 +308,9 @@
       "name": "fallow-audit",
       "parallel": true,
       "command": [
-        "fallow",
-        "audit",
-        "--base",
-        "origin/main",
-        "--gate",
-        "all",
-        "--format",
-        "json",
-        "--output-file",
-        "coverage/fallow-audit.json"
+        "sh",
+        "-c",
+        "exec fallow audit --base \"${BASE_SHA:-origin/main}\" --gate all --format json --output-file coverage/fallow-audit.json"
       ],
       "report": {
         "type": "fallow",
@@ -324,7 +321,7 @@
       "name": "pack",
       "parallel": true,
       "command": [
-        "npm",
+        "pnpm",
         "pack",
         "--dry-run"
       ]

@@ -143,12 +143,12 @@ function installWithCargo() {
 
 function packNpmPackage() {
   const result = run(
-    "npm",
+    "pnpm",
     ["pack", "--json", "--pack-destination", tempRoot],
     root,
-    "npm pack",
+    "pnpm pack",
   );
-  const [metadata] = JSON.parse(result.stdout);
+  const metadata = JSON.parse(result.stdout);
   return path.join(tempRoot, metadata.filename);
 }
 

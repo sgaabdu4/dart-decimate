@@ -210,7 +210,7 @@ fn pull_request_ci_requires_bumped_unpublished_versions() -> Result<(), Box<dyn 
     assert!(hard_eng_check.contains(".hooks/hard-eng.py check --base \"$BASE_SHA\""));
     assert_eq!(
         shared_gate_command(&gates, "version-bump")?,
-        ["node", "scripts/check-pr-version-bump.mjs", "origin/main"]
+        ["node", "scripts/check-pr-version-bump.mjs"]
     );
     assert_eq!(
         shared_gate_command(&gates, "release-version")?,
@@ -293,29 +293,20 @@ fn release_workflow_checks_existing_state_before_release_version()
 -> Result<(), Box<dyn std::error::Error>> {
     let release = fs::read_to_string(".github/workflows/release.yml")?;
     let state_index = index_of(&release, "      - name: Check existing release state")?;
-    let release_check_index = index_of(&release, "      - name: Check release version")?;
-    let release_check = section_between(
-        &release,
-        "      - name: Check release version",
-        "      - name: Validate release candidate",
-    )?;
+    let validate_index = index_of(&release, "      - name: Validate release candidate")?;
     let validate = section_between(
         &release,
         "      - name: Validate release candidate",
         "  build-assets:",
     )?;
 
-    assert!(state_index < release_check_index);
-    assert!(release_check.contains("if: steps.state.outputs.npm_exists == 'false'"));
-    assert!(release_check.contains("run: npm run release:check"));
-
-    assert!(validate.contains("npm run version:check"));
-    assert!(!validate.contains("npm run release:check"));
-    assert!(validate.contains("npm run migration:check"));
-    assert!(
-        index_of(&release, "      - name: Validate release candidate")?
-            < index_of(&release, "      - name: Create and push verified tag")?
-    );
+    assert!(state_index < validate_index);
+    assert!(release.contains("name: Rust and npm checks"));
+    assert!(validate.contains(".hooks/hard-eng.py check --base \"$BASE_SHA\""));
+    assert!(validate.contains("steps.state.outputs.npm_exists == 'true'"));
+    assert!(validate.contains("steps.state.outputs.tag_points_at_head == 'true'"));
+    assert!(validate.contains("BASE_SHA: ${{ github.event.before }}"));
+    assert!(validate_index < index_of(&release, "      - name: Create and push verified tag")?);
 
     Ok(())
 }
@@ -336,7 +327,11 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
     assert!(publish.contains("ref: ${{ github.sha }}"));
     assert!(publish.contains("Verify Cargo and npm install parity"));
     assert!(publish.contains("DART_DECIMATE_CARGO_REV: ${{ github.sha }}"));
-    assert!(publish.contains("npm run test:release:parity"));
+    assert!(publish.contains("pnpm run test:release:parity"));
+    assert!(release.contains("id-token: write"));
+    assert!(release.contains(
+        "pnpm publish --access public --provenance --no-git-checks --registry https://registry.npmjs.org"
+    ));
     assert!(
         index_of(publish, "      - name: Verify Cargo and npm install parity")?
             < index_of(publish, "      - name: Create and push verified tag")?
@@ -361,7 +356,7 @@ fn release_workflow_rejects_fresh_reused_versions_but_allows_repairs()
     let reused_version = section_between(
         &release,
         "      - name: Reject reused package version",
-        "      - name: Check release version",
+        "      - name: Validate release candidate",
     )?;
 
     assert!(state.contains("tag_points_at_head=true"));

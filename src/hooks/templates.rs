@@ -13,18 +13,18 @@ case "$INPUT" in
 esac
 if command -v dart-decimate >/dev/null 2>&1; then
   DART_DECIMATE_BIN="dart-decimate"
-elif command -v npx >/dev/null 2>&1; then
-  DART_DECIMATE_BIN="npx --no-install dart-decimate"
+elif command -v pnpm >/dev/null 2>&1; then
+  export PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
+  export PNPM_CONFIG_PM_ON_FAIL=ignore
+  export PNPM_CONFIG_RUNTIME_ON_FAIL=ignore
+  DART_DECIMATE_BIN="pnpm exec dart-decimate"
 else
   echo "dart-decimate-gate: dart-decimate binary not found; allowing command" >&2
   exit 0
 fi
 BASE="${{DART_DECIMATE_BASE:-{branch}}}"
-OUTPUT="$($DART_DECIMATE_BIN audit . --base "$BASE" --format json --summary 2>&1)" || {{
-  echo "dart-decimate-gate: dart-decimate audit failed open" >&2
-  printf '%s\n' "$OUTPUT" >&2
-  exit 0
-}}
+AUDIT_EXIT=0
+OUTPUT="$($DART_DECIMATE_BIN audit . --base "$BASE" --format json --summary 2>&1)" || AUDIT_EXIT=$?
 case "$OUTPUT" in
   *'"error":true'*|*'"error": true'*)
     echo "dart-decimate-gate: dart-decimate returned an error envelope; allowing command" >&2
@@ -35,7 +35,13 @@ case "$OUTPUT" in
     printf '%s\n' "$OUTPUT" >&2
     exit 2
     ;;
-  *) exit 0 ;;
+  *)
+    if [ "$AUDIT_EXIT" -ne 0 ]; then
+      echo "dart-decimate-gate: dart-decimate audit failed open" >&2
+      printf '%s\n' "$OUTPUT" >&2
+    fi
+    exit 0
+    ;;
 esac
 "#
     )
