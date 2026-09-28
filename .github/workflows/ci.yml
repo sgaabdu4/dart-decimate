@@ -71,12 +71,15 @@ jobs:
           runtime: node@latest
           install: false
 
-      - name: Run the secret scan for docs-only changes
+      - name: Check release guards and secrets for docs-only changes
         if: steps.impact.outputs.docs_only == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          node scripts/check-version-sync.mjs
+          node scripts/check-pr-version-bump.mjs
+          node scripts/check-release-version.mjs
           pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest &&
           pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
 

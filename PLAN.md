@@ -1,54 +1,49 @@
-# Avoid duplicate release setup and clean test fixtures
+# Verify scaffold maintenance before skipping publication
 
-Status: Complete
+Status: Ready
 
 ## Outcome + scope
 
-Run the existing Cargo/npm release-parity script directly so pnpm does not install root dependencies and compile the package before parity begins. Clean the temporary directories owned by the existing postinstall tests. Release these remaining corrections as 0.0.59 while preserving the independently merged analyzer, staged installer, tarball-path repair, and Hard Eng scaffold.
+Allow a canonical, committed Hard Eng update to retain the published package version after native verification, without rebuilding or publishing unchanged artifacts. Other changes retain every version, tag, quality, packaging, and publication guard. Release the policy as 0.0.62 while preserving the independently delivered final scaffold.
 
 ## Repository context
 
-The Release workflow owns the parity invocation; `tests/ci_version_gate.rs` checks that command. `tests/js/postinstall.test.mjs` owns the existing installer failure cases. Established version owners are Cargo.toml, Cargo.lock, package.json, README.md, and docs/ci.md. Main's production installer validates both staged binaries before changing the real cache. No production installer or analyzer change is needed in this correction.
+Owners: `.githooks/pre-commit` repeats the registry check before a committed snapshot exists. `.github/workflows/ci.yml` skips shared version assertions for documentation. `.github/workflows/release.yml` rejects published versions before the installed native `update.check_scaffold_update` can verify maintenance. Existing release workflow tests are in `tests/ci_version_gate.rs`; release scripts and their JavaScript regression tests remain unchanged.
 
 ## Decisions + authorization
 
 Blockers: None
-Handoff: Ready for ship
-Authority: The user authorized repository cleanup, pnpm migration, scaffold adoption, merge, and resulting native package release. Preserve concurrent upstream work and progress normally from main's 0.0.58 to 0.0.59. Keep every existing quality, coverage, release, and npm-consumer assertion. Add no dependency, test framework, or alternate runner.
+Handoff: Ready for build
+Authority: The user authorized supported-tool cleanup, final scaffold adoption, repository delivery, and resulting native releases. The reviewed implementation is limited to the three existing flow owners, their existing tests/docs, and established version fields. Preserve independently delivered upstream work and advance normally from published 0.0.61 to the verified unused 0.0.62. Heavy verification waits for the coordinated slot; source97 is already inherited through the upstream supported updater.
 
 ## Acceptance + steps
 
-- [x] Invoke the unchanged native parity script directly with its existing environment and all pack, Cargo, and npm assertions.
-- [x] Update the existing workflow assertion to require that direct invocation.
-- [x] Clean both existing postinstall temporary-directory owners through native test teardown, preserving all six installer assertions.
-- [x] Preserve the incoming production staging, analyzer regressions, and packed-filename resolution; adopt the latest verified Hard Eng release through supported setup.
-- [x] Synchronize established version owners at 0.0.59 and pass the existing version and unpublished-release guards.
-- [x] Verify the combined release guards and current CLI/MCP entrypoints with existing native checks; retain normal Complete pre-push as the final combined gate.
+- [ ] Normal commits retain version synchronization and migration checks; required committed-snapshot CI owns the registry assertion, including docs-only PRs.
+- [ ] The unconditional Rust and npm preparation job executes the existing native scaffold verifier before making a publication decision; only explicit true skips artifact jobs.
+- [ ] False, unknown, mixed, dirty, or failed proof cannot authorize skipped product/release checks; exact-tag repair, collision checks, and release scripts retain their behavior.
+- [ ] Existing tests execute the proof integration and preserved docs assertions; the final real updater commit passes native proof against its clean parent while the combined policy PR requires normal release verification.
+- [ ] Preserve the supported final Hard Eng update, synchronize 0.0.62 across established version owners, and pass required native full/pre-push checks.
+- [ ] Document the exact verified maintenance exception without introducing an arbitrary unchanged-version waiver.
 
 ## Baseline + execution
 
 Result: Passed
-Evidence: The combined 0.0.58 revision passed all 30 native gates in 322.800 seconds on released Hard Eng 8693091. The preceding 0.0.57 revision passed all 30 native gates in 355.624 seconds, including 1,000 Rust tests, 37 JavaScript tests, the existing performance check, strict scanners, and actual npm CLI/MCP installations. That proof predates PR #128 and does not verify this combined revision. Supported fresh setup confirmed Hard Eng 96d5f9cbf00e0441e6225823f00d06990fa61068 without tracked changes.
-Upstream: PR #127 delivered 0.0.56 with four platform assets and an npm attestation. PR #128 then advanced main to 0.0.57 with analyzer regressions and staged installer extraction. This branch integrates both changes without modifying their production or regression-test owners. Their staging implementation removes the need for additional fixture-loading machinery; tests continue to execute the actual postinstall script normally.
-Scaffold: Supported fresh setup adopted released Hard Eng 2e246601a5dab5148cd8c9b829acb416da869294 in 74.365 seconds, verifying and committing only four managed-file changes. Native preflight confirmed the scaffold-only path, and instruction preservation passed. The updater performed its scaffold verification; it did not repeat product checks.
-Reconciliation: PR #129 merged as 3ce7d66a5cd5a82d0e8a7d2611e7fa16409b30f5 with passing required CI. Its exact clean-tagged-HEAD release guard, shared helper, and four regression cases are preserved unchanged. The normal integration advances established version owners to 0.0.59. The preceding 0.0.58 native full and pre-push results are historical proof for that exact revision, not the combined 0.0.59 tree.
-Repair: The previous failed release spent 90 seconds installing root dependencies and running postinstall before parity began. Direct Node execution retains the identical script, environment, and assertions, with no matching pre/post parity lifecycle scripts to preserve. Existing fixture directories now register native `node:test` cleanup at their creation sites.
-Prior release gap: PR #125's Release run 36447841470 failed before tag creation and publication because the packed tarball's absolute path was duplicated. Main already contains the verified path-resolution repair. Version 0.0.55 was not published; this correction creates no competing historical tag.
+Evidence: Delivered main 966def44 passed its exact-head required Rust/npm check in 7m48s, security checks, four platform builds, and Release 36493063958. Tag v0.0.61 points to that merged commit, and canonical npm publication with matching registry provenance is confirmed. This is the starting implementation proof, not verification of the new policy.
+Integration: PR #124's pnpm/setup 3.0.0 pins and completed plan are preserved. PR #131 delivered source97cc783afd75c81b08a28f0ce392414aa50cef7e through actual updater commit 396e01d8, whose clean parent is 1c22e150. That commit changes only the marker and two managed Python files; its following commit changes only the existing feature plan. The policy branch fast-forwarded without conflicts, and all prepared policy files plus incoming scaffold/plan files were byte-accounted. Version 0.0.62 had no remote tag, registry entry, or open PR reservation before selection.
+Execution: One builder extends the existing owners and focused tests; an independent review checks fail-closed behavior. Reuse the retained task checkout and the real upstream updater commit for positive native proof, then verify the combined policy against current main. Do not repeat an already delivered source97 adoption.
 
 ## Risks + recovery
 
-Keep the existing source/tag, published-version, provenance, and Cargo/npm parity guards. Preserve real npm/npx consumer compatibility fixtures and the unchanged production coverage threshold. Native pnpm publication retains its existing OIDC permissions; packaging or local installation does not prove hosted publication. Do not overwrite another agent's branch or a published version. Cleanup applies only to the temporary directories created by these tests, never shared stores or real package caches.
+The first PR changes release inputs, so it must take the normal versioned release path. A missing or unsuccessful canonical proof must never become permission to skip that path. Keep the exact-clean-tagged-HEAD helper, published-version checks, asset parity, and trusted-publisher permissions unchanged. The positive maintenance proof uses the actual updater commit and its immediate clean parent, not an invented source revision or package version. Preserve unrelated branches, plans, and shared caches.
 
 ## ux_reference
 
-N/A — this correction affects release execution and test cleanup, not a user interface.
+N/A — this change affects Git hooks and CI publication decisions, with no product user interface.
 
 ## Verification
 
-Result: Passed
-Evidence: The combined 0.0.59 JavaScript suite passes all 41 existing tests in 4.260 seconds. Hard Eng's native report reader verifies every production source and 867/989 covered lines (87.66%; required 70%), including the incoming release-head helper. Existing version synchronization, 0.0.58-to-0.0.59 bump, unpublished-release and migration guards pass. Incoming release-gate, installer, and analyzer owners match main exactly. Final source adoption and native instruction preservation also pass. Normal Complete pre-push must verify every required gate on the exact committed snapshot before shipping; no older full run is relabeled as that proof.
-Historical integrated proof: The preceding 0.0.58 revision passed all 30 native gates in 322.800 seconds (1,003 Rust tests, 37 JavaScript tests, the existing performance check, strict scans and real npm CLI/MCP journeys). JavaScript line coverage was 822/944 (87.08%; required 70%). Its actual isolated pre-push passed in 303.96 seconds, and exact-head PR CI passed Rust/npm checks in 7m15s, dependency audit in 2m29s, and OpenSSF Scorecard in 18s. Focused fixture verification left checkout-cache hashes unchanged and no owned postinstall fixture or staging directories.
-Prior Cargo failure: An earlier full run passed Clippy but Cargo tests exited 101 before execution while writing `target/debug/.fingerprint/clap_builder-860318aa42d1d94c/invoked.timestamp` because its directory was absent. Clippy and tests are serial gates, target directories were writable, and bounded cleanup-owner tracing found no command explaining the missing directory. That failed run is not accepted proof. Subsequent 0.0.57 and 0.0.58 full checks passed without cache clearing or a workaround; the original cause remains unclassified. Stop and diagnose directly if it recurs.
-E2E: Passed — current package entrypoints return CLI version 0.0.59, valid CLI help, and MCP initialize protocol 2025-11-25 with server version 0.0.59 in 0.670 seconds. This used the actual current binaries with scanner overrides removed and Cargo unavailable, so no fallback build supplied the result. Actual npm tarball CLI and MCP installation journeys remain required native pre-push gates; current entrypoint proof does not claim a fresh npm installation. Verify the published 0.0.59 binary separately after hosted publication.
+Result: Pending
+Evidence: Direct execution of the actual workflow proof passed five controlled outcomes: boolean true authorizes maintenance, false/unknown/string results keep the normal path, and an exception fails without a success output. Four real Git fixtures passed the installed native verifier's negative paths for mixed package/configuration changes, dirty state, and unknown base. Parsed workflow wiring, actionlint 1.7.12, offline Zizmor 1.30.1, ShellCheck, Rust formatting, and diff whitespace pass. Version synchronization, the 0.0.61-to-0.0.62 bump, unpublished-release check, and migration assertions pass. Independent review found no material defect in the eight-file policy delta. The extended Rust tests are not yet compiled; canonical positive proof and combined checks remain pending. Existing release scripts and real npm consumer compatibility contracts remain unchanged.
+E2E: Required — execute the actual workflow proof with controlled outcomes, then verify the final supported updater commit against its parent and demonstrate that the mixed policy PR still takes the full path. Retain the normal package installation and release-parity journeys in final native/hosted checks.
 Delivery target: Merge
-Delivery: Pending — continue the same PR #130 through normal native pre-push, exact-head PR checks, guarded merge, merged-commit checks, and the native Release workflow. Verify its tag, four platform assets, npm attestation, and isolated published-package binary. Hosted OIDC and publication remain distinct from local proof.
+Delivery: Pending — one follow-up PR, exact-head required CI, guarded merge, merged-main checks, one normal bootstrap release, tag/four assets/registry provenance, and isolated published-binary proof. Future source-only publication savings require an actual maintenance merge; local positive proof does not claim that hosted outcome.

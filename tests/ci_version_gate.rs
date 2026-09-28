@@ -204,10 +204,31 @@ fn pull_request_ci_requires_bumped_unpublished_versions() -> Result<(), Box<dyn 
     let trigger = section_between(&ci, "on:\n", "\npermissions:")?;
     let checkout = section_between(&ci, "      - name: Checkout", "\n\n")?;
     let hard_eng_check = &ci[index_of(&ci, "      - name: Run Hard Eng checks")?..];
+    let docs_check = section_between(
+        &ci,
+        "      - name: Check release guards and secrets for docs-only changes",
+        "      - name: Run Hard Eng checks",
+    )?;
+    let pre_commit = fs::read_to_string(".githooks/pre-commit")?;
 
     assert!(trigger.contains("  pull_request:\n    branches: [main]"));
     assert!(checkout.contains("fetch-depth: 0"));
     assert!(hard_eng_check.contains(".hooks/hard-eng.py check --base \"$BASE_SHA\""));
+    assert!(docs_check.contains("if: steps.impact.outputs.docs_only == 'true'"));
+    assert!(docs_check.contains("BASE_SHA: ${{ github.event.pull_request.base.sha }}"));
+    let mut previous = 0;
+    for command in [
+        "node scripts/check-version-sync.mjs",
+        "node scripts/check-pr-version-bump.mjs",
+        "node scripts/check-release-version.mjs",
+        ".hooks/hard-eng.py check --base \"$BASE_SHA\"",
+    ] {
+        let position = index_of(docs_check, command)?;
+        assert!(position > previous);
+        previous = position;
+    }
+    assert!(pre_commit.contains("pnpm run version:check\npnpm run migration:check"));
+    assert!(!pre_commit.contains("pnpm run release:check"));
     assert_eq!(
         shared_gate_command(&gates, "version-bump")?,
         ["node", "scripts/check-pr-version-bump.mjs"]
@@ -221,6 +242,11 @@ fn pull_request_ci_requires_bumped_unpublished_versions() -> Result<(), Box<dyn 
     assert!(template.contains(
         "This PR bumps both `Cargo.toml` and `package.json` to an unpublished `dart-decimate` version"
     ));
+    assert!(
+        template.contains(
+            "unless native Hard Eng verification proves a canonical scaffold-only update"
+        )
+    );
     assert!(!template.contains("Version is intentionally unchanged"));
 
     Ok(())
@@ -299,13 +325,24 @@ fn release_workflow_checks_existing_state_before_release_version()
         "      - name: Validate release candidate",
         "  build-assets:",
     )?;
+    let scaffold = section_between(
+        &release,
+        "      - name: Verify scaffold-only maintenance",
+        "      - name: Install Rust",
+    )?;
 
+    assert!(index_of(&release, "      - name: Verify scaffold-only maintenance")? < state_index);
+    assert!(scaffold.contains("BASE_SHA: ${{ github.event.before }}"));
+    assert!(scaffold.contains("export BASE_SHA=\"${BASE_SHA:-$(git rev-parse HEAD^)}\""));
+    assert!(!scaffold.contains("if:"));
     assert!(state_index < validate_index);
     assert!(release.contains("name: Rust and npm checks"));
     assert!(validate.contains(".hooks/hard-eng.py check --base \"$BASE_SHA\""));
     assert!(validate.contains("steps.state.outputs.npm_exists == 'true'"));
     assert!(validate.contains("steps.state.outputs.tag_points_at_head == 'true'"));
     assert!(validate.contains("BASE_SHA: ${{ github.event.before }}"));
+    assert!(validate.contains("if: steps.scaffold.outputs.scaffold_only != 'true'"));
+    assert!(!validate.contains("mise --no-config install"));
     assert!(validate_index < index_of(&release, "      - name: Create and push verified tag")?);
 
     Ok(())
@@ -319,11 +356,13 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
     let publish = section_between(&release, "  release:", "      - name: Publish to npm")?;
 
     assert!(build.contains("needs: prepare"));
+    assert!(build.contains("if: needs.prepare.outputs.scaffold_only != 'true'"));
     assert!(build.contains("windows-latest"));
     assert!(build.contains("    defaults:\n      run:\n        shell: bash\n"));
     assert!(build.contains("ref: ${{ github.sha }}"));
     assert!(build.contains("git rev-parse HEAD"));
     assert!(publish.contains("needs: [prepare, build-assets]"));
+    assert!(publish.contains("if: needs.prepare.outputs.scaffold_only != 'true'"));
     assert!(publish.contains("ref: ${{ github.sha }}"));
     assert!(publish.contains("Verify Cargo and npm install parity"));
     assert!(publish.contains("DART_DECIMATE_CARGO_REV: ${{ github.sha }}"));
@@ -341,6 +380,138 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
             < index_of(publish, "      - name: Create or update GitHub release")?
     );
 
+    Ok(())
+}
+
+#[test]
+fn scaffold_release_proof_requires_an_explicit_native_success()
+-> Result<(), Box<dyn std::error::Error>> {
+    let release: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&fs::read_to_string(".github/workflows/release.yml")?)?;
+    let prepare = &release["jobs"]["prepare"];
+    assert!(prepare["if"].is_null());
+    assert_eq!(
+        prepare["outputs"]["scaffold_only"].as_str(),
+        Some("${{ steps.scaffold.outputs.scaffold_only }}")
+    );
+    let steps = prepare["steps"]
+        .as_sequence()
+        .ok_or_else(|| missing("steps"))?;
+    let proof = steps
+        .iter()
+        .find(|step| step["id"] == "scaffold")
+        .ok_or_else(|| missing("scaffold"))?;
+    assert!(proof["if"].is_null());
+    let run = proof["run"]
+        .as_str()
+        .ok_or_else(|| missing("proof script"))?;
+    let script = section_between(run, "import os\n", "\nPY\n")?;
+
+    for (result, expected) in [
+        ("return True", Some("true")),
+        ("return False", Some("false")),
+        ("return None", Some("false")),
+        ("return 'true'", Some("false")),
+        ("raise ValueError('verification unavailable')", None),
+    ] {
+        let fixture = tempfile::tempdir()?;
+        let root = fixture.path();
+        fs::create_dir(root.join(".hooks"))?;
+        fs::write(
+            root.join(".hooks/update.py"),
+            format!(
+                "def check_scaffold_update(root, base):\n    assert root.is_dir()\n    assert base == 'fixture-base'\n    print('native proof diagnostic')\n    {result}\n"
+            ),
+        )?;
+        let github_output = fixture.path().join("output");
+        fs::write(&github_output, "")?;
+        let output = common::isolated_command("python3")
+            .args(["-B", "-c", script])
+            .current_dir(root)
+            .env("BASE_SHA", "fixture-base")
+            .env("GITHUB_OUTPUT", &github_output)
+            .output()?;
+        let contents = fs::read_to_string(&github_output)?;
+        assert_eq!(output.status.success(), expected.is_some(), "{result}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("native proof diagnostic"));
+        if let Some(expected) = expected {
+            assert_eq!(contents, format!("scaffold_only={expected}\n"));
+        } else {
+            assert!(contents.is_empty());
+            assert!(String::from_utf8_lossy(&output.stderr).contains("verification unavailable"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn scaffold_release_proof_keeps_unverified_changes_on_the_full_path()
+-> Result<(), Box<dyn std::error::Error>> {
+    let release = fs::read_to_string(".github/workflows/release.yml")?;
+    let script = section_between(&release, "          import os\n", "          PY\n")?
+        .lines()
+        .map(|line| line.strip_prefix("          ").unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let hooks = Path::new(env!("CARGO_MANIFEST_DIR")).join(".hooks");
+
+    for extra in [
+        "package.json",
+        "hard-eng.gates.json",
+        "dirty",
+        "unknown-base",
+    ] {
+        let fixture = tempfile::tempdir()?;
+        let root = fixture.path();
+        fs::create_dir(root.join(".hooks"))?;
+        let marker = root.join(".hooks/hard-eng-source.json");
+        fs::write(&marker, format!("{{\"revision\":\"{}\"}}", "a".repeat(40)))?;
+        run_git(root, &["init", "-q"])?;
+        run_git(root, &["config", "user.email", "test@example.com"])?;
+        run_git(root, &["config", "user.name", "Test User"])?;
+        run_git(root, &["add", "."])?;
+        run_git(root, &["commit", "-qm", "base"])?;
+        fs::write(&marker, format!("{{\"revision\":\"{}\"}}", "b".repeat(40)))?;
+        if extra != "dirty" {
+            if extra != "unknown-base" {
+                fs::write(root.join(extra), "{}\n")?;
+            }
+            run_git(root, &["add", "."])?;
+            run_git(root, &["commit", "-qm", "mixed change"])?;
+        }
+        let github_output = root.join(".git/output");
+        let output = common::isolated_command("python3")
+            .args([
+                "-B",
+                "-c",
+                "from unittest.mock import patch\nimport sys\nwith patch('update.verified_revision', side_effect=AssertionError('unverified input reached upstream lookup')):\n    exec(sys.argv[1])",
+                &script,
+            ])
+            .current_dir(root)
+            .env("PYTHONPATH", &hooks)
+            .env(
+                "BASE_SHA",
+                if extra == "unknown-base" {
+                    "missing"
+                } else if extra == "dirty" {
+                    "HEAD"
+                } else {
+                    "HEAD^"
+                },
+            )
+            .env("GITHUB_OUTPUT", &github_output)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{extra}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            fs::read_to_string(github_output)?,
+            "scaffold_only=false\n",
+            "{extra}"
+        );
+    }
     Ok(())
 }
 
