@@ -5116,6 +5116,129 @@ class InviteScreen extends StatelessWidget {
     Ok(())
 }
 
+#[test]
+fn cycles_omits_typed_navigation_with_state_widget_member_named_like_route_field()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = invite_route_fixture(
+        r"import 'package:flutter/material.dart';
+import 'package:app/routes.dart';
+
+class InviteScreen extends StatefulWidget {
+  const InviteScreen({required this.user, super.key});
+  final String? user;
+  @override
+  State<InviteScreen> createState() => _InviteScreenState();
+}
+
+class _InviteScreenState extends State<InviteScreen> {
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(onTap: () => const HomeRoute().go(context), child: Text(widget.user ?? ''));
+}
+",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
+    Ok(())
+}
+
+#[test]
+fn cycles_omits_typed_navigation_with_typed_non_registry_receivers_named_like_route_field()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = invite_route_fixture(
+        r"import 'package:app/member.dart';
+import 'package:app/routes.dart';
+
+class Invitation {
+  const Invitation(this.user);
+  final String? user;
+}
+
+class InviteScreen extends StatelessWidget {
+  const InviteScreen({required this.invitation, required this.member, super.key});
+  final Invitation invitation;
+  final Member member;
+  String label(Invitation other) =>
+      (invitation.user ?? '') + (other.user ?? '') + (member.user ?? '');
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(onTap: () => const HomeRoute().go(context), child: Text(label(invitation)));
+}
+",
+    )?;
+    write(
+        &fixture,
+        "lib/member.dart",
+        "class Member {\n  const Member(this.user);\n  final String? user;\n}\n",
+    )?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "cycles",
+        root(&fixture),
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["cycles"], 0);
+    assert_no_rule(&json, "dart-decimate/circular-dependency");
+    Ok(())
+}
+
+#[test]
+fn cycles_keeps_route_typed_and_unknown_receiver_member_reads_as_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    for label in [
+        "String label(InviteRoute route) => route.user ?? '';",
+        "String label() {\n    final invite = lookup();\n    return invite.user ?? '';\n  }",
+        "String label(dynamic invite) => invite.user ?? '';",
+        "final T? invite = null;\n  String label() => invite?.user ?? '';",
+        "String label(InviteCopy copy) => copy.user ?? '';",
+    ] {
+        let fixture = invite_route_fixture(&format!(
+            r"import 'package:app/routes.dart';
+
+dynamic lookup() => null;
+
+class InviteCopy extends InviteRoute {{
+  const InviteCopy();
+}}
+
+class InviteScreen<T extends InviteRoute> extends StatelessWidget {{
+  const InviteScreen({{super.key}});
+  {label}
+  @override
+  Widget build(BuildContext context) =>
+      GestureDetector(onTap: () => const HomeRoute().go(context), child: Text(label()));
+}}
+"
+        ))?;
+
+        let (code, json) = run_json([
+            "dart-decimate",
+            "cycles",
+            root(&fixture),
+            "--format",
+            "json",
+        ])?;
+
+        assert_eq!(code, 1, "{label}");
+        assert_finding_count(&json, "dart-decimate/circular-dependency", "error", 1);
+    }
+    Ok(())
+}
+
 fn invite_route_fixture(invite_screen: &str) -> Result<TempDir, Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;

@@ -3,7 +3,8 @@ use tree_sitter::Node;
 use super::{
     argument_list, balanced_enclosed_text, class_extends_state, direct_constructor_call_text,
     direct_named_child, direct_static_member_call_text, is_identifier_character, simple_type_name,
-    strip_constructor_keyword_prefix, strip_whitespace, unwrap_parenthesized_text,
+    state_widget_type, strip_constructor_keyword_prefix, strip_whitespace,
+    unwrap_parenthesized_text,
 };
 
 const BUILD_CONTEXT: &str = "BuildContext";
@@ -603,8 +604,8 @@ fn visible_name_resolution_at(
             if let Some(resolution) = class_member_resolution(root, scope, name, source) {
                 return Some(resolution);
             }
-            if name == "context" && class_extends_state(scope, source) {
-                return Some(NameResolution::Type(BUILD_CONTEXT.to_owned()));
+            if let Some(resolution) = state_member_resolution(scope, name, source) {
+                return Some(resolution);
             }
         }
         if same_node(scope, root) {
@@ -614,6 +615,19 @@ fn visible_name_resolution_at(
         parent = scope.parent();
     }
     top_level_name_resolution(root, name, source)
+}
+
+fn state_member_resolution(
+    class_body: Node<'_>,
+    name: &str,
+    source: &str,
+) -> Option<NameResolution> {
+    match name {
+        "context" => class_extends_state(class_body, source)
+            .then(|| NameResolution::Type(BUILD_CONTEXT.to_owned())),
+        "widget" => state_widget_type(class_body, source).map(NameResolution::Type),
+        _ => None,
+    }
 }
 
 fn top_level_name_resolution(root: Node<'_>, name: &str, source: &str) -> Option<NameResolution> {
@@ -655,8 +669,8 @@ fn class_member_resolution_at(
             if let Some(resolution) = class_member_resolution(root, scope, name, source) {
                 return Some(resolution);
             }
-            if name == "context" && class_extends_state(scope, source) {
-                return Some(NameResolution::Type(BUILD_CONTEXT.to_owned()));
+            if let Some(resolution) = state_member_resolution(scope, name, source) {
+                return Some(resolution);
             }
             return None;
         }
@@ -925,7 +939,16 @@ fn initializer_type(root: Node<'_>, node: Node<'_>, source: &str) -> Option<Stri
             return Some(target_type.to_owned());
         }
     }
-    match navigation_expression_resolution(root, node, expression, source)? {
+    expression_declared_type(root, node, expression, source)
+}
+
+pub(super) fn expression_declared_type(
+    root: Node<'_>,
+    site: Node<'_>,
+    expression: &str,
+    source: &str,
+) -> Option<String> {
+    match navigation_expression_resolution(root, site, expression, source)? {
         NameResolution::Type(type_name) => Some(type_name),
         NameResolution::Shadowed => None,
     }

@@ -16,6 +16,21 @@ pub(super) fn class_extends_state(class_body: Node<'_>, source: &str) -> bool {
     class_or_local_superclass_extends_state(root, class, source, &mut visited)
 }
 
+pub(super) fn state_widget_type(class_body: Node<'_>, source: &str) -> Option<String> {
+    if !class_extends_state(class_body, source) {
+        return None;
+    }
+    let superclass = class_body.parent()?.child_by_field_name("superclass")?;
+    let text = superclass.utf8_text(source.as_bytes()).ok()?;
+    let widget = text
+        .split_once('<')?
+        .1
+        .split([',', '<', '>'])
+        .next()?
+        .trim();
+    is_identifier_text(widget).then(|| widget.to_owned())
+}
+
 fn class_or_local_superclass_extends_state(
     root: Node<'_>,
     class: Node<'_>,
