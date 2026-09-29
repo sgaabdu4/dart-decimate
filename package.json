@@ -45,8 +45,7 @@
     "test:postinstall:prebuilt": "node tests/npm/test-postinstall-prebuilt.js",
     "test:npx:prebuilt": "node tests/npm/test-npx-prebuilt.js",
     "test:release:parity": "node tests/npm/test-release-install-parity.js",
-    "test:npx:local": "node tests/npm/test-npx-local.js",
-    "test:npx:mcp:local": "node tests/npm/test-npx-mcp-local.js"
+    "test:npx:local": "node tests/npm/test-npx-local.js"
   },
   "engines": {
     "node": ">=22.12.0"
