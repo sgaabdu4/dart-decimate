@@ -200,6 +200,62 @@ dev_dependencies:\n  build_runner: ^2.0.0\n",
 }
 
 #[test]
+fn scripts_dir_dart_run_counts_as_dev_dependency_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (check, trace) = check_and_trace_script_dependency(
+        "scripts/upload_sentry_symbols.sh",
+        "#!/bin/sh\nset -e\ndart run sentry_dart_plugin\n",
+    )?;
+
+    assert_eq!(check["summary"]["unused_dev_dependencies"], 0);
+    assert_eq!(trace["used_in_scripts"], true);
+    assert_eq!(trace["is_used"], true);
+
+    Ok(())
+}
+
+#[test]
+fn shell_script_mention_without_run_command_keeps_dependency_unused()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (check, trace) = check_and_trace_script_dependency(
+        "scripts/notes.sh",
+        "#!/bin/sh\n# dart run sentry_dart_plugin\necho sentry_dart_plugin\ndart pub get sentry_dart_plugin\n",
+    )?;
+
+    assert_eq!(check["summary"]["unused_dev_dependencies"], 1);
+    assert_eq!(trace["used_in_scripts"], false);
+    assert_eq!(trace["is_used"], false);
+
+    Ok(())
+}
+
+fn check_and_trace_script_dependency(
+    script_path: &str,
+    script: &str,
+) -> Result<(Value, Value), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\ndev_dependencies:\n  sentry_dart_plugin: ^2.0.0\n",
+    )?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(&fixture, script_path, script)?;
+    let root = fixture.path().to_str().unwrap_or(".");
+
+    let (_, check) = run_json(["dart-decimate", "check", root, "--format", "json"])?;
+    let (_, trace) = run_json([
+        "dart-decimate",
+        "trace-dependency",
+        root,
+        "--format",
+        "json",
+        "--dependency",
+        "sentry_dart_plugin",
+    ])?;
+    Ok((check, trace))
+}
+
+#[test]
 fn dart_codegen_signals_count_builder_dependencies_as_used()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
