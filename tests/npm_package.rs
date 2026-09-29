@@ -29,11 +29,6 @@ fn npm_package_exposes_dart_decimate_bin() -> Result<(), Box<dyn std::error::Err
             .is_some_and(|script| script.contains("node npm/bin/dart-decimate-mcp.js"))
     );
     assert!(
-        package["scripts"]["test:npx:mcp:local"]
-            .as_str()
-            .is_some_and(|script| script.contains("tests/npm/test-npx-mcp-local.js"))
-    );
-    assert!(
         package["scripts"]["test:postinstall:prebuilt"]
             .as_str()
             .is_some_and(|script| script.contains("tests/npm/test-postinstall-prebuilt.js"))
@@ -51,15 +46,14 @@ fn npm_package_exposes_dart_decimate_bin() -> Result<(), Box<dyn std::error::Err
     assert!(Path::new("tests/npm/test-npx-prebuilt.js").is_file());
     assert!(Path::new("tests/npm/test-release-install-parity.js").is_file());
     assert!(Path::new("tests/npm/test-npx-local.js").is_file());
-    assert!(Path::new("tests/npm/test-npx-mcp-local.js").is_file());
     assert!(
         package["scripts"]["test:release:parity"]
             .as_str()
             .is_some_and(|script| script.contains("test-release-install-parity.js"))
     );
-    let mcp_script = fs::read_to_string("tests/npm/test-npx-mcp-local.js")?;
-    assert!(mcp_script.contains("2025-11-25"));
-    assert!(mcp_script.contains("dart-decimate-mcp"));
+    let local_script = fs::read_to_string("tests/npm/test-npx-local.js")?;
+    assert!(local_script.contains("2025-11-25"));
+    assert!(local_script.contains("dart-decimate-mcp"));
     let readme = fs::read_to_string("README.md")?;
     let ci_docs = fs::read_to_string("docs/ci.md")?;
     let version = package["version"].as_str().ok_or("package version")?;
