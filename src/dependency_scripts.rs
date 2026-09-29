@@ -1,8 +1,16 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn package_used_in_tooling(package_root: &Path, dependency: &str) -> bool {
-    pubspec_has_top_level_key(package_root, dependency)
+use crate::scan::{IgnoreMatcher, project_walk};
+
+pub(crate) fn package_used_in_tooling(
+    package_root: &Path,
+    dependency: &str,
+    script_packages: &BTreeSet<String>,
+) -> bool {
+    script_packages.contains(dependency)
+        || pubspec_has_top_level_key(package_root, dependency)
         || known_tooling_convention(package_root, dependency)
         || tooling_files(package_root).into_iter().any(|path| {
             fs::read_to_string(path)
@@ -87,13 +95,75 @@ fn collect_matching_files(dir: &Path, paths: &mut Vec<PathBuf>) {
 }
 
 fn is_tooling_file(path: &Path) -> bool {
+    is_shell_script(path)
+        || matches!(
+            path.extension().and_then(|extension| extension.to_str()),
+            Some("yaml" | "yml")
+        )
+        || path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "Makefile")
+}
+
+fn is_shell_script(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
-        Some("yaml" | "yml" | "sh" | "bash" | "zsh")
-    ) || path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name == "Makefile")
+        Some("sh" | "bash" | "zsh")
+    )
+}
+
+pub(crate) fn shell_script_packages(package_root: &Path) -> BTreeSet<String> {
+    let mut packages = BTreeSet::new();
+    for entry in project_walk(package_root, package_root, &IgnoreMatcher::default()).flatten() {
+        let path = entry.path();
+        if entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_file())
+            && is_shell_script(path)
+            && owned_by_package(package_root, path)
+            && let Ok(source) = fs::read_to_string(path)
+        {
+            collect_run_packages(&source, &mut packages);
+        }
+    }
+    packages
+}
+
+fn owned_by_package(package_root: &Path, path: &Path) -> bool {
+    path.ancestors()
+        .skip(1)
+        .take_while(|dir| *dir != package_root)
+        .all(|dir| !dir.join("pubspec.yaml").is_file())
+}
+
+fn collect_run_packages(source: &str, packages: &mut BTreeSet<String>) {
+    for line in source.replace("\\\n", " ").lines() {
+        let words = line
+            .split(|ch: char| ch.is_whitespace() || ";&|()`\"'".contains(ch))
+            .filter(|word| !word.is_empty())
+            .take_while(|word| !word.starts_with('#'))
+            .collect::<Vec<_>>();
+        for (index, word) in words.iter().enumerate() {
+            let arguments = match (
+                word.rsplit('/').next(),
+                words.get(index + 1),
+                words.get(index + 2),
+            ) {
+                (Some("dart"), Some(&"run"), _) => &words[index + 2..],
+                (Some("dart" | "flutter"), Some(&"pub"), Some(&"run")) => &words[index + 3..],
+                _ => continue,
+            };
+            if let Some(package) = arguments
+                .iter()
+                .find(|argument| !argument.starts_with('-'))
+                .and_then(|target| target.split(':').next())
+                .filter(|package| !package.is_empty())
+            {
+                packages.insert(package.to_owned());
+            }
+        }
+    }
 }
 
 fn source_mentions_dependency(source: &str, dependency: &str) -> bool {
@@ -105,7 +175,33 @@ fn source_mentions_dependency(source: &str, dependency: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::source_mentions_dependency;
+    use std::collections::BTreeSet;
+
+    use super::{collect_run_packages, source_mentions_dependency};
+
+    #[test]
+    fn collects_packages_only_from_run_commands() {
+        let mut packages = BTreeSet::new();
+        collect_run_packages(
+            "set -e\n\
+dart run sentry_dart_plugin\n\
+fvm flutter pub run flutter_launcher_icons:main\n\
+\"$FLUTTER_ROOT/bin/dart\" pub run --verbose build_runner build\n\
+dart run \\\n  --enable-asserts melos:melos bootstrap\n\
+# dart run commented_out\n\
+echo dart pub get mentioned_package\n",
+            &mut packages,
+        );
+        assert_eq!(
+            packages.into_iter().collect::<Vec<_>>(),
+            [
+                "build_runner",
+                "flutter_launcher_icons",
+                "melos",
+                "sentry_dart_plugin"
+            ]
+        );
+    }
 
     #[test]
     fn matches_dependency_tokens_without_substrings() {

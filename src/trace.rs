@@ -7,7 +7,7 @@ use crate::dependencies::{
     DeclaredPackageDependency, LocalPubPackage, declared_package_dependencies,
     file_uses_codegen_dependency, local_pub_packages,
 };
-use crate::dependency_scripts::package_used_in_tooling;
+use crate::dependency_scripts::{package_used_in_tooling, shell_script_packages};
 use crate::graph::normalize_against;
 use crate::output::TRACE_SCHEMA_VERSION;
 use crate::semantic::{SemanticDecision, SemanticIdentity};
@@ -331,8 +331,6 @@ pub fn trace_symbol(
     }
 }
 
-/// Build a read-only trace for one pub dependency.
-///
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if local pubspec discovery or parsing fails.
@@ -365,9 +363,13 @@ pub fn trace_dependency(
         .collect::<Vec<_>>();
     let declared = !declared_in.is_empty();
     let total_import_count = importing_files.len();
-    let used_in_scripts = packages
-        .iter()
-        .any(|package| package_used_in_tooling(&package.root, dependency));
+    let used_in_scripts = packages.iter().any(|package| {
+        package_used_in_tooling(
+            &package.root,
+            dependency,
+            &shell_script_packages(&package.root),
+        )
+    });
     let used_in_codegen = project
         .files
         .iter()

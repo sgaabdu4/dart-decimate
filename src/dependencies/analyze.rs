@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::dependency_scripts::package_used_in_tooling;
+use crate::dependency_scripts::{package_used_in_tooling, shell_script_packages};
 use crate::generated::is_generated_dart_path;
 use crate::graph::resolve_local_uri;
 use crate::package_map::PackageMap;
@@ -24,8 +24,6 @@ struct ImportUsage {
     private_src_imports: Vec<PrivateSrcImport>,
 }
 
-/// Analyze Dart `package:` imports against pubspec dependency declarations.
-///
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if pubspec discovery or parsing fails.
@@ -233,8 +231,9 @@ fn unused_dependencies(
     let mut unused_dependencies = Vec::new();
     for package in packages {
         let used = used_by_package.get(&package.root);
+        let script_packages = shell_script_packages(&package.root);
         for dependency in &package.dependencies {
-            if let Some(unused) = unused_dependency(package, dependency, used) {
+            if let Some(unused) = unused_dependency(package, dependency, used, &script_packages) {
                 unused_dependencies.push(unused);
             }
         }
@@ -246,6 +245,7 @@ fn unused_dependency(
     package: &PubPackage,
     dependency: &super::DeclaredDependency,
     used: Option<&BTreeMap<String, DependencyUsage>>,
+    script_packages: &BTreeSet<String>,
 ) -> Option<UnusedPackageDependency> {
     if dependency.name == package.name {
         return None;
@@ -260,7 +260,7 @@ fn unused_dependency(
         .and_then(|used| used.get(&dependency.name))
         .copied()
         .unwrap_or_default();
-    if package_used_in_tooling(&package.root, &dependency.name) {
+    if package_used_in_tooling(&package.root, &dependency.name, script_packages) {
         usage.record_tooling();
     }
     let usage = usage.any().then_some(usage);

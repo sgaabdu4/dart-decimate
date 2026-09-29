@@ -442,7 +442,10 @@ fn function_expression_body_constructor_name(node: Node<'_>, source: &str) -> Op
         return None;
     }
     let body = function.child_by_field_name("body")?;
-    let expression = body.named_child(0)?;
+    let mut expression = body.named_child(0)?;
+    while expression.kind() == "conditional_expression" {
+        expression = expression.named_children(&mut expression.walk()).last()?;
+    }
     constructor_call_type_name(expression, source)
         .or_else(|| split_closure_body_constructor_name(node, expression, source))
 }
