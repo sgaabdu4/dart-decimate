@@ -512,14 +512,7 @@ def adapt_package(directory: Path, package: Group) -> None:
         }:
             gate["command"] = python_gate_command(gate["command"], manager)
         elif language == "dart" and manager == "dart" and gate.get("role") == "tests":
-            gate["command"] = [
-                "dart",
-                "run",
-                "coverage:test_with_coverage",
-                "--branch-coverage",
-                "--",
-                "--file-reporter=json:coverage/tests.jsonl",
-            ]
+            gate["command"] = list(DART_TESTS)
             gate["report"]["stdout"] = False
     if language == "javascript":
         adapt_javascript(directory, package, manager)
@@ -608,6 +601,14 @@ FLUTTER_TESTS = [
     "--machine",
     "--coverage",
     "--coverage-path=coverage/lcov.info",
+]
+DART_TESTS = [
+    "dart",
+    "run",
+    "coverage:test_with_coverage",
+    "--branch-coverage",
+    "--",
+    "--file-reporter=json:coverage/tests.jsonl",
 ]
 BROWSER_IMPORT = re.compile(
     r"""^\s*import\s+['"](?:dart:(?:html|js|js_util|js_interop|js_interop_unsafe"""
@@ -709,7 +710,7 @@ def run_vm_tests(sources: list[str]) -> str:
 
 
 def outside_lib_coverage(package: Group) -> None:
-    """Flutter's LCOV keeps only package: URIs, so Dart outside lib/ runs on the Dart VM."""
+    """Flutter and test_with_coverage keep only package: URIs; Dart outside lib/ uses dart test."""
     sources = sorted(
         source
         for source in package.get("sources", [])
@@ -725,6 +726,11 @@ def outside_lib_coverage(package: Group) -> None:
             f"set -e; {shlex.join(FLUTTER_TESTS)}; {vm_tests}",
         ],
         tuple(BROWSER_TESTS): browser_tests(BROWSER_OPTIONS, vm_tests),
+        tuple(DART_TESTS): [
+            "sh",
+            "-c",
+            f"set -e; {shlex.join(DART_TESTS)}; {vm_tests}",
+        ],
     }
     for gate in package["checks"]:
         command = tuple(gate["command"])
