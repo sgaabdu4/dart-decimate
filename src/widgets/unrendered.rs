@@ -437,17 +437,44 @@ fn function_expression_body_constructor_name(node: Node<'_>, source: &str) -> Op
     if node.kind() != "call_expression" {
         return None;
     }
-    let function = node.child_by_field_name("function")?;
+    let callee = node.child_by_field_name("function")?;
+    let (function, named_constructor) = if callee.kind() == "member_expression" {
+        (
+            callee.child_by_field_name("object")?,
+            Some(callee.child_by_field_name("property")?),
+        )
+    } else {
+        (callee, None)
+    };
     if function.kind() != "function_expression" {
         return None;
     }
     let body = function.child_by_field_name("body")?;
     let mut expression = body.named_child(0)?;
     while expression.kind() == "conditional_expression" {
-        expression = expression.named_children(&mut expression.walk()).last()?;
+        expression = expression.child_by_field_name("alternative")?;
+    }
+    if let Some(named_constructor) = named_constructor {
+        return split_closure_body_named_constructor(expression, named_constructor, source);
     }
     constructor_call_type_name(expression, source)
         .or_else(|| split_closure_body_constructor_name(node, expression, source))
+}
+
+fn split_closure_body_named_constructor(
+    expression: Node<'_>,
+    named_constructor: Node<'_>,
+    source: &str,
+) -> Option<String> {
+    if !matches!(expression.kind(), "identifier" | "type_identifier") {
+        return None;
+    }
+    let constructor = format!(
+        "{}.{}",
+        expression.utf8_text(source.as_bytes()).ok()?,
+        named_constructor.utf8_text(source.as_bytes()).ok()?
+    );
+    (!constructor_name_candidates(&constructor).is_empty()).then_some(constructor)
 }
 
 fn constructor_call_type_name(node: Node<'_>, source: &str) -> Option<String> {

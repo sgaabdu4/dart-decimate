@@ -245,6 +245,69 @@ class UnusedCard extends StatelessWidget {
 }
 
 #[test]
+fn check_counts_named_constructors_at_the_end_of_arrow_callbacks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'cards.dart';
+
+class Flow extends StatelessWidget {
+  const Flow({super.key, required this.ready});
+  final bool ready;
+
+  Widget build(BuildContext context) => Column(
+    children: [
+      Builder(builder: (context) => BodyCard.named()),
+      Builder(builder: (context) => ready ? const SizedBox() : ElseCard.named(title: 'a')),
+    ],
+  );
+}
+
+void main() { const Flow(ready: true); }
+",
+    )?;
+    write(
+        &fixture,
+        "lib/cards.dart",
+        r"class BodyCard extends StatelessWidget {
+  const BodyCard.named({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+class ElseCard extends StatelessWidget {
+  const ElseCard.named({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Text(title);
+}
+
+class UnusedCard extends StatelessWidget {
+  const UnusedCard.named({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_check(&fixture, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
+    assert_no_unrendered_widget_for(&json, "BodyCard");
+    assert_no_unrendered_widget_for(&json, "ElseCard");
+    assert_unrendered_widget_for(&json, "UnusedCard");
+
+    Ok(())
+}
+
+#[test]
 fn check_counts_context_typed_dot_new_widget_constructors() -> Result<(), Box<dyn std::error::Error>>
 {
     let fixture = tempfile::tempdir()?;
