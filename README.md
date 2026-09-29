@@ -90,7 +90,7 @@ You do not need to install anything permanently. Use the command above.
 For repeatable automation, pin the version:
 
 ```bash
-pnpm dlx dart-decimate@0.0.61
+pnpm dlx dart-decimate@0.0.62
 ```
 
 Add this to `package.json` if you want a short project command:
@@ -101,7 +101,7 @@ Add this to `package.json` if you want a short project command:
     "dart-decimate": "dart-decimate json ."
   },
   "devDependencies": {
-    "dart-decimate": "0.0.61"
+    "dart-decimate": "0.0.62"
   }
 }
 ```
@@ -117,7 +117,7 @@ pnpm run dart-decimate
 If you prefer Cargo, install the matching tagged source:
 
 ```bash
-cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.61 --locked
+cargo install --git https://github.com/sgaabdu4/dart-decimate.git --tag v0.0.62 --locked
 ```
 
 The npm release `X.Y.Z` and Cargo tag `vX.Y.Z` are verified against each other
@@ -128,7 +128,7 @@ Confirm a Cargo build's version with:
 
 ```bash
 dart-decimate --version
-# dart-decimate 0.0.61
+# dart-decimate 0.0.62
 ```
 
 ## pnpm dlx
@@ -538,7 +538,7 @@ Example shape:
 {
   "schema_version": "dart-decimate.report.v1",
   "kind": "combined",
-  "tool": "dart-decimate 0.0.61",
+  "tool": "dart-decimate 0.0.62",
   "command": "check",
   "verdict": "fail",
   "summary": {
@@ -554,7 +554,7 @@ Example shape:
 
 The `dart-decimate.report.v1` field layout is unchanged. Its existing `tool`
 string includes the producing version so saved reports identify the exact
-build, for example `dart-decimate 0.0.61`.
+build, for example `dart-decimate 0.0.62`.
 
 When grouped security findings hide additional occurrences, `next_steps` can
 include `review-security-surface`, which reruns
@@ -642,7 +642,7 @@ you need the installed binary's exact list.
 For a complete repository check, including discovered local packages:
 
 ```bash
-pnpm dlx dart-decimate@0.0.61 --strict
+pnpm dlx dart-decimate@0.0.62 --strict
 ```
 
 This runs every enabled check from the repository root. The default duplication
@@ -685,11 +685,14 @@ This repository forbids `unsafe_code`.
 
 ## Release Flow
 
-Current source version: `0.0.61`.
+Current source version: `0.0.62`.
 
-After the first public release, changes should go through pull requests. Every
-PR to `main` must bump both `Cargo.toml` and `package.json` above the base
-branch and to an unpublished npm version.
+After the first public release, changes should go through pull requests. PRs to
+`main` must bump both `Cargo.toml` and `package.json` above the base branch and to
+an unpublished npm version. The sole exception is a canonical, committed Hard
+Eng scaffold update verified by its native check. That verification keeps the
+required Rust and npm check active while skipping unchanged release artifacts;
+mixed product, configuration, or documentation changes take the normal path.
 
 To release a new version:
 

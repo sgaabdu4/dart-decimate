@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
+      scaffold_only: ${{ steps.scaffold.outputs.scaffold_only }}
       npm_exists: ${{ steps.state.outputs.npm_exists }}
       tag_exists: ${{ steps.state.outputs.tag_exists }}
       tag: ${{ steps.version.outputs.tag }}
@@ -34,18 +35,46 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
-          rustup default "$RUST_TOOLCHAIN"
-
       - name: Install Node and pnpm
         uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
         with:
           runtime: node@24
           install: false
 
+      - name: Verify scaffold-only maintenance
+        id: scaffold
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.before }}
+          MISE_FETCH_REMOTE_VERSIONS_CACHE: 0s
+          MISE_PREFER_OFFLINE: 'false'
+          MISE_USE_VERSIONS_HOST: 'false'
+          MISE_MINIMUM_RELEASE_AGE: 0s
+        run: |
+          export BASE_SHA="${BASE_SHA:-$(git rev-parse HEAD^)}"
+          pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest python@3.12
+          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest python@3.12 -- uv run --no-project --with pyyaml python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, '.hooks')
+          from update import check_scaffold_update
+
+          scaffold_only = check_scaffold_update(Path.cwd(), os.environ['BASE_SHA']) is True
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'scaffold_only={str(scaffold_only).lower()}\n')
+          PY
+
+      - name: Install Rust
+        if: steps.scaffold.outputs.scaffold_only != 'true'
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+
       - name: Resolve version
+        if: steps.scaffold.outputs.scaffold_only != 'true'
         id: version
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -53,6 +82,7 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check existing release state
+        if: steps.scaffold.outputs.scaffold_only != 'true'
         id: state
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -94,6 +124,7 @@ jobs:
           exit 1
 
       - name: Validate release candidate
+        if: steps.scaffold.outputs.scaffold_only != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -105,12 +136,12 @@ jobs:
           MISE_MINIMUM_RELEASE_AGE: 0s
         run: |
           export BASE_SHA="${BASE_SHA:-$(git rev-parse HEAD^)}"
-          pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest python@3.12 &&
           MISE_FETCH_REMOTE_VERSIONS_CACHE=1h pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest python@3.12 -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
 
   build-assets:
     name: Build ${{ matrix.asset }}
     needs: prepare
+    if: needs.prepare.outputs.scaffold_only != 'true'
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -184,6 +215,7 @@ jobs:
   release:
     name: Publish tagged source
     needs: [prepare, build-assets]
+    if: needs.prepare.outputs.scaffold_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:

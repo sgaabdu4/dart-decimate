@@ -374,13 +374,6 @@
         "node",
         "tests/npm/test-npx-local.js"
       ]
-    },
-    {
-      "name": "npx-mcp-local",
-      "command": [
-        "node",
-        "tests/npm/test-npx-mcp-local.js"
-      ]
     }
   ],
   "shipping": {

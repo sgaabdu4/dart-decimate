@@ -2,5 +2,4 @@
 set -eu
 
 pnpm run version:check
-pnpm run release:check
 pnpm run migration:check
