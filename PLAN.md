@@ -4,7 +4,7 @@ Status: Complete
 
 ## Outcome + scope
 
-A dependency invoked as `dart run <pkg>[:<exe>]`, `dart pub run <pkg>` or `flutter pub run <pkg>` from a `.sh`, `.bash` or `.zsh` script anywhere in its package counts as used, so a Flutter app's `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin` no longer reports that dev dependency as unused. A widget constructed in the else branch of a conditional arrow-callback body, `(context) => cond ? A() : B()`, nested conditionals included, counts as constructed for `unrendered-widget`. Release both as 0.0.63. Non-goals: loose name matching in scripts outside `tool/`, other script languages, and configured Dart-discovery `ignore_patterns`.
+A dependency invoked as `dart run <pkg>[:<exe>]`, `dart pub run <pkg>` or `flutter pub run <pkg>` from a `.sh`, `.bash` or `.zsh` script anywhere in its package counts as used, so an app's `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin` no longer reports that dev dependency as unused. A widget constructed in the else branch of a conditional arrow-callback body, `(context) => cond ? A() : B()`, nested conditionals included, counts as constructed for `unrendered-widget`. Release both as 0.0.63. Non-goals: loose name matching in scripts outside `tool/`, other script languages, and configured Dart-discovery `ignore_patterns`.
 
 ## Repository context
 
@@ -28,7 +28,7 @@ Authority: The user authorized fixing this dependency-detection defect and the c
 ## Baseline + execution
 
 Result: Passed
-Evidence: Base main c0b8c94 passed Release run 36517168678 and Security run 36517168716. The reproduction fixture (dev dependency `sentry_dart_plugin`, `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin`) returned `used_in_scripts: false, is_used: false` from `trace-dependency` before the fix. A widget fixture with `Builder(builder: (context) => flag ? const ThenCard() : ElseCard(...))` and a nested variant reported `ElseCard` and `DeepCard` as unrendered while the switch form passed.
+Evidence: Base main c0b8c94 passed Release run 36517168678 and Security run 36517168716. The synthetic reproduction fixture (dev dependency `sentry_dart_plugin`, `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin`) returned `used_in_scripts: false, is_used: false` from `trace-dependency` before the fix. A synthetic widget fixture with `Builder(builder: (context) => flag ? const ThenCard() : ElseCard(...))` and a nested variant reported `ElseCard` and `DeepCard` as unrendered while the switch form passed.
 Execution: One builder changes the existing owner and its two callers, then runs the native gate.
 
 ## Risks + recovery
