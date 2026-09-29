@@ -632,7 +632,7 @@ def run_browser_tests(options: str) -> str:
     )
 
 
-def browser_tests(options: str) -> list[str]:
+def browser_tests(options: str, vm_tests: str = "") -> list[str]:
     return [
         "sh",
         "-c",
@@ -641,6 +641,7 @@ def browser_tests(options: str) -> list[str]:
         + 'if find test -name "*_test.dart" | grep -qvxF -e "$tests"; then '
         + shlex.join(FLUTTER_TESTS)
         + "; fi; "
+        + vm_tests
         + run_browser_tests(options),
     ]
 
@@ -658,7 +659,8 @@ PREVIOUS_BROWSER_TESTS = [
     browser_tests(""),
 ]
 # dart2js inlining leaves one-line forwarders without source-map coverage lines.
-BROWSER_TESTS = browser_tests(" --dart2js-args=--disable-inlining")
+BROWSER_OPTIONS = " --dart2js-args=--disable-inlining"
+BROWSER_TESTS = browser_tests(BROWSER_OPTIONS)
 
 
 def browser_test_coverage(directory: Path, package: Group) -> None:
@@ -680,6 +682,54 @@ def browser_test_coverage(directory: Path, package: Group) -> None:
             *PREVIOUS_BROWSER_TESTS,
         ):
             gate["command"] = list(BROWSER_TESTS)
+
+
+def run_vm_tests(sources: list[str]) -> str:
+    targets = "|".join(
+        re.sub(r"([.\[\]()*+?{}|^$\\])", r"\\\1", source)
+        + ("['\"]" if source.endswith(".dart") else "/")
+        for source in sources
+    )
+    contract = (
+        f"Dart sources outside lib/ ({', '.join(sources)}) need tests under test/"
+        " that import them by relative path and import package:test/test.dart"
+        " (not flutter_test); declare test as a dev dependency."
+    )
+    return (
+        "rm -rf coverage/vm coverage/vm.lcov; vm_tests=$(grep -rlE --include='*_test.dart' "
+        + shlex.quote(f"^import +['\"](\\.\\./)+({targets})")
+        + ' test || true); if [ -z "$vm_tests" ]; then echo '
+        + shlex.quote(contract)
+        + " >&2; else dart test --coverage=coverage/vm --reporter=json $vm_tests; "
+        + "dart run coverage:format_coverage --lcov --check-ignore --in=coverage/vm"
+        + " --out=coverage/vm.lcov --base-directory=. "
+        + shlex.join(f"--report-on={source}" for source in sources)
+        + "; cat coverage/vm.lcov >> coverage/lcov.info; fi; "
+    )
+
+
+def outside_lib_coverage(package: Group) -> None:
+    """Flutter's LCOV keeps only package: URIs, so Dart outside lib/ runs on the Dart VM."""
+    sources = sorted(
+        source
+        for source in package.get("sources", [])
+        if Path(source).parts[0] != "lib"
+    )
+    if not sources:
+        return
+    vm_tests = run_vm_tests(sources)
+    rewrites = {
+        tuple(FLUTTER_TESTS): [
+            "sh",
+            "-c",
+            f"set -e; {shlex.join(FLUTTER_TESTS)}; {vm_tests}",
+        ],
+        tuple(BROWSER_TESTS): browser_tests(BROWSER_OPTIONS, vm_tests),
+    }
+    for gate in package["checks"]:
+        command = tuple(gate["command"])
+        if gate.get("role") == "tests" and command in rewrites:
+            gate["command"] = rewrites[command]
 
 
 def parallel_pytest(package: Group) -> None:
