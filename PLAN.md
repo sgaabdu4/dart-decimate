@@ -1,20 +1,20 @@
-# Count run commands in shell scripts as dependency usage
+# Fix shell-script dependency usage and conditional widget construction
 
 Status: Complete
 
 ## Outcome + scope
 
-A dependency invoked as `dart run <pkg>[:<exe>]`, `dart pub run <pkg>` or `flutter pub run <pkg>` from a `.sh`, `.bash` or `.zsh` script anywhere in its package counts as used, so a Flutter app's `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin` no longer reports that dev dependency as unused. Release as 0.0.63. Non-goals: loose name matching in scripts outside `tool/`, other script languages, and configured Dart-discovery `ignore_patterns`.
+A dependency invoked as `dart run <pkg>[:<exe>]`, `dart pub run <pkg>` or `flutter pub run <pkg>` from a `.sh`, `.bash` or `.zsh` script anywhere in its package counts as used, so a Flutter app's `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin` no longer reports that dev dependency as unused. A widget constructed in the else branch of a conditional arrow-callback body, `(context) => cond ? A() : B()`, nested conditionals included, counts as constructed for `unrendered-widget`. Release both as 0.0.63. Non-goals: loose name matching in scripts outside `tool/`, other script languages, and configured Dart-discovery `ignore_patterns`.
 
 ## Repository context
 
-Owners: `src/dependency_scripts.rs` owns tooling usage and previously read shell scripts only under `tool/`. `src/dependencies/analyze.rs` (unused-dependency findings) and `src/trace.rs` (`trace-dependency`) are its callers. `src/dependencies/discovery.rs` walks packages with `project_walk(root, root, &IgnoreMatcher::default())`, which applies `.gitignore`, skipped tool directories and nested checkouts; script discovery reuses that walk. Tests extend `tests/cli_dependencies.rs` and the existing unit module. Version owners: Cargo.toml, Cargo.lock, package.json, README.md, docs/ci.md.
+Owners: `src/dependency_scripts.rs` owns tooling usage and previously read shell scripts only under `tool/`. `src/dependencies/analyze.rs` (unused-dependency findings) and `src/trace.rs` (`trace-dependency`) are its callers. `src/dependencies/discovery.rs` walks packages with `project_walk(root, root, &IgnoreMatcher::default())`, which applies `.gitignore`, skipped tool directories and nested checkouts; script discovery reuses that walk. Tests extend `tests/cli_dependencies.rs` and the existing unit module. For widgets, tree-sitter-dart parses `(c) => cond ? A() : B()` as `((c) => cond ? A() : B)()`, leaving the tail branch a bare identifier; `function_expression_body_constructor_name` in `src/widgets/unrendered.rs` already recovers that split for plain closure bodies, and `tests/cli_unrendered_widget.rs` owns its CLI tests. Version owners: Cargo.toml, Cargo.lock, package.json, README.md, docs/ci.md.
 
 ## Decisions + authorization
 
 Blockers: None
 Handoff: Ready for ship
-Authority: The user authorized fixing this dependency-detection defect, one PR, a squash merge without admin override, and the repository's normal main release flow.
+Authority: The user authorized fixing this dependency-detection defect and the conditional widget-construction defect in the same PR, one PR, a squash merge without admin override, and the repository's normal main release flow.
 
 ## Acceptance + steps
 
@@ -22,12 +22,13 @@ Authority: The user authorized fixing this dependency-detection defect, one PR, 
 - [x] A script that only comments, echoes or runs `dart pub get` with the name keeps the dependency unused.
 - [x] Detection accepts the three command forms, `:exe`, leading options, command paths and line continuations, and ignores commented commands.
 - [x] Scripts belong to their nearest package; each package walks its tree once rather than once per dependency. Existing `tool/`, workflow, Makefile and config detection is unchanged.
+- [x] An arrow callback whose body is a conditional expression counts the constructor in its tail else branch, through nested conditionals; a genuinely unused widget is still reported and a bare type reference in an invoked closure is still not a construction.
 - [x] Version 0.0.63 is synchronized across the established owners and README documents the new usage source.
 
 ## Baseline + execution
 
 Result: Passed
-Evidence: Base main c0b8c94 passed Release run 36517168678 and Security run 36517168716. The reproduction fixture (dev dependency `sentry_dart_plugin`, `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin`) returned `used_in_scripts: false, is_used: false` from `trace-dependency` before the fix.
+Evidence: Base main c0b8c94 passed Release run 36517168678 and Security run 36517168716. The reproduction fixture (dev dependency `sentry_dart_plugin`, `scripts/upload_sentry_symbols.sh` running `dart run sentry_dart_plugin`) returned `used_in_scripts: false, is_used: false` from `trace-dependency` before the fix. A widget fixture with `Builder(builder: (context) => flag ? const ThenCard() : ElseCard(...))` and a nested variant reported `ElseCard` and `DeepCard` as unrendered while the switch form passed.
 Execution: One builder changes the existing owner and its two callers, then runs the native gate.
 
 ## Risks + recovery
@@ -41,7 +42,7 @@ N/A — command-line analysis change with no user interface.
 ## Verification
 
 Result: Passed
-Evidence: After the fix the reproduction fixture returns `used_in_scripts: true, is_used: true`. `cargo test --locked --test cli_dependencies` passes 17 tests; with the `src/` change stashed, the new positive test fails and the negative test passes. The unit test covering the three command forms passes. `check-version-sync` and `check-pr-version-bump` pass for 0.0.62 to 0.0.63; tag v0.0.63 and npm 0.0.63 did not exist. The full native `check --base origin/main` result is recorded in the PR.
-E2E: Passed — the built debug binary ran `trace-dependency` on the reproduction project, and the CLI entrypoint ran `check` and `trace-dependency` on real fixture projects in the integration tests.
+Evidence: After the fix the reproduction fixture returns `used_in_scripts: true, is_used: true`. `cargo test --locked --test cli_dependencies` passes 17 tests; with the `src/` change stashed, the new positive test fails and the negative test passes. The unit test covering the three command forms passes. The widget fixture now reports only the genuinely unused card; `cargo test --locked --test cli_unrendered_widget` passes 9 tests, and the new test fails with the `unrendered.rs` change stashed. `check-version-sync` and `check-pr-version-bump` pass for 0.0.62 to 0.0.63; tag v0.0.63 and npm 0.0.63 did not exist. The full native `check --base origin/main` result is recorded in the PR.
+E2E: Passed — the built debug binary ran `trace-dependency` on the reproduction project, ran `check` on the widget reproduction project, and the CLI entrypoint ran `check` and `trace-dependency` on real fixture projects in the integration tests.
 Delivery target: Merge
 Delivery: Pending — PR checks, squash merge, Release workflow publication of v0.0.63 to GitHub and npm.

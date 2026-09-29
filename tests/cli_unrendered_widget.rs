@@ -181,6 +181,70 @@ class UnusedConceptCard extends StatelessWidget {
 }
 
 #[test]
+fn check_counts_widgets_constructed_in_conditional_else_branches_of_arrow_callbacks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc.json",
+        r#"{ "rules": { "unused-export": "off", "dead-file": "off" } }"#,
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        r"import 'cards.dart';
+
+class Flow extends StatelessWidget {
+  const Flow({super.key, required this.ready, required this.empty});
+  final bool ready;
+  final bool empty;
+
+  Widget build(BuildContext context) => Column(
+    children: [
+      Builder(builder: (context) => ready ? const SizedBox() : ElseCard(title: 'a')),
+      Builder(builder: (context) => ready ? const SizedBox() : empty ? const SizedBox() : NestedElseCard()),
+    ],
+  );
+}
+
+void main() { const Flow(ready: true, empty: false); }
+",
+    )?;
+    write(
+        &fixture,
+        "lib/cards.dart",
+        r"class ElseCard extends StatelessWidget {
+  const ElseCard({super.key, required this.title});
+  final String title;
+  Widget build(BuildContext context) => Text(title);
+}
+
+class NestedElseCard extends StatelessWidget {
+  const NestedElseCard({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+
+class UnusedCard extends StatelessWidget {
+  const UnusedCard({super.key});
+  Widget build(BuildContext context) => const SizedBox();
+}
+",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_check(&fixture, &mut output)?;
+    let json = serde_json::from_slice::<Value>(&output)?;
+
+    assert_eq!(code, 0, "{}", String::from_utf8_lossy(&output));
+    assert_no_unrendered_widget_for(&json, "ElseCard");
+    assert_no_unrendered_widget_for(&json, "NestedElseCard");
+    assert_unrendered_widget_for(&json, "UnusedCard");
+
+    Ok(())
+}
+
+#[test]
 fn check_counts_context_typed_dot_new_widget_constructors() -> Result<(), Box<dyn std::error::Error>>
 {
     let fixture = tempfile::tempdir()?;
