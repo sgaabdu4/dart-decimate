@@ -24,8 +24,6 @@ struct ImportUsage {
     private_src_imports: Vec<PrivateSrcImport>,
 }
 
-/// Analyze Dart `package:` imports against pubspec dependency declarations.
-///
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if pubspec discovery or parsing fails.

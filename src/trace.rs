@@ -331,8 +331,6 @@ pub fn trace_symbol(
     }
 }
 
-/// Build a read-only trace for one pub dependency.
-///
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if local pubspec discovery or parsing fails.
