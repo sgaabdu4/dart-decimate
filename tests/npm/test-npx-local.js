@@ -26,8 +26,7 @@ if (pack.status !== 0) {
   process.stderr.write(pack.stderr || "");
   process.exit(pack.status || 1);
 }
-const [metadata] = JSON.parse(pack.stdout);
-const tarball = join(tempDir, metadata.filename);
+const tarball = join(tempDir, packedFilename(pack.stdout));
 readFileSync(tarball);
 
 const initialize =
@@ -64,8 +63,7 @@ if (result.stdout !== "") {
   throw new Error("npx emitted unexpected installation output on stdout");
 }
 const mcpOutput = readFileSync(join(tempDir, "mcp.json"), "utf8");
-const response = JSON.parse(mcpOutput.trim());
-if (response.result?.protocolVersion !== "2025-11-25") {
+if (!negotiatedProtocol(JSON.parse(mcpOutput.trim()))) {
   process.stderr.write("dart-decimate-mcp did not negotiate MCP 2025-11-25\n");
   process.exit(1);
 }
@@ -78,3 +76,36 @@ if (!cliOutput.includes("Usage: dart-decimate")) {
   process.exit(1);
 }
 process.stdout.write(cliOutput);
+
+/** @param {string} stdout */
+function packedFilename(stdout) {
+  const packed = JSON.parse(stdout);
+  const metadata = Array.isArray(packed) ? packed[0] : undefined;
+  if (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "filename" in metadata &&
+    typeof metadata.filename === "string"
+  ) {
+    return metadata.filename;
+  }
+  throw new Error("npm pack did not report a tarball filename");
+}
+
+/** @param {unknown} response */
+function negotiatedProtocol(response) {
+  if (
+    typeof response !== "object" ||
+    response === null ||
+    !("result" in response)
+  ) {
+    return false;
+  }
+  const { result } = response;
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "protocolVersion" in result &&
+    result.protocolVersion === "2025-11-25"
+  );
+}

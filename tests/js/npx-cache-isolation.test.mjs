@@ -77,6 +77,19 @@ writeFileSync("cli.txt", "Usage: dart-decimate\\n");
       .map((line) => JSON.parse(line));
     assert.equal(calls.length, 1);
     const [call] = calls;
+    assert.ok(
+      typeof call === "object" &&
+        call !== null &&
+        "args" in call &&
+        Array.isArray(call.args) &&
+        "input" in call &&
+        typeof call.input === "string" &&
+        "cache" in call &&
+        typeof call.cache === "string" &&
+        "cwd" in call &&
+        "skipDownload" in call,
+      "fake npx recorded an unexpected call",
+    );
     assert.deepEqual(call.args.slice(0, 2), ["--yes", "--package"]);
     assert.deepEqual(call.args.slice(3), [
       "--call",

@@ -14,6 +14,13 @@ function cargoLockVersion(contents, crate) {
   return entry && field(entry, "version");
 }
 
+/** @param {unknown} value @param {string} key @returns {unknown} */
+function property(value, key) {
+  return typeof value === "object" && value !== null
+    ? new Map(Object.entries(value)).get(key)
+    : undefined;
+}
+
 const cargo = fs.readFileSync("Cargo.toml", "utf8");
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const cargoMatch = cargo.match(/^version\s*=\s*"([^"]+)"/m);
@@ -24,7 +31,8 @@ if (!cargoMatch) {
 }
 
 const cargoVersion = cargoMatch[1];
-const npmVersion = pkg.version;
+const npmVersion = property(pkg, "version");
+const npmName = property(pkg, "name");
 
 if (cargoVersion !== npmVersion) {
   console.error(
@@ -38,11 +46,11 @@ const lockVersions = [];
 
 if (fs.existsSync("package-lock.json")) {
   const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
-  lockVersions.push(["package-lock.json", pkg.name, lock.version]);
+  lockVersions.push(["package-lock.json", npmName, property(lock, "version")]);
   lockVersions.push([
     'package-lock.json packages[""]',
-    pkg.name,
-    lock.packages?.[""]?.version,
+    npmName,
+    property(property(property(lock, "packages"), ""), "version"),
   ]);
 }
 

@@ -79,3 +79,13 @@ export function releasedFromHead(version) {
     return false;
   }
 }
+
+/** @param {unknown} error */
+export function commandOutput(error) {
+  if (typeof error !== "object" || error === null) {
+    return "\n";
+  }
+  const stdout = "stdout" in error ? error.stdout : undefined;
+  const stderr = "stderr" in error ? error.stderr : undefined;
+  return `${stdout ?? ""}\n${stderr ?? ""}`;
+}
