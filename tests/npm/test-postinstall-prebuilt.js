@@ -17,9 +17,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(root, "package.json"), "utf8"),
-  );
+  const packageVersion = readPackageVersion();
   const platform = process.platform === "win32" ? "windows" : process.platform;
   const arch = process.arch === "x64" ? "x64" : process.arch;
   const assetName = `dart-decimate-${platform}-${arch}.tar.gz`;
@@ -37,11 +35,7 @@ async function main() {
   );
   fs.writeFileSync(
     path.join(tempRoot, "package.json"),
-    JSON.stringify(
-      { name: "dart-decimate", version: packageJson.version },
-      null,
-      2,
-    ),
+    JSON.stringify({ name: "dart-decimate", version: packageVersion }, null, 2),
   );
 
   for (const binary of ["dart-decimate", "dart-decimate-mcp"]) {
@@ -66,7 +60,7 @@ async function main() {
   }
 
   const server = http.createServer((request, response) => {
-    if (request.url !== `/v${packageJson.version}/${assetName}`) {
+    if (request.url !== `/v${packageVersion}/${assetName}`) {
       response.writeHead(404);
       response.end("not found");
       return;
@@ -78,9 +72,11 @@ async function main() {
   await new Promise((resolve) =>
     server.listen(0, "127.0.0.1", () => resolve(undefined)),
   );
-  const { port } = /** @type {import("node:net").AddressInfo} */ (
-    server.address()
-  );
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("test server is not listening on a TCP port");
+  }
+  const { port } = address;
 
   try {
     const result = await runPostinstall(
@@ -90,7 +86,7 @@ async function main() {
         env: {
           ...process.env,
           CARGO: path.join(tempRoot, "missing-cargo"),
-          DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageJson.version}`,
+          DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageVersion}`,
         },
       },
     );
@@ -146,4 +142,19 @@ function runPostinstall(script, options) {
       resolve({ stdout, stderr, status });
     });
   });
+}
+
+function readPackageVersion() {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
+  if (
+    typeof packageJson === "object" &&
+    packageJson !== null &&
+    "version" in packageJson &&
+    typeof packageJson.version === "string"
+  ) {
+    return packageJson.version;
+  }
+  throw new Error("package.json has no version");
 }

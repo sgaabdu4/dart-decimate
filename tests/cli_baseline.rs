@@ -469,7 +469,7 @@ fn audit_rejects_global_regression_baseline_flags() -> Result<(), Box<dyn std::e
     .map(|error| error.to_string())
     .unwrap_or_default();
 
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
     assert!(
         error.contains("unexpected argument")
             || error.contains("unrecognized")
@@ -492,7 +492,7 @@ fn run_error(args: Vec<&str>) -> String {
         .err()
         .map(|error| error.to_string())
         .unwrap_or_default();
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
     error
 }
 

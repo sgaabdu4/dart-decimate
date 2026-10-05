@@ -61,7 +61,7 @@ fn skips_comments_and_generated_files() -> Result<(), Box<dyn std::error::Error>
 
     let report = detect_feature_flags(&project, &FeatureFlagOptions::default())?;
 
-    assert!(report.flags.is_empty());
+    assert_eq!(report.flags, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())

@@ -46,7 +46,7 @@ fn skips_generated_and_non_library_files() -> Result<(), Box<dyn std::error::Err
     let gaps =
         detect_boundary_coverage(&project, &[BoundaryRule::new("lib/domain", "lib/ui")], &[]);
 
-    assert!(gaps.is_empty());
+    assert_eq!(gaps, []);
 
     Ok(())
 }

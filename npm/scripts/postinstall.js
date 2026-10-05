@@ -16,12 +16,10 @@ const root = path.resolve(__dirname, "../..");
 const exeExt = process.platform === "win32" ? ".exe" : "";
 const cargo = process.env.CARGO || "cargo";
 const cacheDir = path.join(root, "npm", "bin-cache");
-const packageJson = JSON.parse(
-  fs.readFileSync(path.join(root, "package.json"), "utf8"),
-);
+const packageVersion = readPackageVersion();
 const releaseBaseUrl =
   process.env.DART_DECIMATE_RELEASE_BASE_URL ||
-  `https://github.com/sgaabdu4/dart-decimate/releases/download/v${packageJson.version}`;
+  `https://github.com/sgaabdu4/dart-decimate/releases/download/v${packageVersion}`;
 
 install()
   .then(() => process.exit(0))
@@ -29,6 +27,21 @@ install()
     console.error(`dart-decimate: install failed: ${error.message}`);
     process.exit(1);
   });
+
+function readPackageVersion() {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
+  const version =
+    packageJson instanceof Object && "version" in packageJson
+      ? packageJson.version
+      : undefined;
+  if (typeof version === "string") {
+    return version;
+  }
+  console.error("dart-decimate: install failed: package.json has no version");
+  process.exit(1);
+}
 
 async function install() {
   fs.mkdirSync(cacheDir, { recursive: true });

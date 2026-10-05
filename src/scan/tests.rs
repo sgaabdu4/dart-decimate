@@ -70,7 +70,7 @@ fn scans_local_path_dependencies_for_graph_resolution() -> Result<(), Box<dyn st
 
     assert_eq!(project.files.len(), 2);
     assert_eq!(project.graph.edge_count(), 1);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
 
     Ok(())
 }
@@ -102,7 +102,7 @@ fn scans_local_package_config_roots_for_graph_resolution() -> Result<(), Box<dyn
 
     assert_eq!(project.files.len(), 2);
     assert_eq!(project.graph.edge_count(), 1);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
 
     Ok(())
 }
@@ -152,7 +152,7 @@ fn scans_workspace_package_config_from_member_root() -> Result<(), Box<dyn std::
 
     assert_eq!(project.files.len(), 2);
     assert_eq!(project.graph.edge_count(), 1);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
 
     Ok(())
 }
@@ -187,7 +187,7 @@ fn does_not_scan_pub_cache_package_config_roots() -> Result<(), Box<dyn std::err
 
     assert_eq!(project.files.len(), 1);
     assert_eq!(project.graph.edge_count(), 0);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
 
     Ok(())
 }
@@ -216,7 +216,7 @@ fn scans_pub_workspace_member_files() -> Result<(), Box<dyn std::error::Error>> 
 
     assert_eq!(project.files.len(), 2);
     assert_eq!(project.graph.edge_count(), 1);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
 
     Ok(())
 }
@@ -350,7 +350,7 @@ fn existing_ignored_dependency_targets_are_not_unresolved() -> Result<(), Box<dy
     assert_eq!(project.files.len(), 1);
     assert_eq!(project.graph.node_count(), 1);
     assert_eq!(project.graph.edge_count(), 0);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
     Ok(())
 }
 
@@ -369,7 +369,7 @@ fn scans_all_conditional_import_targets() -> Result<(), Box<dyn std::error::Erro
     let project = scan_project(fixture.path())?;
 
     assert_eq!(project.graph.edge_count(), 2);
-    assert!(project.graph.unresolved().is_empty());
+    assert_eq!(project.graph.unresolved(), []);
 
     Ok(())
 }

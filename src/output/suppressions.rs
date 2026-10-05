@@ -34,8 +34,7 @@ struct SuppressionState {
     reported: Vec<ReportedFinding>,
 }
 
-/// The identity a directive needs to decide whether it merely sits on the
-/// wrong line rather than covering nothing at all.
+/// Tells a misplaced directive from one that covers nothing.
 #[derive(Debug)]
 struct ReportedFinding {
     path: String,
@@ -126,9 +125,7 @@ impl SuppressionState {
             .collect()
     }
 
-    /// Where the directive's own rules still fire in the same file. A clone
-    /// group anchors on the common token run, so a directive can miss the line
-    /// it was written for while the finding it names is very much alive.
+    /// Nearest line where the directive's rules still fire; clone groups anchor on the token run.
     fn nearest_match(
         &self,
         key: &SuppressionKey,
@@ -145,8 +142,7 @@ impl SuppressionState {
                         .any(|rule| rule_matches_kind(rule, &finding.rule_id, finding.kind))
             })
             .map(|finding| finding.line)
-            // Ties break toward the lower line, so the message does not depend
-            // on the order findings happen to arrive in.
+            // Ties break toward the lower line so the message is order-independent.
             .min_by_key(|line| (line.abs_diff(key.line), *line))
     }
 
@@ -286,22 +282,18 @@ struct ParsedSuppression {
 
 fn parse_suppression(line: &str) -> Option<ParsedSuppression> {
     let comment = line.trim_start().strip_prefix("//")?.trim_start();
-    for directive in ["dart-decimate-ignore-next-line"] {
-        if let Some(rest) = comment.strip_prefix(directive)
-            && rest.chars().next().is_none_or(char::is_whitespace)
-        {
-            let (rules, reason) = split_reason(rest.trim_start());
-            return Some(ParsedSuppression {
-                rules: rules
-                    .split(|character: char| character == ',' || character.is_whitespace())
-                    .filter(|rule| !rule.is_empty())
-                    .map(str::to_owned)
-                    .collect(),
-                has_reason: reason.is_some_and(|value| !value.trim().is_empty()),
-            });
-        }
-    }
-    None
+    let rest = comment
+        .strip_prefix("dart-decimate-ignore-next-line")
+        .filter(|rest| rest.chars().next().is_none_or(char::is_whitespace))?;
+    let (rules, reason) = split_reason(rest.trim_start());
+    Some(ParsedSuppression {
+        rules: rules
+            .split(|character: char| character == ',' || character.is_whitespace())
+            .filter(|rule| !rule.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        has_reason: reason.is_some_and(|value| !value.trim().is_empty()),
+    })
 }
 
 fn split_reason(rest: &str) -> (&str, Option<&str>) {

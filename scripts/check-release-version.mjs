@@ -2,11 +2,15 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { releasedFromHead } from "./released-head.mjs";
+import { commandOutput, property, releasedFromHead } from "./released-head.mjs";
 
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-const name = pkg.name;
-const version = pkg.version;
+const name = property(pkg, "name");
+const version = property(pkg, "version");
+if (typeof name !== "string" || typeof version !== "string") {
+  console.error("package.json is missing its name or version");
+  process.exit(1);
+}
 
 if (process.env.DART_DECIMATE_ALLOW_EXISTING_VERSION === "1") {
   console.log(
@@ -31,9 +35,7 @@ try {
   );
   process.exit(1);
 } catch (error) {
-  const { stdout = "", stderr = "" } =
-    /** @type {{ stdout?: string, stderr?: string }} */ (error ?? {});
-  const output = `${stdout}\n${stderr}`;
+  const output = commandOutput(error);
   if (
     output.includes("ERR_PNPM_PACKAGE_NOT_FOUND") ||
     output.includes("ERR_PNPM_FETCH_404") ||

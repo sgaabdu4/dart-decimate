@@ -76,7 +76,7 @@ fn filters_short_blocks_and_generated_files() -> Result<(), Box<dyn std::error::
 
     let report = detect_duplicates(&project, &options(DuplicateMode::Semantic, 1, 24))?;
 
-    assert!(report.clone_groups.is_empty());
+    assert_eq!(report.clone_groups, []);
 
     Ok(())
 }
@@ -136,7 +136,7 @@ fn copied_package_filter_ignores_unrelated_malformed_pubspec()
 
     let report = detect_duplicates(&project, &DuplicateOptions::default())?;
 
-    assert!(report.clone_groups.is_empty());
+    assert_eq!(report.clone_groups, []);
 
     Ok(())
 }
@@ -374,7 +374,7 @@ fn assert_fingerprint_collision_is_not_a_clone(
 
     let project = scan_project(fixture.path())?;
     let report = detect_duplicates(&project, &options)?;
-    assert!(report.clone_groups.is_empty());
+    assert_eq!(report.clone_groups, []);
 
     write(&fixture, "lib/exact_copy.dart", first_source)?;
     let project = scan_project(fixture.path())?;

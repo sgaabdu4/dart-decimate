@@ -22,9 +22,7 @@ main().catch((error) => {
 });
 
 async function main() {
-  const packageJson = JSON.parse(
-    fs.readFileSync(path.join(root, "package.json"), "utf8"),
-  );
+  const packageVersion = readPackageVersion();
   const platform = process.platform === "win32" ? "windows" : process.platform;
   const arch = process.arch === "x64" ? "x64" : process.arch;
   const assetName = `dart-decimate-${platform}-${arch}.tar.gz`;
@@ -70,11 +68,10 @@ async function main() {
       pack.stderr || pack.error?.message || "failed to pack npm package",
     );
   }
-  const [metadata] = JSON.parse(pack.stdout);
-  const tarball = path.join(tempRoot, metadata.filename);
+  const tarball = path.join(tempRoot, packedFilename(pack.stdout));
 
   const server = http.createServer((request, response) => {
-    if (request.url !== `/v${packageJson.version}/${assetName}`) {
+    if (request.url !== `/v${packageVersion}/${assetName}`) {
       response.writeHead(404);
       response.end("not found");
       return;
@@ -86,15 +83,17 @@ async function main() {
   await new Promise((resolve) =>
     server.listen(0, "127.0.0.1", () => resolve(undefined)),
   );
-  const { port } = /** @type {import("node:net").AddressInfo} */ (
-    server.address()
-  );
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("test server is not listening on a TCP port");
+  }
+  const { port } = address;
 
   try {
     const result = await runNpx(tarball, projectDir, {
       ...process.env,
       CARGO: path.join(tempRoot, "missing-cargo"),
-      DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageJson.version}`,
+      DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageVersion}`,
       npm_config_cache: path.join(tempRoot, "npm-cache"),
     });
 
@@ -150,4 +149,34 @@ function runNpx(tarball, cwd, env) {
       resolve({ stdout, stderr, status });
     });
   });
+}
+
+function readPackageVersion() {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
+  if (
+    typeof packageJson === "object" &&
+    packageJson !== null &&
+    "version" in packageJson &&
+    typeof packageJson.version === "string"
+  ) {
+    return packageJson.version;
+  }
+  throw new Error("package.json has no version");
+}
+
+/** @param {string} stdout */
+function packedFilename(stdout) {
+  const packed = JSON.parse(stdout);
+  const metadata = Array.isArray(packed) ? packed[0] : undefined;
+  if (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    "filename" in metadata &&
+    typeof metadata.filename === "string"
+  ) {
+    return metadata.filename;
+  }
+  throw new Error("npm pack did not report a tarball filename");
 }

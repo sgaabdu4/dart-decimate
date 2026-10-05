@@ -34,11 +34,12 @@ export async function withServer(handler, use) {
   await new Promise((resolve) =>
     server.listen(0, "127.0.0.1", () => resolve(undefined)),
   );
-  const { port } = /** @type {import("node:net").AddressInfo} */ (
-    server.address()
-  );
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("test server is not listening on a TCP port");
+  }
   try {
-    return await use(`http://127.0.0.1:${port}`);
+    return await use(`http://127.0.0.1:${address.port}`);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(() => resolve(undefined)));

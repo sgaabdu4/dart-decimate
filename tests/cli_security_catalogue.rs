@@ -352,7 +352,7 @@ final secretNonce = UnknownRandom().nextInt(1000000);
         .ok_or("security_blind_spots array")?;
 
     assert_eq!(code, 0);
-    assert!(candidates(&json).is_empty());
+    assert_eq!(candidates(&json), Vec::<Value>::new());
     assert_eq!(json["verdict"], "pass");
     assert_eq!(json["summary"]["security_candidates"], 0);
     assert_eq!(json["summary"]["security_blind_spots"], 2);
@@ -532,7 +532,7 @@ fn weak_randomness_rule_alias_can_disable_the_candidate() -> Result<(), Box<dyn 
     let (code, json) = security_json(&fixture, &[])?;
     assert_eq!(code, 0);
     assert_eq!(json["summary"]["security_candidates"], 0);
-    assert!(candidates(&json).is_empty());
+    assert_eq!(candidates(&json), Vec::<Value>::new());
 
     Ok(())
 }
@@ -601,7 +601,7 @@ final sessionKey = math.Random().nextInt(1000000);
 
     let (code, json) = security_json(&fixture, &[])?;
     assert_eq!(code, 0);
-    assert!(candidates(&json).is_empty());
+    assert_eq!(candidates(&json), Vec::<Value>::new());
     assert_eq!(json["summary"]["security_blind_spots"], 2);
     assert!(
         json["security_blind_spots"]

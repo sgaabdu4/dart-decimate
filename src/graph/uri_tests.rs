@@ -25,7 +25,7 @@ fn directive_uri_paths_are_percent_decoded_for_graph_resolution()
 
     let graph = build_module_graph(fixture.root(), &[main, local, shared])?;
 
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
     assert_eq!(
         graph
             .dependencies()

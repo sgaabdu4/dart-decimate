@@ -2,7 +2,12 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { gitEnv, releasedFromHead } from "./released-head.mjs";
+import {
+  commandOutput,
+  gitEnv,
+  property,
+  releasedFromHead,
+} from "./released-head.mjs";
 
 /** @param {string} message @returns {never} */
 function exitWithError(message) {
@@ -25,9 +30,7 @@ function readBaseFile(baseRef, path) {
 
 /** @param {unknown} error @param {string} baseRef @param {string} path @returns {never} */
 function reportBaseFileError(error, baseRef, path) {
-  const { stdout = "", stderr = "" } =
-    /** @type {{ stdout?: string, stderr?: string }} */ (error ?? {});
-  const output = `${stdout}\n${stderr}`.trim();
+  const output = commandOutput(error).trim();
   if (output) {
     console.error(output);
   }
@@ -52,10 +55,11 @@ function readPackageVersion(contents, label) {
     exitWithError(`${label} is invalid JSON`);
   }
 
-  if (typeof pkg.version !== "string" || pkg.version.length === 0) {
+  const version = property(pkg, "version");
+  if (typeof version !== "string" || version.length === 0) {
     exitWithError(`${label} is missing package version`);
   }
-  return pkg.version;
+  return version;
 }
 
 /** @param {string} version @param {string} label */

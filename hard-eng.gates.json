@@ -5,10 +5,7 @@
       "name": ".",
       "path": ".",
       "language": "javascript",
-      "sources": [
-        "npm",
-        "scripts"
-      ],
+      "sources": ["npm", "scripts"],
       "checks": [
         {
           "name": "security",
@@ -69,12 +66,7 @@
           "name": "format-lint",
           "role": "format-lint",
           "parallel": true,
-          "command": [
-            "biome",
-            "ci",
-            ".",
-            "--error-on-warnings"
-          ]
+          "command": ["biome", "ci", ".", "--error-on-warnings"]
         },
         {
           "name": "focused-tests",
@@ -99,6 +91,7 @@
             "--only=suspicious/noExplicitAny",
             "--only=suspicious/noImplicitAnyLet",
             "--only=performance/noAccumulatingSpread",
+            "--only=nursery/noUnsafeTypeAssertion",
             "--error-on-warnings",
             "."
           ]
@@ -129,11 +122,7 @@
         {
           "name": "tests",
           "role": "tests",
-          "command": [
-            "pnpm",
-            "run",
-            "test:coverage"
-          ],
+          "command": ["pnpm", "run", "test:coverage"],
           "report": {
             "type": "lcov-tests",
             "tests": "coverage/junit.xml",
@@ -163,11 +152,7 @@
         {
           "name": "performance",
           "role": "performance",
-          "command": [
-            "pnpm",
-            "run",
-            "test:performance"
-          ],
+          "command": ["pnpm", "run", "test:performance"],
           "report": {
             "type": "performance-junit",
             "path": "coverage/performance.xml"
@@ -176,18 +161,11 @@
         {
           "name": "project-typecheck",
           "role": "project-typecheck",
-          "command": [
-            "pnpm",
-            "run",
-            "typecheck"
-          ]
+          "command": ["pnpm", "run", "typecheck"]
         }
       ],
       "depends_on": [],
-      "impact_inputs": [
-        "README.md",
-        "docs/ci.md"
-      ]
+      "impact_inputs": ["README.md", "docs/ci.md"]
     }
   ],
   "shared": [
@@ -236,10 +214,7 @@
       "name": "actionlint",
       "role": "workflows",
       "parallel": true,
-      "command": [
-        "actionlint",
-        "-no-color"
-      ]
+      "command": ["actionlint", "-no-color"]
     },
     {
       "name": "zizmor",
@@ -257,52 +232,32 @@
       "name": "shellcheck",
       "role": "shell",
       "parallel": true,
-      "command": [
-        "shellcheck",
-        "--",
-        ".githooks/pre-commit"
-      ]
+      "command": ["shellcheck", "--", ".githooks/pre-commit"]
     },
     {
       "name": "diff-whitespace",
       "parallel": true,
-      "command": [
-        "git",
-        "diff",
-        "--check"
-      ]
+      "command": ["git", "diff", "--check"]
     },
     {
       "name": "version-sync",
       "parallel": true,
-      "command": [
-        "node",
-        "scripts/check-version-sync.mjs"
-      ]
+      "command": ["node", "scripts/check-version-sync.mjs"]
     },
     {
       "name": "migration-guard",
       "parallel": true,
-      "command": [
-        "node",
-        "scripts/check-dart-decimate-migration.mjs"
-      ]
+      "command": ["node", "scripts/check-dart-decimate-migration.mjs"]
     },
     {
       "name": "version-bump",
       "parallel": true,
-      "command": [
-        "node",
-        "scripts/check-pr-version-bump.mjs"
-      ]
+      "command": ["node", "scripts/check-pr-version-bump.mjs"]
     },
     {
       "name": "release-version",
       "parallel": true,
-      "command": [
-        "node",
-        "scripts/check-release-version.mjs"
-      ]
+      "command": ["node", "scripts/check-release-version.mjs"]
     },
     {
       "name": "fallow-audit",
@@ -320,69 +275,37 @@
     {
       "name": "pack",
       "parallel": true,
-      "command": [
-        "pnpm",
-        "pack",
-        "--dry-run"
-      ]
+      "command": ["pnpm", "pack", "--dry-run"]
     },
     {
       "name": "rust-format",
       "parallel": true,
-      "command": [
-        "cargo",
-        "fmt",
-        "--check"
-      ]
+      "command": ["cargo", "fmt", "--check"]
     },
     {
       "name": "rust-clippy",
-      "command": [
-        "cargo",
-        "clippy",
-        "--all-targets",
-        "--",
-        "-D",
-        "warnings"
-      ]
+      "command": ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"]
     },
     {
       "name": "rust-tests",
-      "command": [
-        "cargo",
-        "test",
-        "--all-targets"
-      ]
+      "command": ["cargo", "test", "--all-targets"]
     },
     {
       "name": "postinstall-prebuilt",
-      "command": [
-        "node",
-        "tests/npm/test-postinstall-prebuilt.js"
-      ]
+      "command": ["node", "tests/npm/test-postinstall-prebuilt.js"]
     },
     {
       "name": "npx-prebuilt",
-      "command": [
-        "node",
-        "tests/npm/test-npx-prebuilt.js"
-      ]
+      "command": ["node", "tests/npm/test-npx-prebuilt.js"]
     },
     {
       "name": "npx-local",
-      "command": [
-        "node",
-        "tests/npm/test-npx-local.js"
-      ]
+      "command": ["node", "tests/npm/test-npx-local.js"]
     }
   ],
   "shipping": {
     "base": "main",
-    "checks": [
-      "Rust and npm checks",
-      "Dependency audit",
-      "OpenSSF Scorecard"
-    ],
+    "checks": ["Rust and npm checks", "Dependency audit", "OpenSSF Scorecard"],
     "ui_paths": [],
     "ci_seconds": 900,
     "pre_push_seconds": 600,

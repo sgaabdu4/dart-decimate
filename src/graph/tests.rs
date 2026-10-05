@@ -27,7 +27,7 @@ fn builds_edges_for_relative_imports_and_exports() -> Result<(), Box<dyn std::er
 
     assert_eq!(graph.node_count(), 4);
     assert_eq!(graph.edge_count(), 3);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
     assert_eq!(
         graph
             .dependencies()
@@ -124,7 +124,7 @@ fn platform_environment_selects_one_configurable_import_branch()
         strip_root(fixture.root(), &dependencies[0].to_path),
         "lib/web.dart"
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -161,7 +161,7 @@ fn platform_environment_falls_back_to_default_configurable_import()
         strip_root(fixture.root(), &dependencies[0].to_path),
         "lib/io.dart"
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -198,7 +198,7 @@ fn platform_environment_selects_package_uri_branches_before_resolution()
         strip_root(fixture.root(), &dependencies[0].to_path),
         "packages/shared/lib/web.dart"
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -229,7 +229,7 @@ fn default_graph_keeps_all_configurable_import_branches() -> Result<(), Box<dyn 
             .collect::<Vec<_>>(),
         vec!["io.dart".to_owned(), "web.dart".to_owned()]
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -276,7 +276,7 @@ fn resolves_package_imports_using_package_config_root_uri_and_package_uri()
             "packages/generated/src/api.dart".to_owned(),
         ]
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -372,7 +372,7 @@ fn package_config_hosted_entries_remain_external() -> Result<(), Box<dyn std::er
     let graph = build_module_graph(fixture.root(), &[main])?;
 
     assert_eq!(graph.edge_count(), 0);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -406,7 +406,7 @@ fn package_config_prevents_nested_same_name_fallback() -> Result<(), Box<dyn std
     let graph = build_module_graph(fixture.root(), &[main, nested])?;
 
     assert_eq!(graph.edge_count(), 0);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -437,7 +437,7 @@ fn package_config_owned_import_missing_from_config_ignores_nested_pubspec()
     let graph = build_module_graph(fixture.root(), &[main, nested])?;
 
     assert_eq!(graph.edge_count(), 0);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -606,7 +606,7 @@ fn builds_edges_for_part_directives() -> Result<(), Box<dyn std::error::Error>> 
     let graph = build_module_graph(fixture.root(), &[library, generated])?;
 
     assert_eq!(graph.edge_count(), 1);
-    assert!(graph.invalid_part_relationships().is_empty());
+    assert_eq!(graph.invalid_part_relationships(), []);
     assert_eq!(graph.dependencies()[0].kind, DependencyKind::Part);
     assert_eq!(
         strip_root(fixture.root(), &graph.dependencies()[0].to_path),
@@ -763,7 +763,7 @@ fn resolves_package_imports_to_nested_local_pubspecs() -> Result<(), Box<dyn std
 
     assert_eq!(graph.package_names(), vec!["app", "repo"]);
     assert_eq!(graph.edge_count(), 1);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }

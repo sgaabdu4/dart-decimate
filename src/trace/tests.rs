@@ -32,7 +32,7 @@ fn traces_file_dependencies_importers_exports_and_declarations()
     assert_eq!(report.declarations[0].name, "Barrel");
     assert_eq!(report.imported_by[0].from, "lib/main.dart");
     assert_eq!(report.re_exports[0].to, "lib/src/api.dart");
-    assert!(report.imports_from.is_empty());
+    assert_eq!(report.imports_from, []);
 
     Ok(())
 }
@@ -102,7 +102,7 @@ fn traces_unused_symbol_without_marking_it_deleted() -> Result<(), Box<dyn std::
 
     assert!(report.found);
     assert!(report.reachable_file);
-    assert!(report.direct_references.is_empty());
+    assert_eq!(report.direct_references, []);
     assert_eq!(report.reason, "symbol has no reachable direct references");
 
     Ok(())
@@ -134,7 +134,7 @@ fn trace_symbol_re_export_chains_respect_show_hide() -> Result<(), Box<dyn std::
     let hidden = trace_symbol(&project, &dead_code, "lib/src/api.dart", "HiddenApi");
 
     assert_eq!(public.re_export_chains.len(), 1);
-    assert!(hidden.re_export_chains.is_empty());
+    assert_eq!(hidden.re_export_chains, Vec::<Vec<String>>::new());
 
     Ok(())
 }
@@ -164,7 +164,7 @@ void main() {}\n",
     assert!(report.is_used);
     assert!(!report.used_in_scripts);
     assert_eq!(report.total_import_count, 2);
-    assert!(report.type_only_importers.is_empty());
+    assert_eq!(report.type_only_importers, []);
     assert_eq!(report.declared_in[0].pubspec_path, "pubspec.yaml");
     assert_eq!(
         report.declared_in[0].section,
@@ -193,8 +193,8 @@ fn traces_missing_pub_dependency_without_failing() -> Result<(), Box<dyn std::er
     assert!(!report.declared);
     assert!(!report.is_used);
     assert_eq!(report.total_import_count, 0);
-    assert!(report.declared_in.is_empty());
-    assert!(report.importing_files.is_empty());
+    assert_eq!(report.declared_in, []);
+    assert_eq!(report.importing_files, []);
 
     Ok(())
 }

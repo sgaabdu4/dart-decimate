@@ -59,7 +59,7 @@ fn resolves_package_imports_using_ancestor_package_config_from_member_root()
         strip_root(fixture.path(), &graph.dependencies()[0].to_path),
         PathBuf::from("packages/shared/lib/shared.dart")
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -92,7 +92,7 @@ fn nested_pubspec_missing_path_dependency_does_not_use_ancestor_package_config()
     let graph = build_module_graph(fixture.path(), &[worker, shared])?;
 
     assert_eq!(graph.edge_count(), 0);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -124,7 +124,7 @@ fn nested_pubspec_missing_path_dependency_ignores_unowned_nested_pubspec()
     let graph = build_module_graph(fixture.path(), &[worker, shared])?;
 
     assert_eq!(graph.edge_count(), 0);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }

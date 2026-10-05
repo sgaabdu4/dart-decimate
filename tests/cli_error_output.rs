@@ -22,7 +22,7 @@ fn binary_emits_json_error_for_missing_entry_points() -> Result<(), Box<dyn std:
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(json["exit_code"], 2);
@@ -43,7 +43,7 @@ fn binary_emits_json_error_for_missing_runtime_coverage() -> Result<(), Box<dyn 
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(
@@ -76,7 +76,7 @@ fn binary_emits_json_error_for_malformed_config() -> Result<(), Box<dyn std::err
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(json["exit_code"], 2);
@@ -94,7 +94,7 @@ fn binary_emits_json_error_for_clap_errors() -> Result<(), Box<dyn std::error::E
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(json["exit_code"], 2);
@@ -115,7 +115,7 @@ fn binary_emits_json_error_for_json_shortcut_clap_errors() -> Result<(), Box<dyn
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(json["exit_code"], 2);
@@ -135,7 +135,7 @@ fn json_shortcut_help_with_format_stays_human() -> Result<(), Box<dyn std::error
         .output()?;
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     assert!(serde_json::from_slice::<Value>(&output.stdout).is_err());
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("Shortcut for check with JSON output"));
@@ -151,7 +151,7 @@ fn json_shortcut_missing_format_value_is_json_error() -> Result<(), Box<dyn std:
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(json["exit_code"], 2);
@@ -179,7 +179,7 @@ fn json_shortcut_invalid_format_value_is_json_error() -> Result<(), Box<dyn std:
             .output()?;
 
         assert_eq!(output.status.code(), Some(2));
-        assert!(output.stderr.is_empty());
+        assert_eq!(output.stderr, b"");
         let json = serde_json::from_slice::<Value>(&output.stdout)?;
         assert_eq!(json["error"], true);
         assert_eq!(json["exit_code"], 2);
@@ -199,7 +199,7 @@ fn json_shortcut_missing_format_with_check_flags_is_json_error()
         .output()?;
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     let json = serde_json::from_slice::<Value>(&output.stdout)?;
     assert_eq!(json["error"], true);
     assert_eq!(json["exit_code"], 2);
@@ -221,7 +221,7 @@ fn output_shortcut_invalid_format_with_check_flags_reports_format_error()
             .output()?;
 
         assert_eq!(output.status.code(), Some(2));
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, b"");
         let stderr = String::from_utf8(output.stderr)?;
         assert!(stderr.contains("invalid value"));
         assert!(stderr.contains("xml"));

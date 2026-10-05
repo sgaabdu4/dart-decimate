@@ -147,8 +147,8 @@ fn flags_command_passes_when_no_flags() -> Result<(), Box<dyn std::error::Error>
     assert_eq!(json["verdict"], "pass");
     assert_eq!(json["summary"]["feature_flags"], 0);
     assert_eq!(json["summary"]["feature_flag_occurrences"], 0);
-    assert!(flags.is_empty());
-    assert!(findings.is_empty());
+    assert_eq!(flags, &Vec::<Value>::new());
+    assert_eq!(findings, &Vec::<Value>::new());
 
     Ok(())
 }
@@ -190,7 +190,7 @@ const beta = bool.fromEnvironment('FEATURE_BETA');
     assert_eq!(json["summary"]["feature_flag_occurrences"], 1);
     assert_eq!(json["summary"]["findings"], 0);
     assert_eq!(flags.len(), 1);
-    assert!(findings.is_empty());
+    assert_eq!(findings, &Vec::<Value>::new());
 
     Ok(())
 }

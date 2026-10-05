@@ -39,7 +39,8 @@ function runCheck() {
     { encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);
-  const report = JSON.parse(result.stdout);
-  assert.equal(report.verdict, "pass");
-  assert.equal(report.summary.files, 7);
+  assert.partialDeepStrictEqual(JSON.parse(result.stdout), {
+    verdict: "pass",
+    summary: { files: 7 },
+  });
 }

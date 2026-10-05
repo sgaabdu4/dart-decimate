@@ -130,7 +130,7 @@ fn health_command_passes_when_thresholds_are_not_exceeded() -> Result<(), Box<dy
     let Some(complexity) = json["complexity"].as_array() else {
         panic!("complexity array");
     };
-    assert!(complexity.is_empty());
+    assert_eq!(complexity, &Vec::<Value>::new());
 
     Ok(())
 }

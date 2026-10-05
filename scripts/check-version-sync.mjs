@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { property } from "./released-head.mjs";
 
 /** @param {string} block @param {string} key */
 function field(block, key) {
@@ -24,7 +25,8 @@ if (!cargoMatch) {
 }
 
 const cargoVersion = cargoMatch[1];
-const npmVersion = pkg.version;
+const npmVersion = property(pkg, "version");
+const npmName = property(pkg, "name");
 
 if (cargoVersion !== npmVersion) {
   console.error(
@@ -38,11 +40,11 @@ const lockVersions = [];
 
 if (fs.existsSync("package-lock.json")) {
   const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
-  lockVersions.push(["package-lock.json", pkg.name, lock.version]);
+  lockVersions.push(["package-lock.json", npmName, property(lock, "version")]);
   lockVersions.push([
     'package-lock.json packages[""]',
-    pkg.name,
-    lock.packages?.[""]?.version,
+    npmName,
+    property(property(property(lock, "packages"), ""), "version"),
   ]);
 }
 

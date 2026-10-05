@@ -99,7 +99,7 @@ Future<void> query(dynamic db, String id) => db.rawQuery('SELECT * FROM users WH
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -137,7 +137,7 @@ class Copy {
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -162,7 +162,7 @@ void main() {
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -369,7 +369,7 @@ const emptyOptions = FirebaseOptions(apiKey: '', appId: '1:123:web:def');
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -508,7 +508,7 @@ fn skips_javascript_password_autofill_when_assignment_is_not_literal()
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -531,7 +531,7 @@ fn skips_javascript_password_autofill_when_password_hint_is_unrelated()
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -554,7 +554,7 @@ fn skips_javascript_password_autofill_when_value_target_is_unrelated()
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -578,7 +578,7 @@ fn skips_javascript_password_autofill_when_password_hint_is_negative()
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -601,7 +601,7 @@ fn skips_javascript_password_autofill_when_target_selector_is_negative()
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())
@@ -625,7 +625,7 @@ fn skips_javascript_password_autofill_when_only_parent_target_is_password_named(
     let project = scan_project(fixture.path())?;
     let report = analyze_security(&project, &SecurityOptions::default(), None)?;
 
-    assert!(report.candidates.is_empty());
+    assert_eq!(report.candidates, []);
     assert_eq!(report.total_occurrences, 0);
 
     Ok(())

@@ -79,3 +79,15 @@ export function releasedFromHead(version) {
     return false;
   }
 }
+
+/** @param {unknown} value @param {string} key @returns {unknown} */
+export function property(value, key) {
+  return typeof value === "object" && value !== null
+    ? new Map(Object.entries(value)).get(key)
+    : undefined;
+}
+
+/** @param {unknown} error */
+export function commandOutput(error) {
+  return `${property(error, "stdout") ?? ""}\n${property(error, "stderr") ?? ""}`;
+}

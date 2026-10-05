@@ -219,7 +219,7 @@ fn malformed_config_reports_error_before_scan() -> Result<(), Box<dyn std::error
     let message = error.to_string();
     assert!(message.contains(".dart-decimaterc"));
     assert!(message.contains("max_cyclomatic"));
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }
@@ -248,7 +248,7 @@ fn unknown_config_keys_are_rejected() -> Result<(), Box<dyn std::error::Error>> 
     assert!(message.contains(".dart-decimaterc"));
     assert!(message.contains("min_toknes"));
     assert!(message.contains("unknown"));
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }
@@ -429,7 +429,7 @@ fn unknown_config_rules_are_rejected() -> Result<(), Box<dyn std::error::Error>>
     let message = error.to_string();
     assert!(message.contains("unused-fiels"));
     assert!(message.contains("unknown config rule"));
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }
