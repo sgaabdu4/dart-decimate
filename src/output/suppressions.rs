@@ -34,8 +34,7 @@ struct SuppressionState {
     reported: Vec<ReportedFinding>,
 }
 
-/// The identity a directive needs to decide whether it merely sits on the
-/// wrong line rather than covering nothing at all.
+/// Tells a misplaced directive from one that covers nothing.
 #[derive(Debug)]
 struct ReportedFinding {
     path: String,
@@ -126,9 +125,7 @@ impl SuppressionState {
             .collect()
     }
 
-    /// Where the directive's own rules still fire in the same file. A clone
-    /// group anchors on the common token run, so a directive can miss the line
-    /// it was written for while the finding it names is very much alive.
+    /// Nearest line where the directive's rules still fire; clone groups anchor on the token run.
     fn nearest_match(
         &self,
         key: &SuppressionKey,
@@ -145,8 +142,7 @@ impl SuppressionState {
                         .any(|rule| rule_matches_kind(rule, &finding.rule_id, finding.kind))
             })
             .map(|finding| finding.line)
-            // Ties break toward the lower line, so the message does not depend
-            // on the order findings happen to arrive in.
+            // Ties break toward the lower line so the message is order-independent.
             .min_by_key(|line| (line.abs_diff(key.line), *line))
     }
 
