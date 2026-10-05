@@ -286,22 +286,18 @@ struct ParsedSuppression {
 
 fn parse_suppression(line: &str) -> Option<ParsedSuppression> {
     let comment = line.trim_start().strip_prefix("//")?.trim_start();
-    for directive in ["dart-decimate-ignore-next-line"] {
-        if let Some(rest) = comment.strip_prefix(directive)
-            && rest.chars().next().is_none_or(char::is_whitespace)
-        {
-            let (rules, reason) = split_reason(rest.trim_start());
-            return Some(ParsedSuppression {
-                rules: rules
-                    .split(|character: char| character == ',' || character.is_whitespace())
-                    .filter(|rule| !rule.is_empty())
-                    .map(str::to_owned)
-                    .collect(),
-                has_reason: reason.is_some_and(|value| !value.trim().is_empty()),
-            });
-        }
-    }
-    None
+    let rest = comment
+        .strip_prefix("dart-decimate-ignore-next-line")
+        .filter(|rest| rest.chars().next().is_none_or(char::is_whitespace))?;
+    let (rules, reason) = split_reason(rest.trim_start());
+    Some(ParsedSuppression {
+        rules: rules
+            .split(|character: char| character == ',' || character.is_whitespace())
+            .filter(|rule| !rule.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        has_reason: reason.is_some_and(|value| !value.trim().is_empty()),
+    })
 }
 
 fn split_reason(rest: &str) -> (&str, Option<&str>) {

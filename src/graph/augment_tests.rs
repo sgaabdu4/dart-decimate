@@ -27,7 +27,7 @@ fn builds_edges_for_library_augment_directives() -> Result<(), Box<dyn std::erro
         strip_root(fixture.root(), &dependencies[0].to_path),
         "lib/base.dart"
     );
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }
@@ -118,7 +118,7 @@ fn duplicate_part_directives_in_same_library_are_deduped() -> Result<(), Box<dyn
     let graph = build_module_graph(fixture.root(), &[library, generated])?;
 
     assert_eq!(graph.edge_count(), 1);
-    assert!(graph.invalid_part_relationships().is_empty());
+    assert_eq!(graph.invalid_part_relationships(), []);
 
     Ok(())
 }

@@ -183,7 +183,7 @@ fn security_sarif_passes_when_no_candidates() -> Result<(), Box<dyn std::error::
     assert_eq!(code, 0);
     assert_eq!(json["version"], "2.1.0");
     assert_eq!(json["runs"][0]["tool"]["driver"]["name"], "dart-decimate");
-    assert!(results.is_empty());
+    assert_eq!(results, &Vec::<Value>::new());
 
     Ok(())
 }
@@ -217,7 +217,7 @@ const accessToken = 'dart_decimate_fixture_value_1234567890';
         panic!("sarif results array");
     };
     assert_eq!(code, 0);
-    assert!(results.is_empty());
+    assert_eq!(results, &Vec::<Value>::new());
     assert!(!String::from_utf8(output)?.contains("dart_decimate_fixture_value_1234567890"));
 
     Ok(())
@@ -418,7 +418,7 @@ fn security_gate_new_requires_diff_file() -> Result<(), Box<dyn std::error::Erro
         error.to_string(),
         "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, --changed-since REF, or --compare REF"
     );
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }
@@ -450,7 +450,7 @@ fn security_gate_newly_reachable_requires_diff_file() -> Result<(), Box<dyn std:
         error.to_string(),
         "security --gate new or newly-reachable requires --diff-file PATH, --diff-stdin, --changed-since REF, or --compare REF"
     );
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }
@@ -596,8 +596,8 @@ fn security_command_passes_when_no_candidates() -> Result<(), Box<dyn std::error
     assert_eq!(json["verdict"], "pass");
     assert_eq!(json["summary"]["security_candidates"], 0);
     assert_eq!(json["summary"]["security_candidate_occurrences"], 0);
-    assert!(candidates.is_empty());
-    assert!(findings.is_empty());
+    assert_eq!(candidates, &Vec::<Value>::new());
+    assert_eq!(findings, &Vec::<Value>::new());
 
     Ok(())
 }
@@ -638,7 +638,7 @@ const accessToken = 'dart_decimate_fixture_value_1234567890';
     assert_eq!(json["summary"]["security_candidates"], 1);
     assert_eq!(json["summary"]["findings"], 0);
     assert_eq!(candidates.len(), 1);
-    assert!(findings.is_empty());
+    assert_eq!(findings, &Vec::<Value>::new());
 
     Ok(())
 }

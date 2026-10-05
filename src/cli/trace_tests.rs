@@ -209,7 +209,7 @@ void main() {}\n",
     let Some(type_only_importers) = json["type_only_importers"].as_array() else {
         panic!("type_only_importers array");
     };
-    assert!(type_only_importers.is_empty());
+    assert_eq!(type_only_importers, &Vec::<Value>::new());
     assert_eq!(json["declared_in"][0]["pubspec_path"], "pubspec.yaml");
     assert_eq!(json["declared_in"][0]["section"], "dependencies");
     assert_eq!(json["declared_in"][0]["line"], 3);

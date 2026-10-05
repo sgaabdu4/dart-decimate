@@ -324,7 +324,7 @@ maxCyclomatic = 4
     };
 
     assert!(format!("{error}").contains("health.thresholdOverrides"));
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }

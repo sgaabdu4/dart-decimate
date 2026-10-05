@@ -213,8 +213,8 @@ end_of_record
         },
     )?;
 
-    assert!(report.coverage_gaps.is_empty());
-    assert!(report.crap.is_empty());
+    assert_eq!(report.coverage_gaps, []);
+    assert_eq!(report.crap, []);
     assert_eq!(report.max_crap_score, 0);
 
     Ok(())
@@ -245,7 +245,7 @@ fn reports_functions_above_the_default_unit_size() -> Result<(), Box<dyn std::er
         report.large_functions[0].kind,
         ComplexityFunctionKind::Function
     );
-    assert!(report.complexity.is_empty());
+    assert_eq!(report.complexity, []);
 
     Ok(())
 }
@@ -274,7 +274,7 @@ fn unit_size_override_can_suppress_a_matching_function() -> Result<(), Box<dyn s
 
     let report = analyze_health(&project, &options)?;
 
-    assert!(report.large_functions.is_empty());
+    assert_eq!(report.large_functions, []);
     assert_eq!(
         report.threshold_overrides[0].status,
         HealthThresholdOverrideStatus::Active
