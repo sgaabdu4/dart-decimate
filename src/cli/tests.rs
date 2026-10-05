@@ -293,7 +293,7 @@ fn open_html_rejects_explicit_non_html_format() -> Result<(), Box<dyn std::error
     };
 
     assert!(matches!(error, CliError::HtmlOpenRequiresHtml));
-    assert!(output.is_empty());
+    assert_eq!(output, [] as [u8; 0]);
 
     Ok(())
 }

@@ -9,6 +9,7 @@
     ]
   },
   "include": [
+    ".hooks/untrusted-input.d.ts",
     "npm",
     "scripts",
     "test",

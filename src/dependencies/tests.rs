@@ -109,7 +109,7 @@ dev_dependencies:\n  collection: ^1.0.0\n",
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unlisted_dependencies, []);
     assert_eq!(report.unused_dependencies.len(), 1);
     assert_eq!(report.unused_dependencies[0].dependency, "collection");
     assert_eq!(
@@ -140,7 +140,7 @@ dev_dependencies:\n  args: ^2.0.0\n",
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unlisted_dependencies, []);
     assert_eq!(report.unused_dependencies.len(), 1);
     assert_eq!(
         report.unused_dependencies[0].issue,
@@ -203,8 +203,8 @@ dev_dependencies:\n  test: ^1.0.0\n",
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unlisted_dependencies.is_empty());
-    assert!(report.unused_dependencies.is_empty());
+    assert_eq!(report.unlisted_dependencies, []);
+    assert_eq!(report.unused_dependencies, []);
 
     Ok(())
 }
@@ -312,7 +312,7 @@ dependency_overrides:\n  stale: ^1.0.0\n",
     let report = analyze_dependency_hygiene(&project)?;
 
     assert_eq!(report.unused_dependencies.len(), 1);
-    assert!(report.misconfigured_dependency_overrides.is_empty());
+    assert_eq!(report.misconfigured_dependency_overrides, []);
     assert_eq!(report.unused_dependencies[0].dependency, "stale");
     assert_eq!(
         report.unused_dependencies[0].issue,
@@ -380,8 +380,8 @@ dependency_overrides:\n  patched: ^1.0.0\n",
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unused_dependencies.is_empty());
-    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies, []);
+    assert_eq!(report.unlisted_dependencies, []);
 
     Ok(())
 }
@@ -533,8 +533,8 @@ dependencies:\n  collection: ^1.0.0\n",
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unused_dependencies.is_empty());
-    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies, []);
+    assert_eq!(report.unlisted_dependencies, []);
 
     Ok(())
 }
@@ -618,7 +618,7 @@ fn analyzes_workspace_packages_independently() -> Result<(), Box<dyn std::error:
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unlisted_dependencies, []);
     assert!(
         report
             .unused_dependencies
@@ -667,7 +667,7 @@ fn skips_nested_checkout_packages_and_sources() -> Result<(), Box<dyn std::error
             .iter()
             .all(|file| !file.path.to_string_lossy().contains("worktrees"))
     );
-    assert!(report.unused_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies, []);
 
     Ok(())
 }
@@ -690,7 +690,7 @@ fn skips_gitignored_nested_package_dependencies() -> Result<(), Box<dyn std::err
 
     assert_eq!(packages.len(), 1);
     assert_eq!(packages[0].name, "app");
-    assert!(report.unused_dependencies.is_empty());
+    assert_eq!(report.unused_dependencies, []);
 
     Ok(())
 }
@@ -718,7 +718,7 @@ fn reports_dev_dependency_in_production_for_owning_workspace_package()
 
     let report = analyze_dependency_hygiene(&project)?;
 
-    assert!(report.unlisted_dependencies.is_empty());
+    assert_eq!(report.unlisted_dependencies, []);
     assert_eq!(report.unused_dependencies.len(), 1);
     assert_eq!(report.unused_dependencies[0].package, "app");
     assert!(

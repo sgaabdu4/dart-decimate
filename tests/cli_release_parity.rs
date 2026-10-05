@@ -10,7 +10,7 @@ fn version_flag_reports_the_compiled_package_version() -> Result<(), Box<dyn std
         .output()?;
 
     assert!(output.status.success());
-    assert!(output.stderr.is_empty());
+    assert_eq!(output.stderr, b"");
     assert_eq!(
         String::from_utf8(output.stdout)?.trim(),
         format!("dart-decimate {}", env!("CARGO_PKG_VERSION"))

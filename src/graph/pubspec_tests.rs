@@ -53,7 +53,7 @@ fn pubspec_overrides_workspace_replaces_pubspec_workspace() -> Result<(), Box<dy
     let graph = build_module_graph(fixture.root(), &[main, shared])?;
 
     assert_eq!(graph.package_names(), vec!["root", "shared"]);
-    assert!(graph.unresolved().is_empty());
+    assert_eq!(graph.unresolved(), []);
 
     Ok(())
 }

@@ -9,7 +9,15 @@ import { cleanEnv, runNode, withServer } from "./child-process.mjs";
 const versionSync = resolve("scripts/check-version-sync.mjs");
 const versionBump = resolve("scripts/check-pr-version-bump.mjs");
 const releaseVersion = resolve("scripts/check-release-version.mjs");
-const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+assert.ok(
+  typeof packageJson === "object" &&
+    packageJson !== null &&
+    "version" in packageJson &&
+    typeof packageJson.version === "string",
+  "package.json has no version",
+);
+const packageVersion = packageJson.version;
 
 /** @param {{ cargo: string, npm: string, lock?: string }} versions */
 function project({ cargo, npm, lock = cargo }) {

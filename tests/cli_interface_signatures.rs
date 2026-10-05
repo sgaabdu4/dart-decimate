@@ -64,7 +64,7 @@ fn concrete_duplicates_remain_after_declaration_occurrence_is_removed()
     assert_eq!(code, 1);
     assert_eq!(report["summary"]["duplication_threshold_exceeded"], true);
     let groups = report["clone_groups"].as_array().ok_or("missing groups")?;
-    assert!(!groups.is_empty());
+    assert_ne!(groups, &Vec::<Value>::new());
     for group in groups {
         let instances = group["instances"].as_array().ok_or("missing instances")?;
         assert!(instances.len() >= 2);
@@ -134,8 +134,7 @@ fn suppression_with_top_keeps_other_groups_in_threshold() -> Result<(), Box<dyn 
     assert_eq!(report["clone_groups"].as_array().map(Vec::len), Some(1));
     assert_eq!(report["findings"].as_array().map(Vec::len), Some(1));
     assert_eq!(report["summary"]["findings"], 1);
-    // Whole-file windows can include adjoining braces; all surviving groups
-    // must still count even though only one group is displayed.
+    // Whole-file windows can include adjoining braces; every surviving group still counts.
     let (_, unlimited) = run(
         &source,
         "dupes",

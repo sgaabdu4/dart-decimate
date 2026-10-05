@@ -230,7 +230,7 @@ mod tests {
 
         let report = detect_route_collisions(&project);
 
-        assert!(report.collisions.is_empty());
+        assert_eq!(report.collisions, []);
         Ok(())
     }
 
@@ -254,7 +254,7 @@ class OrderRoute extends GoRouteData {}
 
         let report = detect_route_collisions(&project);
 
-        assert!(report.collisions.is_empty());
+        assert_eq!(report.collisions, []);
         Ok(())
     }
 
@@ -274,7 +274,7 @@ class OrderRoute extends GoRouteData {}
 
         let report = detect_route_collisions(&project);
 
-        assert!(report.collisions.is_empty());
+        assert_eq!(report.collisions, []);
         Ok(())
     }
 
@@ -312,7 +312,7 @@ final router = GoRouter(routes: [
 
         let report = detect_route_collisions(&project);
 
-        assert!(report.collisions.is_empty());
+        assert_eq!(report.collisions, []);
         Ok(())
     }
 
@@ -335,7 +335,7 @@ final router = GoRouter(routes: [
 
         let report = detect_route_collisions(&project);
 
-        assert!(report.collisions.is_empty());
+        assert_eq!(report.collisions, []);
         Ok(())
     }
 

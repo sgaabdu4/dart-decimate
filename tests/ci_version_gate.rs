@@ -437,7 +437,7 @@ fn scaffold_release_proof_requires_an_explicit_native_success()
         if let Some(expected) = expected {
             assert_eq!(contents, format!("scaffold_only={expected}\n"));
         } else {
-            assert!(contents.is_empty());
+            assert_eq!(contents, "");
             assert!(String::from_utf8_lossy(&output.stderr).contains("verification unavailable"));
         }
     }

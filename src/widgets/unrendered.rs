@@ -807,8 +807,14 @@ mod tests {
 
     #[test]
     fn constructor_name_candidates_ignore_lowercase_calls() {
-        assert!(constructor_name_candidates("buildHeader").is_empty());
-        assert!(constructor_name_candidates("context.watch").is_empty());
+        assert_eq!(
+            constructor_name_candidates("buildHeader"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            constructor_name_candidates("context.watch"),
+            Vec::<String>::new()
+        );
     }
 
     #[test]

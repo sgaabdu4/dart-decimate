@@ -19,15 +19,15 @@ fn config_path_exits_three_when_no_config_is_found() -> Result<(), Box<dyn std::
     )?;
 
     assert_eq!(code, 3);
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     let binary = Command::new(env!("CARGO_BIN_EXE_dart-decimate"))
         .args(["config", fixture.path().to_str().unwrap_or("."), "--path"])
         .output()?;
 
     assert_eq!(binary.status.code(), Some(3));
-    assert!(binary.stdout.is_empty());
-    assert!(binary.stderr.is_empty());
+    assert_eq!(binary.stdout, b"");
+    assert_eq!(binary.stderr, b"");
 
     Ok(())
 }

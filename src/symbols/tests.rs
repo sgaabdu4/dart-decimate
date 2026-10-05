@@ -63,7 +63,7 @@ fn skips_private_entry_generated_and_dead_file_declarations()
 
     let report = analyze_unused_exports(&project, &dead_code);
 
-    assert!(report.unused_exports.is_empty());
+    assert_eq!(report.unused_exports, []);
 
     Ok(())
 }
@@ -82,7 +82,7 @@ fn include_entry_exports_reports_entry_declarations_except_main()
     let dead_code = find_dead_code(&project.graph, ["lib/main.dart"]);
 
     let default_report = analyze_symbols(&project, Some(&dead_code));
-    assert!(default_report.unused_exports.is_empty());
+    assert_eq!(default_report.unused_exports, []);
 
     let report = analyze_symbols_with_options(
         &project,
@@ -152,7 +152,7 @@ fn treats_public_library_part_declarations_as_api_usage() -> Result<(), Box<dyn 
 
     let report = analyze_unused_exports(&project, &dead_code);
 
-    assert!(report.unused_exports.is_empty());
+    assert_eq!(report.unused_exports, []);
 
     Ok(())
 }
@@ -265,7 +265,7 @@ fn skips_enum_constants_on_public_api_enums() -> Result<(), Box<dyn std::error::
 
     let report = analyze_unused_exports(&project, &dead_code);
 
-    assert!(report.unused_members.is_empty());
+    assert_eq!(report.unused_members, []);
 
     Ok(())
 }
@@ -480,7 +480,7 @@ fn duplicate_exports_respect_show_and_hide() -> Result<(), Box<dyn std::error::E
 
     let report = analyze_symbols(&project, None);
 
-    assert!(report.duplicate_exports.is_empty());
+    assert_eq!(report.duplicate_exports, []);
 
     Ok(())
 }
@@ -549,7 +549,7 @@ fn duplicate_exports_respect_show_hide_at_each_chain_hop() -> Result<(), Box<dyn
 
     let report = analyze_symbols(&project, None);
 
-    assert!(report.duplicate_exports.is_empty());
+    assert_eq!(report.duplicate_exports, []);
 
     Ok(())
 }
@@ -569,7 +569,7 @@ fn does_not_treat_private_src_barrel_as_public_surface() -> Result<(), Box<dyn s
 
     let report = analyze_symbols(&project, None);
 
-    assert!(report.duplicate_exports.is_empty());
+    assert_eq!(report.duplicate_exports, []);
 
     Ok(())
 }
@@ -681,7 +681,7 @@ fn private_type_leaks_require_same_dart_library_private_type()
         },
     );
 
-    assert!(report.private_type_leaks.is_empty());
+    assert_eq!(report.private_type_leaks, []);
 
     Ok(())
 }
@@ -712,7 +712,7 @@ class _Hidden {}
         },
     );
 
-    assert!(report.private_type_leaks.is_empty());
+    assert_eq!(report.private_type_leaks, []);
 
     Ok(())
 }

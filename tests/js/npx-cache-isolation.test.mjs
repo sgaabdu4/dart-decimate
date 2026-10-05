@@ -77,21 +77,31 @@ writeFileSync("cli.txt", "Usage: dart-decimate\\n");
       .map((line) => JSON.parse(line));
     assert.equal(calls.length, 1);
     const [call] = calls;
-    assert.deepEqual(call.args.slice(0, 2), ["--yes", "--package"]);
-    assert.deepEqual(call.args.slice(3), [
+    assert.ok(call instanceof Object);
+    const {
+      args,
+      input,
+      cache: usedCache,
+      cwd,
+      skipDownload,
+    } = Object.fromEntries(Object.entries(call));
+    assert.ok(Array.isArray(args));
+    assert.ok(typeof input === "string");
+    assert.ok(typeof usedCache === "string");
+    assert.deepEqual(args.slice(0, 2), ["--yes", "--package"]);
+    assert.deepEqual(args.slice(3), [
       "--call",
       "dart-decimate-mcp > mcp.json && dart-decimate --help > cli.txt",
     ]);
-    assert.deepEqual(JSON.parse(call.input), {
+    assert.deepEqual(JSON.parse(input), {
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
       params: { protocolVersion: "2025-11-25" },
     });
-    assert.equal(call.skipDownload, "1");
-    const usedCache = call.cache;
+    assert.equal(skipDownload, "1");
     assert.equal(
-      call.cwd,
+      cwd,
       join(realpathSync(tmpdir()), basename(dirname(usedCache))),
     );
     assert.notEqual(usedCache, inheritedCache);

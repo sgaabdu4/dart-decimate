@@ -83,7 +83,7 @@ fn unknown_cache_config_keys_are_rejected() -> Result<(), Box<dyn std::error::Er
     assert!(message.contains(".dart-decimaterc"));
     assert!(message.contains("enabeld"));
     assert!(message.contains("unknown"));
-    assert!(output.is_empty());
+    assert_eq!(output, b"");
 
     Ok(())
 }
