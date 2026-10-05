@@ -2,7 +2,12 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { commandOutput, gitEnv, releasedFromHead } from "./released-head.mjs";
+import {
+  commandOutput,
+  gitEnv,
+  property,
+  releasedFromHead,
+} from "./released-head.mjs";
 
 /** @param {string} message @returns {never} */
 function exitWithError(message) {
@@ -50,16 +55,11 @@ function readPackageVersion(contents, label) {
     exitWithError(`${label} is invalid JSON`);
   }
 
-  if (
-    typeof pkg !== "object" ||
-    pkg === null ||
-    !("version" in pkg) ||
-    typeof pkg.version !== "string" ||
-    pkg.version.length === 0
-  ) {
+  const version = property(pkg, "version");
+  if (typeof version !== "string" || version.length === 0) {
     exitWithError(`${label} is missing package version`);
   }
-  return pkg.version;
+  return version;
 }
 
 /** @param {string} version @param {string} label */

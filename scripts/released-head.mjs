@@ -80,12 +80,14 @@ export function releasedFromHead(version) {
   }
 }
 
+/** @param {unknown} value @param {string} key @returns {unknown} */
+export function property(value, key) {
+  return typeof value === "object" && value !== null
+    ? new Map(Object.entries(value)).get(key)
+    : undefined;
+}
+
 /** @param {unknown} error */
 export function commandOutput(error) {
-  if (typeof error !== "object" || error === null) {
-    return "\n";
-  }
-  const stdout = "stdout" in error ? error.stdout : undefined;
-  const stderr = "stderr" in error ? error.stderr : undefined;
-  return `${stdout ?? ""}\n${stderr ?? ""}`;
+  return `${property(error, "stdout") ?? ""}\n${property(error, "stderr") ?? ""}`;
 }

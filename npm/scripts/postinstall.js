@@ -32,13 +32,12 @@ function readPackageVersion() {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(root, "package.json"), "utf8"),
   );
-  if (
-    typeof packageJson === "object" &&
-    packageJson !== null &&
-    "version" in packageJson &&
-    typeof packageJson.version === "string"
-  ) {
-    return packageJson.version;
+  const version =
+    packageJson instanceof Object && "version" in packageJson
+      ? packageJson.version
+      : undefined;
+  if (typeof version === "string") {
+    return version;
   }
   console.error("dart-decimate: install failed: package.json has no version");
   process.exit(1);

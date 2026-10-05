@@ -2,22 +2,15 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { commandOutput, releasedFromHead } from "./released-head.mjs";
+import { commandOutput, property, releasedFromHead } from "./released-head.mjs";
 
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-if (
-  typeof pkg !== "object" ||
-  pkg === null ||
-  !("name" in pkg) ||
-  typeof pkg.name !== "string" ||
-  !("version" in pkg) ||
-  typeof pkg.version !== "string"
-) {
+const name = property(pkg, "name");
+const version = property(pkg, "version");
+if (typeof name !== "string" || typeof version !== "string") {
   console.error("package.json is missing its name or version");
   process.exit(1);
 }
-const name = pkg.name;
-const version = pkg.version;
 
 if (process.env.DART_DECIMATE_ALLOW_EXISTING_VERSION === "1") {
   console.log(

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { property } from "./released-head.mjs";
 
 /** @param {string} block @param {string} key */
 function field(block, key) {
@@ -12,13 +13,6 @@ function cargoLockVersion(contents, crate) {
   const blocks = contents.replace(/\r\n/g, "\n").split("\n\n");
   const entry = blocks.find((block) => field(block, "name") === crate);
   return entry && field(entry, "version");
-}
-
-/** @param {unknown} value @param {string} key @returns {unknown} */
-function property(value, key) {
-  return typeof value === "object" && value !== null
-    ? new Map(Object.entries(value)).get(key)
-    : undefined;
 }
 
 const cargo = fs.readFileSync("Cargo.toml", "utf8");
