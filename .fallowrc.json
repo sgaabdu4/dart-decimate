@@ -1,4 +1,5 @@
 {
+  "ignorePatterns": [".hooks/**"],
   "duplicates": {
     "ignore": [
       "tests/npm/test-*.js"
