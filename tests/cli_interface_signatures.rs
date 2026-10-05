@@ -64,7 +64,7 @@ fn concrete_duplicates_remain_after_declaration_occurrence_is_removed()
     assert_eq!(code, 1);
     assert_eq!(report["summary"]["duplication_threshold_exceeded"], true);
     let groups = report["clone_groups"].as_array().ok_or("missing groups")?;
-    assert!(!groups.is_empty());
+    assert_ne!(groups, &Vec::<Value>::new());
     for group in groups {
         let instances = group["instances"].as_array().ok_or("missing instances")?;
         assert!(instances.len() >= 2);
