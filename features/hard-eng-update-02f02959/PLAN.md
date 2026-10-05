@@ -4,7 +4,7 @@ Status: Complete
 
 ## Outcome + scope
 
-The project runs Hard Eng 02f0295910c5a6b88f23e8c8c008a5de1865bf2c, the latest CI-verified revision, and its JSON reads and type assertions satisfy the new untrusted-input typing. The version moves to 0.0.65 because the change touches `npm/`, `scripts/`, `tests/` and `tsconfig.json`, so it is not scaffold-only. Non-goals: new dependencies, behaviour changes for valid input, Rust code.
+The project runs Hard Eng 02f0295910c5a6b88f23e8c8c008a5de1865bf2c, the latest CI-verified revision, and its JSON reads and type assertions satisfy the new untrusted-input typing. The version moves to 0.0.65 because the change touches `npm/`, `scripts/`, `tests/` and `tsconfig.json`, so it is not scaffold-only. It also repairs the clippy 1.99 findings (`assert_is_empty`, `single_element_loop`) that CI's newer stable toolchain reports on the existing Rust code. Non-goals: new dependencies, behaviour changes for valid input.
 
 ## Repository context
 
@@ -26,7 +26,7 @@ Authority: Autonomous. The owner asked for every Hard Eng project to be updated 
 ## Baseline + execution
 
 Result: Passed
-Evidence: Base main 2a744e8 runs Hard Eng 1b0cdd9 and released 0.0.64; npm and the local tags stop at 0.0.64. The first updater run on the earlier JSON-read migration refused: 29 gates passed and `fallow-audit` failed on four guards whose complexity exceeded the CRAP limit.
+Evidence: Base main 2a744e8 runs Hard Eng 1b0cdd9 and released 0.0.64; npm and the local tags stop at 0.0.64. The first updater run on the earlier JSON-read migration refused: 29 gates passed and `fallow-audit` failed on four guards whose complexity exceeded the CRAP limit. PR CI on stable Rust 1.99 then failed `rust-clippy` on 81 `assert!(x.is_empty())` asserts and one single-element loop that local clippy 1.98.1 does not flag.
 Execution: One change: migrate the JSON reads, bump, update, gate. The four flagged guards were reduced to a shared `property` helper and plain asserts in their own commit, then the updater was rerun.
 
 ## Risks + recovery
@@ -40,7 +40,7 @@ N/A — tooling update with no visual surface.
 ## Verification
 
 Result: Passed
-Evidence: Updater rerun → "Updated Hard Eng to 02f0295910c5a6b88f23e8c8c008a5de1865bf2c", marker names 02f0295. `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, "ready for ship", 29 gates PASS, 0 FAIL, including types, typing-style, tests, fallow-audit, version-sync, version-bump and release-version. No new dependency or package import; only `Cargo.toml`, `Cargo.lock`, `package.json`, `README.md` and `docs/ci.md` move to 0.0.65.
+Evidence: Updater rerun → "Updated Hard Eng to 02f0295910c5a6b88f23e8c8c008a5de1865bf2c", marker names 02f0295. `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` → exit 0, "ready for ship", 29 gates PASS, 0 FAIL, including types, typing-style, tests, fallow-audit, version-sync, version-bump and release-version. No new dependency or package import; only `Cargo.toml`, `Cargo.lock`, `package.json`, `README.md` and `docs/ci.md` move to 0.0.65. The clippy 1.99 repair rewrites 117 `is_empty` asserts as `assert_eq!` against an empty value and removes the single-element loop; local clippy 1.98.1, `cargo fmt --check` and `cargo test --all-targets` (1010 passed, 0 failed) pass, and the push gate and PR CI rerun the full check on the newer toolchain.
 E2E: Passed — `postinstall-prebuilt`, `npx-prebuilt` and `npx-local` install the packed tarball through the real postinstall and run the CLI and MCP server; all three pass in the same check.
 
 Delivery target: Merge
