@@ -171,8 +171,16 @@ def new_commits_command(
     command: list[str], repository: Path, base: str | None
 ) -> list[str]:
     """Scan only the commits a known base lacks; earlier ones were scanned on entry."""
-    if base is None or "--log-opts=--all" not in command:
+    if "--log-opts=--all" not in command:
         return command
+    pushable = [
+        "--log-opts=--branches --remotes --tags HEAD"
+        if argument == "--log-opts=--all"
+        else argument
+        for argument in command
+    ]
+    if base is None:
+        return pushable
     resolved = subprocess.run(
         [
             "git",
@@ -189,7 +197,7 @@ def new_commits_command(
     )
     revision = resolved.stdout.strip()
     if resolved.returncode or set(revision) == {"0"}:
-        return command  # Unknown base: keep the full-history scan.
+        return pushable  # Unknown base: scan every commit a push can carry.
     print(f"Secret history scan covers commits since {revision[:7]}.")
     return [
         f"--log-opts={revision}..HEAD" if argument == "--log-opts=--all" else argument
@@ -232,7 +240,7 @@ def run_gate_command(
         from gate_config import has_workflows, repository_files
 
         zizmor = any(
-            Path(part).name.partition("@")[0] == "zizmor" for part in command[:2]
+            Path(part).name.partition("@")[0] == "zizmor" for part in command[:3]
         )
         if zizmor and not has_workflows(directory, repository_files(directory)):
             stderr.write("No GitHub workflows to audit: zizmor collected no inputs.\n")

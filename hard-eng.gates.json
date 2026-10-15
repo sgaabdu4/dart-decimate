@@ -162,6 +162,11 @@
           "name": "project-typecheck",
           "role": "project-typecheck",
           "command": ["pnpm", "run", "typecheck"]
+        },
+        {
+          "name": "project-typecheck",
+          "role": "project-typecheck",
+          "command": ["bun", "run", "typecheck"]
         }
       ],
       "depends_on": [],
