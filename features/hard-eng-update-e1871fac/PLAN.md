@@ -8,7 +8,7 @@ The project runs Hard Eng e1871fac9032e10b7a9f30de353c3bbfe08ea39c, which requir
 
 ## Repository context
 
-Owners: `package.json`, `bun.lock`, `bunfig.toml`, `hard-eng.gates.json`, `.github/workflows/*.yml`, `.githooks/pre-commit`, `scripts/*.mjs`, `tests/js`, `tests/npm`; version files Cargo.toml, Cargo.lock, package.json, README.md and docs/ci.md. Evidence: the check refuses a pnpm project; `bun test` runs the existing `node:test` files; `bun --check` runs a script instead of parsing it, so the syntax check uses `bun build --no-bundle`; `bun pm pack` and `bun pm view` replace `pnpm pack` and `pnpm view`; Bun cannot publish with provenance, so the release job runs `bun x npm@12.2.0 publish` with the same flags.
+Owners: `package.json`, `bun.lock`, `hard-eng.gates.json`, `.github/workflows/*.yml`, `.githooks/pre-commit`, `scripts/*.mjs`, `tests/js`, `tests/npm`; version files Cargo.toml, Cargo.lock, package.json, README.md and docs/ci.md. Evidence: the check refuses a pnpm project; `bun test` runs the existing `node:test` files; `bun --check` runs a script instead of parsing it, so the syntax check uses `bun build --no-bundle`; `bun pm pack` and `bun pm view` replace `pnpm pack` and `pnpm view`; Bun cannot publish with provenance, so the release job runs `bun x npm@12.2.0 publish` with the same flags. The test scripts build the release binaries once before `bun test`, so the wrapper tests never compile Rust under the 5 second test limit in a fresh checkout.
 
 ## Decisions + authorization
 
