@@ -35,11 +35,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Node and pnpm
-        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          runtime: node@24
-          install: false
+          bun-version: latest
 
       - name: Verify scaffold-only maintenance
         id: scaffold
@@ -53,8 +52,8 @@ jobs:
           MISE_MINIMUM_RELEASE_AGE: 0s
         run: |
           export BASE_SHA="${BASE_SHA:-$(git rev-parse HEAD^)}"
-          pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest python@3.12
-          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest python@3.12 -- uv run --no-project --with pyyaml python - <<'PY'
+          bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config install uv@latest python@3.12
+          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config exec uv@latest python@3.12 -- uv run --no-project --with pyyaml python - <<'PY'
           import os
           import sys
           from pathlib import Path
@@ -101,7 +100,7 @@ jobs:
             echo "tag_points_at_head=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if pnpm view "dart-decimate@$VERSION" version >/dev/null 2>&1; then
+          if bun pm view "dart-decimate@$VERSION" version >/dev/null 2>&1; then
             echo "npm_exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "npm_exists=false" >> "$GITHUB_OUTPUT"
@@ -136,7 +135,7 @@ jobs:
           MISE_MINIMUM_RELEASE_AGE: 0s
         run: |
           export BASE_SHA="${BASE_SHA:-$(git rev-parse HEAD^)}"
-          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest python@3.12 -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
+          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config exec uv@latest python@3.12 -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
 
   build-assets:
     name: Build ${{ matrix.asset }}
@@ -235,11 +234,10 @@ jobs:
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
           rustup default "$RUST_TOOLCHAIN"
 
-      - name: Install Node and pnpm
-        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          runtime: node@24
-          install: false
+          bun-version: latest
 
       - name: Verify release source
         env:
@@ -302,4 +300,4 @@ jobs:
 
       - name: Publish to npm
         if: needs.prepare.outputs.npm_exists == 'false'
-        run: pnpm publish --access public --provenance --no-git-checks --registry https://registry.npmjs.org
+        run: bun x npm@12.2.0 publish --access public --provenance --registry https://registry.npmjs.org

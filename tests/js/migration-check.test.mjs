@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { runNode } from "./child-process.mjs";
 
 const migrationCheck = resolve("scripts/check-dart-decimate-migration.mjs");
 
-test("migration check skips frozen lifecycle artifacts", () => {
+test("migration check skips frozen lifecycle artifacts", async () => {
   const fixture = mkdtempSync(join(tmpdir(), "dart-decimate-migration-"));
   write(
     fixture,
@@ -20,12 +20,12 @@ test("migration check skips frozen lifecycle artifacts", () => {
     `{"review":"legacy ${"Deci" + "mate"} wording"}\n`,
   );
 
-  const result = run(fixture);
+  const result = await run(fixture);
 
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("migration check skips generated coverage reports", () => {
+test("migration check skips generated coverage reports", async () => {
   const fixture = mkdtempSync(join(tmpdir(), "dart-decimate-migration-"));
   write(
     fixture,
@@ -33,12 +33,12 @@ test("migration check skips generated coverage reports", () => {
     `{"path":"/tmp/${"deci" + "mate"}-checkout/pnpm-lock.yaml"}\n`,
   );
 
-  const result = run(fixture);
+  const result = await run(fixture);
 
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("migration check still rejects old names in product source", () => {
+test("migration check still rejects old names in product source", async () => {
   const fixture = mkdtempSync(join(tmpdir(), "dart-decimate-migration-"));
   write(
     fixture,
@@ -46,7 +46,7 @@ test("migration check still rejects old names in product source", () => {
     `Run the completed local ${"Deci" + "mate"} binary.\n`,
   );
 
-  const result = run(fixture);
+  const result = await run(fixture);
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /old product name/);
@@ -54,10 +54,7 @@ test("migration check still rejects old names in product source", () => {
 
 /** @param {string} cwd */
 function run(cwd) {
-  return spawnSync(process.execPath, [migrationCheck], {
-    cwd,
-    encoding: "utf8",
-  });
+  return runNode([migrationCheck], { cwd });
 }
 
 /** @param {string} root @param {string} relative @param {string} contents */

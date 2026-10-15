@@ -134,21 +134,16 @@ function installWithCargo() {
 
 function packNpmPackage() {
   const result = run(
-    "pnpm",
-    ["pack", "--json", "--pack-destination", tempRoot],
+    "bun",
+    ["pm", "pack", "--quiet", "--destination", tempRoot],
     root,
-    "pnpm pack",
+    "bun pm pack",
   );
-  const metadata = JSON.parse(result.stdout);
-  if (
-    typeof metadata !== "object" ||
-    metadata === null ||
-    !("filename" in metadata) ||
-    typeof metadata.filename !== "string"
-  ) {
-    throw new Error("pnpm pack did not report a tarball filename");
+  const filename = result.stdout.trim();
+  if (!filename) {
+    throw new Error("bun pm pack did not report a tarball filename");
   }
-  return path.resolve(tempRoot, metadata.filename);
+  return path.resolve(tempRoot, filename);
 }
 
 /** @param {string} tarball @param {string} projectDir @param {number} port */
