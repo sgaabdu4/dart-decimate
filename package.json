@@ -27,8 +27,8 @@
   ],
   "scripts": {
     "postinstall": "node npm/scripts/postinstall.js",
-    "test": "bun test tests/js/*.test.mjs",
-    "test:coverage": "bun test tests/js/*.test.mjs --coverage --coverage-reporter=lcov --coverage-dir=coverage --reporter=junit --reporter-outfile=coverage/junit.xml",
+    "test": "cargo build --release --locked && bun test tests/js/*.test.mjs",
+    "test:coverage": "cargo build --release --locked && bun test tests/js/*.test.mjs --coverage --coverage-reporter=lcov --coverage-dir=coverage --reporter=junit --reporter-outfile=coverage/junit.xml",
     "test:performance": "cargo build --release --locked --bin dart-decimate && bun test tests/performance/*.test.mjs --reporter=junit --reporter-outfile=coverage/performance.xml",
     "typecheck": "bun scripts/typecheck-js.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
