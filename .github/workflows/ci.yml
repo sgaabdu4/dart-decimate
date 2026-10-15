@@ -43,8 +43,7 @@ jobs:
             echo "MISE_DATA_DIR=$RUNNER_TEMP/hard-eng-tools/mise/data"
             echo "MISE_CACHE_DIR=$RUNNER_TEMP/hard-eng-tools/mise/cache"
             echo "MISE_STATE_DIR=$RUNNER_TEMP/hard-eng-tools/mise/state"
-            echo "PNPM_CONFIG_STORE_DIR=$RUNNER_TEMP/hard-eng-tools/pnpm/store"
-            echo "PNPM_CONFIG_CACHE_DIR=$RUNNER_TEMP/hard-eng-tools/pnpm/cache"
+            echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/hard-eng-tools/bun/cache"
           } >> "$GITHUB_ENV"
           python3 .hooks/hard-eng.py impact --base "$BASE_SHA" >> "$GITHUB_OUTPUT" || echo docs_only=false >> "$GITHUB_OUTPUT"
 
@@ -61,15 +60,14 @@ jobs:
           path: |
             ${{ runner.temp }}/hard-eng-tools/mise/data/installs
             ${{ runner.temp }}/hard-eng-tools/mise-launcher
-            ${{ runner.temp }}/hard-eng-tools/pnpm/store
-          key: ${{ runner.os }}-${{ runner.arch }}-hard-eng-tools-v2-${{ steps.impact.outputs.tools || 'all' }}-${{ hashFiles('.github/workflows/ci.yml', '.hooks/tool_setup.py', 'hard-eng.gates.json', 'pnpm-lock.yaml') }}
+            ${{ runner.temp }}/hard-eng-tools/bun/cache
+          key: ${{ runner.os }}-${{ runner.arch }}-hard-eng-tools-v2-${{ steps.impact.outputs.tools || 'all' }}-${{ hashFiles('.github/workflows/ci.yml', '.hooks/tool_setup.py', 'hard-eng.gates.json', 'bun.lock') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-hard-eng-tools-v2-${{ steps.impact.outputs.tools || 'all' }}-
 
-      - name: Install pnpm
-        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          runtime: node@latest
-          install: false
+          bun-version: latest
 
       - name: Check release guards and secrets for docs-only changes
         if: steps.impact.outputs.docs_only == 'true'
@@ -80,8 +78,8 @@ jobs:
           node scripts/check-version-sync.mjs
           node scripts/check-pr-version-bump.mjs
           node scripts/check-release-version.mjs
-          pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install uv@latest &&
-          pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec uv@latest -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
+          bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config install uv@latest &&
+          bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config exec uv@latest -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
 
       - name: Run Hard Eng checks
         if: steps.impact.outputs.docs_only != 'true'
@@ -89,8 +87,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SDK_TOOLS: ${{ steps.impact.outputs.tools || 'uv@latest python@3.12 node@latest pnpm@12.6.0' }}
+          SDK_TOOLS: ${{ steps.impact.outputs.tools || 'uv@latest python@3.12' }}
         run: |
           read -r -a tools <<< "$SDK_TOOLS"
-          pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config install "${tools[@]}" &&
-          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h pnpm dlx --config.ignore-scripts=false --allow-build=@jdxcode/mise --package=@jdxcode/mise@latest mise --no-config exec "${tools[@]}" -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"
+          bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config install "${tools[@]}" &&
+          MISE_FETCH_REMOTE_VERSIONS_CACHE=1h bun x --package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest" mise --no-config exec "${tools[@]}" -- uv run --no-project --with pyyaml python .hooks/hard-eng.py check --base "$BASE_SHA"

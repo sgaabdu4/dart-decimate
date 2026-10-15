@@ -7,11 +7,11 @@
 - [ ] `cargo fmt --check`
 - [ ] `cargo clippy --all-targets -- -D warnings`
 - [ ] `cargo test --all-targets`
-- [ ] `pnpm run version:check`
-- [ ] `pnpm run version:bump:check origin/main`
-- [ ] `pnpm run release:check`
-- [ ] `pnpm run migration:check`
-- [ ] `pnpm run pack:check`
+- [ ] `bun run version:check`
+- [ ] `bun run version:bump:check origin/main`
+- [ ] `bun run release:check`
+- [ ] `bun run migration:check`
+- [ ] `bun run pack:check`
 
 ## Release
 

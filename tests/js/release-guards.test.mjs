@@ -233,7 +233,7 @@ function checkRelease(
   registry,
   cwd = project({ cargo: packageVersion, npm: packageVersion }),
 ) {
-  const cache = mkdtempSync(join(tmpdir(), "dart-decimate-pnpm-cache-"));
+  const cache = mkdtempSync(join(tmpdir(), "dart-decimate-bun-cache-"));
   after(() => rmSync(cache, { recursive: true, force: true }));
   return withServer(registry, (baseUrl) =>
     runNode([releaseVersion], {
@@ -241,9 +241,8 @@ function checkRelease(
       env: {
         ...cleanEnv,
         DART_DECIMATE_ALLOW_EXISTING_VERSION: "0",
-        PNPM_CONFIG_CACHE_DIR: cache,
-        PNPM_CONFIG_FETCH_RETRIES: "0",
-        PNPM_CONFIG_REGISTRY: `${baseUrl}/`,
+        BUN_INSTALL_CACHE_DIR: cache,
+        BUN_CONFIG_REGISTRY: `${baseUrl}/`,
       },
     }),
   );
@@ -278,6 +277,13 @@ function published(version) {
     );
   };
 }
+
+test("release check accepts a registry that has the package but not this version", async () => {
+  const result = await checkRelease(published("0.0.1"));
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /release version ok: .* is not published/);
+});
 
 test("release check rejects a version already on the registry", async () => {
   const result = await checkRelease(published(packageVersion));

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
+import { devNull } from "node:os";
+import { resolve } from "node:path";
 import { test } from "node:test";
+import { cleanEnv, runNode } from "./child-process.mjs";
 
 test("npm wrapper exposes the Dart Decimate CLI", () => {
   const result = spawnSync(
@@ -38,4 +42,26 @@ test("npm MCP wrapper answers an initialize request", () => {
       serverInfo: { name: "dart-decimate-mcp" },
     },
   });
+});
+
+test("npm CLI wrapper exits 0 when the binary prints help", async () => {
+  const result = await runNode(
+    [resolve("npm/bin/dart-decimate.js"), "--help"],
+    {
+      env: { ...cleanEnv, DART_DECIMATE_SKIP_BUILD: "1" },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("npm MCP wrapper exits 0 when the binary reads an empty input", async () => {
+  closeSync(0);
+  assert.equal(openSync(devNull, "r"), 0);
+
+  const result = await runNode([resolve("npm/bin/dart-decimate-mcp.js")], {
+    env: { ...cleanEnv, DART_DECIMATE_SKIP_BUILD: "1" },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
 });

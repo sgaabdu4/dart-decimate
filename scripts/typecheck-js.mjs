@@ -6,7 +6,7 @@ const roots = ["npm", "scripts", "tests/js", "tests/npm"];
 const files = roots.flatMap(javascriptFiles).sort();
 
 for (const file of files) {
-  const result = spawnSync(process.execPath, ["--check", file], {
+  const result = spawnSync(process.execPath, ["build", "--no-bundle", file], {
     encoding: "utf8",
     stdio: "pipe",
   });
