@@ -21,6 +21,7 @@ Decisions: Change only the ecosystem name to `bun`; keep the same directory, sch
 ## Acceptance + steps
 
 - [x] The JavaScript entry uses the `bun` ecosystem → `.github/dependabot.yml`.
+- [x] The release version moves to 0.0.67, because every merge releases → Cargo.toml, Cargo.lock, package.json, README.md, docs/ci.md.
 - [x] Repository checks pass → `python3 .hooks/hard-eng.py check --base origin/main`.
 
 ## Baseline + execution
