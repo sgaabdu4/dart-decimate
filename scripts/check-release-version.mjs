@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
+import { promisify } from "node:util";
 import { commandOutput, property, releasedFromHead } from "./released-head.mjs";
 
 const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
@@ -20,10 +21,13 @@ if (process.env.DART_DECIMATE_ALLOW_EXISTING_VERSION === "1") {
 }
 
 try {
-  execFileSync("pnpm", ["view", `${name}@${version}`, "version"], {
-    stdio: "pipe",
-    encoding: "utf8",
-  });
+  await promisify(execFile)(
+    "bun",
+    ["pm", "view", `${name}@${version}`, "version"],
+    {
+      encoding: "utf8",
+    },
+  );
   if (releasedFromHead(version)) {
     console.log(
       `release version ok: ${name}@${version} was released from HEAD`,
@@ -37,9 +41,8 @@ try {
 } catch (error) {
   const output = commandOutput(error);
   if (
-    output.includes("ERR_PNPM_PACKAGE_NOT_FOUND") ||
-    output.includes("ERR_PNPM_FETCH_404") ||
-    output.includes("404 Not Found")
+    output.includes("404 Not Found") ||
+    /No version of .* satisfying .* found/.test(output)
   ) {
     console.log(`release version ok: ${name}@${version} is not published`);
     process.exit(0);

@@ -1,4 +1,5 @@
 {
+  "entry": ["tests/js/*.test.mjs", "tests/performance/*.test.mjs"],
   "ignorePatterns": [".hooks/**"],
   "duplicates": {
     "ignore": [

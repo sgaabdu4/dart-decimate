@@ -1,5 +1,5 @@
 #!/bin/sh
 set -eu
 
-pnpm run version:check
-pnpm run migration:check
+bun run version:check
+bun run migration:check

@@ -41,5 +41,5 @@ test("JS syntax check fails on a script that does not parse", async () => {
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /broken\.js/);
-  assert.match(result.stderr, /SyntaxError/);
+  assert.match(result.stderr, /Expected identifier/);
 });

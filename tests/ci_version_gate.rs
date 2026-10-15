@@ -227,8 +227,8 @@ fn pull_request_ci_requires_bumped_unpublished_versions() -> Result<(), Box<dyn 
         assert!(position > previous);
         previous = position;
     }
-    assert!(pre_commit.contains("pnpm run version:check\npnpm run migration:check"));
-    assert!(!pre_commit.contains("pnpm run release:check"));
+    assert!(pre_commit.contains("bun run version:check\nbun run migration:check"));
+    assert!(!pre_commit.contains("bun run release:check"));
     assert_eq!(
         shared_gate_command(&gates, "version-bump")?,
         ["node", "scripts/check-pr-version-bump.mjs"]
@@ -369,7 +369,7 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
     assert!(publish.contains("node tests/npm/test-release-install-parity.js"));
     assert!(release.contains("id-token: write"));
     assert!(release.contains(
-        "pnpm publish --access public --provenance --no-git-checks --registry https://registry.npmjs.org"
+        "bun x npm@12.2.0 publish --access public --provenance --registry https://registry.npmjs.org"
     ));
     assert!(
         index_of(publish, "      - name: Verify Cargo and npm install parity")?

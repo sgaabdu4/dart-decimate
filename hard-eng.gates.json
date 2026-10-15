@@ -41,7 +41,7 @@
             "osv-scanner",
             "scan",
             "source",
-            "--lockfile=pnpm-lock.yaml",
+            "--lockfile=bun.lock",
             "--allow-no-lockfiles",
             "--all-packages",
             "--format=json",
@@ -55,12 +55,7 @@
         {
           "name": "lockfile",
           "role": "lockfiles",
-          "command": [
-            "pnpm",
-            "install",
-            "--frozen-lockfile",
-            "--ignore-scripts"
-          ]
+          "command": ["bun", "install", "--frozen-lockfile", "--ignore-scripts"]
         },
         {
           "name": "format-lint",
@@ -122,7 +117,7 @@
         {
           "name": "tests",
           "role": "tests",
-          "command": ["pnpm", "run", "test:coverage"],
+          "command": ["bun", "run", "test:coverage"],
           "report": {
             "type": "lcov-tests",
             "tests": "coverage/junit.xml",
@@ -152,16 +147,11 @@
         {
           "name": "performance",
           "role": "performance",
-          "command": ["pnpm", "run", "test:performance"],
+          "command": ["bun", "run", "test:performance"],
           "report": {
             "type": "performance-junit",
             "path": "coverage/performance.xml"
           }
-        },
-        {
-          "name": "project-typecheck",
-          "role": "project-typecheck",
-          "command": ["pnpm", "run", "typecheck"]
         },
         {
           "name": "project-typecheck",
@@ -280,7 +270,7 @@
     {
       "name": "pack",
       "parallel": true,
-      "command": ["pnpm", "pack", "--dry-run"]
+      "command": ["bun", "pm", "pack", "--dry-run"]
     },
     {
       "name": "rust-format",
