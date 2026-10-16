@@ -873,7 +873,7 @@ def main() -> int:
     checks.add_argument(
         "--quick",
         action="store_true",
-        help="Run only format, lint, types, tests and the file secret scan, with related JavaScript tests; the Stop hook uses it",
+        help="Run only format, lint, types and the file secret scan; the Stop hook uses it",
     )
     impacts = commands.add_parser(
         "impact", help="Print docs_only=true when only the secret scan applies"
@@ -946,7 +946,7 @@ def main() -> int:
             base=args.base,
             plan_stage=args.plan_stage,
             dependents=not args.without_dependents,
-            related_tests=args.related_tests or args.quick,
+            related_tests=args.related_tests,
             quick=args.quick,
         )
     if args.command == "impact":

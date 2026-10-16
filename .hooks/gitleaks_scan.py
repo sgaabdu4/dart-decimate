@@ -248,6 +248,22 @@ def run_gate_command(
     return result
 
 
+def private_repository(directory: Path) -> bool:
+    """Outside forks cannot run jobs on a private repository's self-hosted runners."""
+    try:
+        found = subprocess.run(
+            ["gh", "repo", "view", "--json", "visibility", "-q", ".visibility"],
+            cwd=directory,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return found.returncode == 0 and found.stdout.strip() == "PRIVATE"
+
+
 def zizmor_config(directory: Path, temporary: Path) -> str:
     """actionlint rejects `$/`, zizmor's only fix for self-repository, so that audit is off."""
     import yaml
@@ -262,6 +278,8 @@ def zizmor_config(directory: Path, temporary: Path) -> str:
     if not isinstance(rules, dict):
         raise TypeError("zizmor configuration must map rules to settings")
     rules["self-repository"] = {"disable": True}
+    if "self-hosted-runner" not in rules and private_repository(directory):
+        rules["self-hosted-runner"] = {"disable": True}
     path = temporary / "zizmor.yml"
     path.write_text(yaml.safe_dump(config))
     return str(path)
