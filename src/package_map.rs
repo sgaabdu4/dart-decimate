@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use noyalib::{DuplicateKeyPolicy, Mapping, ParserConfig, Value};
+use noyalib::{DuplicateKeyPolicy, Mapping, MergeKeyPolicy, ParserConfig, Value};
 use serde::Deserialize;
 
 use crate::graph::{GraphError, normalize_path};
@@ -381,6 +381,7 @@ fn read_pubspec_overrides(package_root: &Path) -> Result<Option<Value>, GraphErr
 pub(crate) fn parse_yaml(source: &str) -> Result<Value, noyalib::Error> {
     let config = ParserConfig::new()
         .duplicate_key_policy(DuplicateKeyPolicy::Error)
+        .merge_key_policy(MergeKeyPolicy::AsOrdinary)
         .alias_anchor_ratio(None);
     noyalib::from_str_with_config(source, &config)
 }
@@ -628,6 +629,16 @@ mod tests {
         let packages = PackageMap::discover(fixture.path())?;
 
         assert_eq!(packages.names(), vec!["app"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_yaml_merge_keys_literal() -> Result<(), Box<dyn std::error::Error>> {
+        let value = parse_yaml("name: app\ntemplate: &t {dependencies: {a: ^1.0.0}}\n<<: *t\n")?;
+
+        assert!(value.get("dependencies").is_none());
+        assert!(value.get("<<").is_some());
 
         Ok(())
     }
