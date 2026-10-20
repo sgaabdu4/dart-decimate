@@ -197,8 +197,6 @@ pub enum DependencyHygieneError {
     },
 }
 
-/// Find local pubspec declarations for one dependency package.
-///
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if pubspec discovery or parsing fails.
@@ -241,8 +239,6 @@ pub fn declared_package_dependencies(
     Ok(declarations)
 }
 
-/// List local pub packages under a root.
-///
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if pubspec discovery or parsing fails.

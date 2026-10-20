@@ -273,17 +273,9 @@ pub enum GraphError {
     },
 }
 
-/// Build a directed module graph from extracted Dart file facts.
-///
-/// Local relative imports and exports are resolved from the source file's
-/// directory. `package:` imports resolve through Pub package metadata,
-/// including `.dart_tool/package_config.json`, workspaces, path dependencies,
-/// same-package imports, and owner-local copied packages with duplicate names.
-///
 /// # Errors
 ///
-/// Returns [`GraphError`] if package config or declared Pub package metadata
-/// cannot be read or parsed, or if a workspace glob entry is invalid.
+/// Returns [`GraphError`] if Pub package metadata cannot be read or parsed, or a workspace glob is invalid.
 pub fn build_module_graph(
     root: impl AsRef<Path>,
     files: &[DartFile],
@@ -291,8 +283,6 @@ pub fn build_module_graph(
     build_module_graph_with_options(root, files, &GraphOptions::default())
 }
 
-/// Build a directed module graph using explicit graph construction options.
-///
 /// # Errors
 ///
 /// Returns [`GraphError`] under the same conditions as [`build_module_graph`].
