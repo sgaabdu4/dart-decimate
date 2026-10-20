@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use noyalib::{Mapping, Value};
+use noyalib::{DuplicateKeyPolicy, Mapping, ParserConfig, Value};
 use serde::Deserialize;
 
 use crate::graph::{GraphError, normalize_path};
@@ -342,11 +342,10 @@ impl Pubspec {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => return Err(GraphError::ReadPubspec { path, source }),
         };
-        let value =
-            noyalib::from_str::<Value>(&source).map_err(|source| GraphError::ParsePubspec {
-                path: path.clone(),
-                source: Box::new(source),
-            })?;
+        let value = parse_yaml(&source).map_err(|source| GraphError::ParsePubspec {
+            path: path.clone(),
+            source: Box::new(source),
+        })?;
 
         let overrides = read_pubspec_overrides(package_root)?;
         Ok(Some(Self::from_values(&value, overrides.as_ref())))
@@ -371,12 +370,19 @@ fn read_pubspec_overrides(package_root: &Path) -> Result<Option<Value>, GraphErr
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(source) => return Err(GraphError::ReadPubspec { path, source }),
     };
-    noyalib::from_str::<Value>(&source)
+    parse_yaml(&source)
         .map(Some)
         .map_err(|source| GraphError::ParsePubspec {
             path,
             source: Box::new(source),
         })
+}
+
+pub(crate) fn parse_yaml(source: &str) -> Result<Value, noyalib::Error> {
+    let config = ParserConfig::new()
+        .duplicate_key_policy(DuplicateKeyPolicy::Error)
+        .alias_anchor_ratio(None);
+    noyalib::from_str_with_config(source, &config)
 }
 
 fn resolve_config_uri(config_dir: &Path, uri: &str) -> Option<PathBuf> {
@@ -583,6 +589,45 @@ mod tests {
                 )
                 .is_none()
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_pubspec_with_duplicate_keys() -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            "name: app\ndependencies:\n  a:\n    path: a\ndependencies: {}\n",
+        )?;
+
+        match PackageMap::discover(fixture.path()) {
+            Err(GraphError::ParsePubspec { path, .. }) => {
+                assert_eq!(path, fixture.path().join("pubspec.yaml"));
+            }
+            other => panic!("expected duplicate key parse error, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_pubspec_that_reuses_one_anchor_many_times() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let fixture = TempDir::new()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            &format!(
+                "name: app\nshared: &v x\nlist: [{}]\n",
+                ["*v"; 11].join(", ")
+            ),
+        )?;
+
+        let packages = PackageMap::discover(fixture.path())?;
+
+        assert_eq!(packages.names(), vec!["app"]);
 
         Ok(())
     }

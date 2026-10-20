@@ -133,7 +133,7 @@ fn flutter_l10n_config(directory: &Path) -> Option<FlutterL10nConfig> {
 
 fn read_flutter_l10n_config(project_root: &Path, config_path: &Path) -> Option<FlutterL10nConfig> {
     let source = fs::read_to_string(config_path).ok()?;
-    let config = noyalib::from_str::<noyalib::Value>(&source).ok()?;
+    let config = crate::package_map::parse_yaml(&source).ok()?;
     let output_file = config
         .get("output-localization-file")
         .and_then(noyalib::Value::as_str)

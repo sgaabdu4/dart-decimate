@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::graph::normalize_path;
+use crate::package_map::parse_yaml;
 use crate::{DependencyKind, ExtractError, GraphError, Location};
 
 mod analyze;
@@ -388,7 +389,7 @@ fn read_pubspec_source(path: &Path) -> Result<String, DependencyHygieneError> {
 }
 
 fn parse_pubspec_value(path: &Path, source: &str) -> Result<Value, DependencyHygieneError> {
-    noyalib::from_str::<Value>(source).map_err(|source| DependencyHygieneError::ParsePubspec {
+    parse_yaml(source).map_err(|source| DependencyHygieneError::ParsePubspec {
         path: path.to_path_buf(),
         source: Box::new(source),
     })
@@ -414,7 +415,7 @@ fn read_pubspec_overrides(
 fn read_locked_packages(pubspec_path: &Path) -> Option<BTreeSet<String>> {
     let lock_path = pubspec_path.with_file_name("pubspec.lock");
     let source = fs::read_to_string(lock_path).ok()?;
-    let value = noyalib::from_str::<Value>(&source).ok()?;
+    let value = parse_yaml(&source).ok()?;
     let packages = mapping_field(&value, "packages")?;
     Some(packages.keys().cloned().collect())
 }

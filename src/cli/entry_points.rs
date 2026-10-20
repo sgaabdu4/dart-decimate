@@ -103,7 +103,7 @@ fn file_has_main(file: &crate::DartFile) -> bool {
 
 fn patrol_test_suffix(root: &Path) -> Option<String> {
     let source = fs::read_to_string(root.join("pubspec.yaml")).ok()?;
-    let pubspec = noyalib::from_str::<noyalib::Value>(&source).ok()?;
+    let pubspec = crate::package_map::parse_yaml(&source).ok()?;
     pubspec
         .get("patrol")?
         .get("test_file_suffix")?

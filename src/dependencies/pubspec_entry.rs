@@ -49,7 +49,7 @@ fn is_safe_scalar_value(value: &str) -> bool {
     {
         return false;
     }
-    noyalib::from_str::<Value>(value)
+    crate::package_map::parse_yaml(value)
         .is_ok_and(|value| !matches!(value, Value::Mapping(_) | Value::Sequence(_) | Value::Null))
 }
 

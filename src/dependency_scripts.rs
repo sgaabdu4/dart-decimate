@@ -22,7 +22,7 @@ fn pubspec_has_top_level_key(package_root: &Path, key: &str) -> bool {
     let path = package_root.join("pubspec.yaml");
     fs::read_to_string(path)
         .ok()
-        .and_then(|source| noyalib::from_str::<noyalib::Value>(&source).ok())
+        .and_then(|source| crate::package_map::parse_yaml(&source).ok())
         .is_some_and(|pubspec| pubspec.get(key).is_some())
 }
 

@@ -16,13 +16,14 @@ Evidence: `cargo tree -i unsafe-libyaml` showed `unsafe-libyaml 0.2.11 <- serde_
 Blockers: None
 Handoff: Approval
 Authority: The owner approved the full fix: replace the YAML crate, fold in the Dependabot updates, merge when CI passes, and let the Release workflow publish.
-Decisions: `noyalib` keeps a YAML `Value` enum and an order-preserving `Mapping` with string keys, so call sites change little and dependency order is unchanged. `serde-saphyr` has no value type; going through `serde_json::Value` would sort keys, because this build does not enable `preserve_order`. `noyalib` errors are boxed in the three error enums, because clippy rejects the larger error size. Dependabot #138 (pnpm era) is superseded by #143.
+Decisions: `noyalib` keeps a YAML `Value` enum and an order-preserving `Mapping` with string keys, so call sites change little and dependency order is unchanged. `serde-saphyr` has no value type; going through `serde_json::Value` would sort keys, because this build does not enable `preserve_order`. `noyalib` errors are boxed in the three error enums, because clippy rejects the larger error size. One `package_map::parse_yaml` reader keeps the old parser's rules: duplicate keys fail, and the alias-to-anchor ratio limit is off. Dependabot #138 (pnpm era) is superseded by #143.
 
 ## Acceptance + steps
 
 - [x] `cargo tree -i unsafe-libyaml` finds no such package, and `cargo audit` reports no warnings.
 - [x] `check` JSON output from the new build matches the 0.0.67 build on six local Flutter projects, except the version string.
 - [x] Override keys keep their source order; numeric keys now report their source text instead of a debug form.
+- [x] A pubspec with a duplicate key still fails to parse, and a pubspec that reuses one anchor eleven times still parses → `package_map` tests.
 - [x] Dependabot updates applied: serde_json 1.0.154, toml 1.1.8, tree-sitter 0.27.1; upload-artifact 7.0.2, download-artifact 8.0.2, scorecard-action 2.5.0, codeql-action upload-sarif 4.38.3; @biomejs/biome 2.5.15, @types/node 22.20.5.
 - [x] Version 0.0.68 is synchronized across the established owners.
 
@@ -34,7 +35,7 @@ Execution: Single builder; Codex adversarial review before push.
 
 ## Risks + recovery
 
-`noyalib` is young (0.0.x). It forbids unsafe code and parsed every real pubspec, lock and workflow file in the comparison the same way. It keeps the last value for duplicate keys instead of failing. Its index operator panics on a missing key, so the code uses `get`. Recovery is a normal revert and patch release.
+`noyalib` is young (0.0.x). It forbids unsafe code and parsed every real pubspec, lock and workflow file in the comparison the same way. By default it keeps the last duplicate key and rejects more than ten aliases per anchor; `parse_yaml` turns both off to match the old parser. Its index operator panics on a missing key, so the code uses `get`. Recovery is a normal revert and patch release.
 
 ## ux_reference
 
