@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use noyalib::{DuplicateKeyPolicy, Mapping, MergeKeyPolicy, ParserConfig, Value};
 use serde::Deserialize;
-use serde_yaml_ng::{Mapping, Value};
 
 use crate::graph::{GraphError, normalize_path};
 use crate::scan::{IgnoreMatcher, project_walk};
@@ -342,11 +342,9 @@ impl Pubspec {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => return Err(GraphError::ReadPubspec { path, source }),
         };
-        let value = serde_yaml_ng::from_str::<Value>(&source).map_err(|source| {
-            GraphError::ParsePubspec {
-                path: path.clone(),
-                source,
-            }
+        let value = parse_yaml(&source).map_err(|source| GraphError::ParsePubspec {
+            path: path.clone(),
+            source: Box::new(source),
         })?;
 
         let overrides = read_pubspec_overrides(package_root)?;
@@ -372,9 +370,20 @@ fn read_pubspec_overrides(package_root: &Path) -> Result<Option<Value>, GraphErr
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(source) => return Err(GraphError::ReadPubspec { path, source }),
     };
-    serde_yaml_ng::from_str::<Value>(&source)
+    parse_yaml(&source)
         .map(Some)
-        .map_err(|source| GraphError::ParsePubspec { path, source })
+        .map_err(|source| GraphError::ParsePubspec {
+            path,
+            source: Box::new(source),
+        })
+}
+
+pub(crate) fn parse_yaml(source: &str) -> Result<Value, noyalib::Error> {
+    let config = ParserConfig::new()
+        .duplicate_key_policy(DuplicateKeyPolicy::Error)
+        .merge_key_policy(MergeKeyPolicy::AsOrdinary)
+        .alias_anchor_ratio(None);
+    noyalib::from_str_with_config(source, &config)
 }
 
 fn resolve_config_uri(config_dir: &Path, uri: &str) -> Option<PathBuf> {
@@ -466,7 +475,7 @@ fn path_dependencies(value: &Value, overrides: Option<&Value>) -> Vec<PathDepend
     if let Some(overrides) = mapping_field(override_source, "dependency_overrides") {
         let override_names = overrides
             .keys()
-            .filter_map(Value::as_str)
+            .map(String::as_str)
             .collect::<BTreeSet<_>>();
         dependencies.retain(|dependency| !override_names.contains(dependency.name.as_str()));
     }
@@ -482,7 +491,7 @@ fn path_dependencies_from_mapping(mapping: &Mapping) -> Vec<PathDependency> {
     mapping
         .iter()
         .filter_map(|(name, dependency)| {
-            let name = name.as_str()?.to_owned();
+            let name = name.clone();
             let path = string_field(dependency, "path")?;
             Some(PathDependency {
                 name,
@@ -493,23 +502,17 @@ fn path_dependencies_from_mapping(mapping: &Mapping) -> Vec<PathDependency> {
 }
 
 fn mapping_field<'value>(value: &'value Value, field: &str) -> Option<&'value Mapping> {
-    value
-        .as_mapping()?
-        .get(Value::String(field.to_owned()))?
-        .as_mapping()
+    value.as_mapping()?.get(field)?.as_mapping()
 }
 
 fn string_field<'value>(value: &'value Value, field: &str) -> Option<&'value str> {
-    value
-        .as_mapping()?
-        .get(Value::String(field.to_owned()))?
-        .as_str()
+    value.as_mapping()?.get(field)?.as_str()
 }
 
 fn string_sequence_field(value: &Value, field: &str) -> Vec<String> {
     value
         .as_mapping()
-        .and_then(|mapping| mapping.get(Value::String(field.to_owned())))
+        .and_then(|mapping| mapping.get(field))
         .and_then(Value::as_sequence)
         .into_iter()
         .flatten()
@@ -521,7 +524,7 @@ fn string_sequence_field(value: &Value, field: &str) -> Vec<String> {
 fn has_top_level_field(value: &Value, field: &str) -> bool {
     value
         .as_mapping()
-        .is_some_and(|mapping| mapping.contains_key(Value::String(field.to_owned())))
+        .is_some_and(|mapping| mapping.contains_key(field))
 }
 
 fn expand_workspace_member(root: &Path, member: &str) -> Result<Vec<PathBuf>, GraphError> {
@@ -587,6 +590,55 @@ mod tests {
                 )
                 .is_none()
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_pubspec_with_duplicate_keys() -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = TempDir::new()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            "name: app\ndependencies:\n  a:\n    path: a\ndependencies: {}\n",
+        )?;
+
+        match PackageMap::discover(fixture.path()) {
+            Err(GraphError::ParsePubspec { path, .. }) => {
+                assert_eq!(path, fixture.path().join("pubspec.yaml"));
+            }
+            other => panic!("expected duplicate key parse error, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_pubspec_that_reuses_one_anchor_many_times() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let fixture = TempDir::new()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            &format!(
+                "name: app\nshared: &v x\nlist: [{}]\n",
+                ["*v"; 11].join(", ")
+            ),
+        )?;
+
+        let packages = PackageMap::discover(fixture.path())?;
+
+        assert_eq!(packages.names(), vec!["app"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_yaml_merge_keys_literal() -> Result<(), Box<dyn std::error::Error>> {
+        let value = parse_yaml("name: app\ntemplate: &t {dependencies: {a: ^1.0.0}}\n<<: *t\n")?;
+
+        assert!(value.get("dependencies").is_none());
+        assert!(value.get("<<").is_some());
 
         Ok(())
     }

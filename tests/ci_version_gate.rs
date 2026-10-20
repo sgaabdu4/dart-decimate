@@ -386,10 +386,10 @@ fn release_workflow_builds_and_publishes_the_verified_tag() -> Result<(), Box<dy
 #[test]
 fn scaffold_release_proof_requires_an_explicit_native_success()
 -> Result<(), Box<dyn std::error::Error>> {
-    let release: serde_yaml_ng::Value =
-        serde_yaml_ng::from_str(&fs::read_to_string(".github/workflows/release.yml")?)?;
+    let release: noyalib::Value =
+        noyalib::from_str(&fs::read_to_string(".github/workflows/release.yml")?)?;
     let prepare = &release["jobs"]["prepare"];
-    assert!(prepare["if"].is_null());
+    assert!(prepare.get("if").is_none());
     assert_eq!(
         prepare["outputs"]["scaffold_only"].as_str(),
         Some("${{ steps.scaffold.outputs.scaffold_only }}")
@@ -399,9 +399,9 @@ fn scaffold_release_proof_requires_an_explicit_native_success()
         .ok_or_else(|| missing("steps"))?;
     let proof = steps
         .iter()
-        .find(|step| step["id"] == "scaffold")
+        .find(|step| step.get("id").and_then(noyalib::Value::as_str) == Some("scaffold"))
         .ok_or_else(|| missing("scaffold"))?;
-    assert!(proof["if"].is_null());
+    assert!(proof.get("if").is_none());
     let run = proof["run"]
         .as_str()
         .ok_or_else(|| missing("proof script"))?;

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use noyalib::Value;
 use serde::{Deserialize, Serialize};
-use serde_yaml_ng::Value;
 
 use crate::Location;
 
@@ -49,10 +49,8 @@ pub(super) fn misconfigured_dependency_overrides(
     overrides
         .iter()
         .filter_map(|(name, value)| {
-            let raw_key = name
-                .as_str()
-                .map_or_else(|| format!("{name:?}"), ToOwned::to_owned);
-            let reason = if !name.as_str().is_some_and(valid_dart_package_name) {
+            let raw_key = name.clone();
+            let reason = if !valid_dart_package_name(name) {
                 DependencyOverrideMisconfigReason::UnparsableKey
             } else if value.is_null() {
                 DependencyOverrideMisconfigReason::EmptyValue
@@ -62,7 +60,7 @@ pub(super) fn misconfigured_dependency_overrides(
             Some(MisconfiguredDependencyOverride {
                 package: package.to_owned(),
                 pubspec_path: pubspec_path.to_path_buf(),
-                dependency: name.as_str().map(ToOwned::to_owned),
+                dependency: Some(name.clone()),
                 location: dependency_location(
                     source,
                     DependencySection::DependencyOverrides,

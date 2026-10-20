@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
+use noyalib::Value;
 use serde_json::Value as JsonValue;
-use serde_yaml_ng::Value;
 
 pub(super) fn flutter_metadata_dependencies(
     package_root: &Path,
@@ -88,5 +88,5 @@ fn collect_plugin_names(value: &JsonValue, dependencies: &mut BTreeSet<String>) 
 }
 
 fn mapping_field<'value>(value: &'value Value, key: &str) -> Option<&'value Value> {
-    value.as_mapping()?.get(Value::String(key.to_owned()))
+    value.as_mapping()?.get(key)
 }

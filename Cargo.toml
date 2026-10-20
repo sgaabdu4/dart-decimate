@@ -1,6 +1,6 @@
 [package]
 name = "dart-decimate"
-version = "0.0.67"
+version = "0.0.68"
 edition = "2024"
 rust-version = "1.90"
 description = "Rust-native codebase intelligence for Dart and Flutter module graphs."
@@ -17,11 +17,11 @@ include = ["/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/src/**"]
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions"] }
 glob = "0.3"
 ignore = "0.4"
+noyalib = "0.0.58"
 petgraph = "0.8"
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_yaml_ng = "0.10"
 tempfile = "3"
 thiserror = "2"
 toml = "1.1"
