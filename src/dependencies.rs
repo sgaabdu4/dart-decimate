@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use noyalib::{Mapping, Value};
 use serde::{Deserialize, Serialize};
-use serde_yaml_ng::{Mapping, Value};
 use thiserror::Error;
 
 use crate::graph::normalize_path;
@@ -192,7 +192,7 @@ pub enum DependencyHygieneError {
         /// Pubspec path.
         path: PathBuf,
         /// Underlying YAML parse error.
-        source: serde_yaml_ng::Error,
+        source: Box<noyalib::Error>,
     },
 }
 
@@ -388,11 +388,9 @@ fn read_pubspec_source(path: &Path) -> Result<String, DependencyHygieneError> {
 }
 
 fn parse_pubspec_value(path: &Path, source: &str) -> Result<Value, DependencyHygieneError> {
-    serde_yaml_ng::from_str::<Value>(source).map_err(|source| {
-        DependencyHygieneError::ParsePubspec {
-            path: path.to_path_buf(),
-            source,
-        }
+    noyalib::from_str::<Value>(source).map_err(|source| DependencyHygieneError::ParsePubspec {
+        path: path.to_path_buf(),
+        source: Box::new(source),
     })
 }
 
@@ -416,15 +414,9 @@ fn read_pubspec_overrides(
 fn read_locked_packages(pubspec_path: &Path) -> Option<BTreeSet<String>> {
     let lock_path = pubspec_path.with_file_name("pubspec.lock");
     let source = fs::read_to_string(lock_path).ok()?;
-    let value = serde_yaml_ng::from_str::<Value>(&source).ok()?;
+    let value = noyalib::from_str::<Value>(&source).ok()?;
     let packages = mapping_field(&value, "packages")?;
-    Some(
-        packages
-            .keys()
-            .filter_map(Value::as_str)
-            .map(ToOwned::to_owned)
-            .collect(),
-    )
+    Some(packages.keys().cloned().collect())
 }
 
 fn merged_declared_dependencies(
@@ -516,7 +508,7 @@ fn declared_dependencies_for_sections(
         })
         .flat_map(|(section, mapping)| {
             mapping.iter().filter_map(move |(name, value)| {
-                let name = name.as_str()?.to_owned();
+                let name = name.clone();
                 if section == DependencySection::DependencyOverrides
                     && (!valid_dart_package_name(&name) || value.is_null())
                 {
@@ -564,23 +556,17 @@ pub(crate) fn valid_dart_package_name(name: &str) -> bool {
 }
 
 fn mapping_field<'value>(value: &'value Value, field: &str) -> Option<&'value Mapping> {
-    value
-        .as_mapping()?
-        .get(Value::String(field.to_owned()))?
-        .as_mapping()
+    value.as_mapping()?.get(field)?.as_mapping()
 }
 
 fn string_field<'value>(value: &'value Value, field: &str) -> Option<&'value str> {
-    value
-        .as_mapping()?
-        .get(Value::String(field.to_owned()))?
-        .as_str()
+    value.as_mapping()?.get(field)?.as_str()
 }
 
 fn has_top_level_field(value: &Value, field: &str) -> bool {
     value
         .as_mapping()
-        .is_some_and(|mapping| mapping.contains_key(Value::String(field.to_owned())))
+        .is_some_and(|mapping| mapping.contains_key(field))
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use serde_yaml_ng::Value;
+use noyalib::Value;
 
 use super::DependencySection;
 use crate::Location;
@@ -49,7 +49,7 @@ fn is_safe_scalar_value(value: &str) -> bool {
     {
         return false;
     }
-    serde_yaml_ng::from_str::<Value>(value)
+    noyalib::from_str::<Value>(value)
         .is_ok_and(|value| !matches!(value, Value::Mapping(_) | Value::Sequence(_) | Value::Null))
 }
 

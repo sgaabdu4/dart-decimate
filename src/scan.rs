@@ -68,7 +68,7 @@ pub enum ScanError {
         /// Pubspec path.
         path: PathBuf,
         /// Underlying YAML parse error.
-        source: serde_yaml_ng::Error,
+        source: Box<noyalib::Error>,
     },
     /// A pub workspace glob pattern was invalid.
     #[error("invalid pub workspace glob pattern {pattern}: {source}")]

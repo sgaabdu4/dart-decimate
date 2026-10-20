@@ -133,16 +133,16 @@ fn flutter_l10n_config(directory: &Path) -> Option<FlutterL10nConfig> {
 
 fn read_flutter_l10n_config(project_root: &Path, config_path: &Path) -> Option<FlutterL10nConfig> {
     let source = fs::read_to_string(config_path).ok()?;
-    let config = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&source).ok()?;
+    let config = noyalib::from_str::<noyalib::Value>(&source).ok()?;
     let output_file = config
         .get("output-localization-file")
-        .and_then(serde_yaml_ng::Value::as_str)
+        .and_then(noyalib::Value::as_str)
         .unwrap_or("app_localizations.dart")
         .to_owned();
     let output_dir = config
         .get("output-dir")
-        .and_then(serde_yaml_ng::Value::as_str)
-        .or_else(|| config.get("arb-dir").and_then(serde_yaml_ng::Value::as_str))
+        .and_then(noyalib::Value::as_str)
+        .or_else(|| config.get("arb-dir").and_then(noyalib::Value::as_str))
         .unwrap_or("lib/l10n");
     Some(FlutterL10nConfig {
         output_dir: project_root.join(output_dir),

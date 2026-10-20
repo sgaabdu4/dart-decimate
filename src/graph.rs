@@ -237,7 +237,7 @@ pub enum GraphError {
         /// Pubspec path.
         path: PathBuf,
         /// Underlying YAML parse error.
-        source: serde_yaml_ng::Error,
+        source: Box<noyalib::Error>,
     },
     /// A discovered `.dart_tool/package_config.json` could not be read.
     #[error("failed to read package config {path}: {source}")]
