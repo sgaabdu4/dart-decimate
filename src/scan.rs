@@ -68,7 +68,7 @@ pub enum ScanError {
         /// Pubspec path.
         path: PathBuf,
         /// Underlying YAML parse error.
-        source: serde_yaml_ng::Error,
+        source: Box<noyalib::Error>,
     },
     /// A pub workspace glob pattern was invalid.
     #[error("invalid pub workspace glob pattern {pattern}: {source}")]
@@ -102,11 +102,6 @@ pub enum ScanError {
     Graph(#[from] GraphError),
 }
 
-/// Discover, parse, and graph all `.dart` files under `root` and discovered
-/// local package roots.
-///
-/// Parsing is parallelized with Rayon after a deterministic filesystem walk.
-///
 /// # Errors
 ///
 /// Returns [`ScanError`] when discovery, parsing, or graph construction fails.
@@ -114,11 +109,6 @@ pub fn scan_project(root: impl AsRef<Path>) -> Result<ScannedProject, ScanError>
     scan_project_with_options(root, &ScanOptions::default())
 }
 
-/// Discover, parse, and graph all non-ignored `.dart` files under `root` and
-/// discovered local package roots.
-///
-/// Parsing is parallelized with Rayon after a deterministic filesystem walk.
-///
 /// # Errors
 ///
 /// Returns [`ScanError`] when discovery, parsing, or graph construction fails.
@@ -242,8 +232,7 @@ fn discover_dart_files(
     Ok(())
 }
 
-/// Walk `dir` with the project's ignore rules: `.gitignore`, the configured
-/// ignore patterns, skipped tool directories and nested checkouts.
+/// Skips `.gitignore` and configured ignores, tool directories and nested checkouts.
 pub(crate) fn project_walk(root: &Path, dir: &Path, ignore_matcher: &IgnoreMatcher) -> Walk {
     let filter_root = root.to_path_buf();
     let filter_matcher = ignore_matcher.clone();
@@ -304,8 +293,7 @@ fn has_skipped_directory(root: &Path, path: &Path) -> bool {
         .is_some_and(|parent| parent.ancestors().any(should_skip_dir))
 }
 
-/// Whether `dir` is the root of its own Git or Jujutsu checkout, such as a
-/// nested worktree or clone, which belongs to a separate package graph.
+/// A nested Git or Jujutsu checkout belongs to a separate package graph.
 pub(crate) fn is_repository_root(dir: &Path) -> bool {
     dir.join(".git").exists() || dir.join(".jj").exists()
 }
