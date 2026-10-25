@@ -85,11 +85,19 @@ def impact_tools(root: Path, groups: list[Group]) -> list[str]:
     return list(dict.fromkeys(tools))
 
 
+def impact_runner(groups: list[Group]) -> str:
+    """Xcode runs on macOS; every other selection stays on Linux."""
+    swift = any(group.get("language") == "swift" for group in groups)
+    return "macos-latest" if swift else "ubuntu-latest"
+
+
 def workflow_triggers(source: Path, base: str) -> tuple[str, str]:
     """The template trigger block and its copy for the project's base branch."""
     template = (source / ".github/workflows/hard-eng.yml").read_text()
     block = template[template.index("on:\n") : template.index("\n\npermissions:") + 1]
-    return block, block.replace("      - main\n", f"      - {base}\n", 1)
+    # Only this source repository releases from develop.
+    project = block.replace("      - develop\n", "", 1)
+    return block, project.replace("      - main\n", f"      - {base}\n", 1)
 
 
 def migrate_workflow_triggers(root: Path, source: Path, content: str) -> str:
@@ -110,8 +118,8 @@ def workflow_budget(root: Path, content: str) -> str:
     if policy is None:
         return content
     return re.sub(
-        r"(?m)^    timeout-minutes: \d+$",
-        f"    timeout-minutes: {math.ceil(policy['ci_seconds'] / 60)}",
+        r"(?ms)(^  hard-eng:\n.*?^    timeout-minutes: )\d+$",
+        lambda match: match[1] + str(math.ceil(policy["ci_seconds"] / 60)),
         content,
     )
 
@@ -171,6 +179,78 @@ def migrate_bun(source: Path, content: str) -> str:
         else line
         for line in content.splitlines(keepends=True)
     )
+
+
+LEGACY_PACKAGE = '--package="@jdxcode/mise-linux-${RUNNER_ARCH,,}@latest"'
+MISE_PACKAGE = '--package="$MISE_PACKAGE"'
+RUNNER_JOB = """  impact:
+    name: impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runner: ${{ steps.impact.outputs.runner }}
+    steps:
+%s      - name: Choose the runner
+        id: impact
+        env:
+          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .hooks/hard-eng.py impact --base "$BASE_SHA" >> "$GITHUB_OUTPUT" || echo runner=macos-latest >> "$GITHUB_OUTPUT"
+
+"""
+CHECK_JOB = "  hard-eng:\n    name: hard-eng\n    runs-on: ubuntu-latest\n"
+RUNNER_HEADER = (
+    "    needs: impact\n    if: ${{ !cancelled() }}\n"
+    "    runs-on: ${{ needs.impact.outputs.runner || 'macos-latest' }}\n"
+)
+
+
+def migrate_launcher(source: Path, content: str) -> str:
+    """Bash 3.2 on macOS runners cannot lowercase with ${var,,}; compute the package once per job."""
+    if LEGACY_PACKAGE not in content and MISE_PACKAGE not in content:
+        return content
+    template = (source / ".github/workflows/hard-eng.yml").read_text()
+    echo = next(line for line in template.splitlines() if "MISE_PACKAGE=" in line)
+    # Each job runs on its own runner, so every job that launches mise sets the package.
+    jobs = re.split(r"(?m)^(?=  [A-Za-z0-9_-]+:\n)", content)
+    for index, job in enumerate(jobs):
+        if (
+            LEGACY_PACKAGE in job or MISE_PACKAGE in job
+        ) and 'echo "MISE_PACKAGE=' not in job:
+            anchor = re.search(r'(?m)^( *)echo "BUN_INSTALL_CACHE_DIR=[^\n]*\n', job)
+            if anchor is None:
+                name = job.split(":", 1)[0].strip()
+                print(
+                    f"CI launcher not updated in job {name}: add the MISE_PACKAGE line "
+                    "from the Hard Eng template to its first step so mise installs on "
+                    "every runner.",
+                    file=sys.stderr,
+                )
+                continue
+            line = anchor[1] + echo.strip() + "\n"
+            jobs[index] = job[: anchor.end()] + line + job[anchor.end() :]
+    return "".join(jobs).replace(LEGACY_PACKAGE, MISE_PACKAGE)
+
+
+def migrate_swift_runner(config: GateConfig, content: str) -> str:
+    """A project with a Swift group runs its check on macOS only when impact selects one."""
+    if impact_runner(config["packages"]) != "macos-latest" or "  impact:\n" in content:
+        return content
+    checkout = re.search(
+        r"(?m)^      - uses: actions/checkout@[^\n]*\n(?:        [^\n]*\n)*", content
+    )
+    if content.count(CHECK_JOB) != 1 or checkout is None:
+        print(
+            "CI runner not added: .github/workflows/hard-eng.yml is customised. "
+            "Add the impact job from the Hard Eng generator and make the hard-eng "
+            "job use its runner output so Swift checks run on macOS.",
+            file=sys.stderr,
+        )
+        return content
+    job = RUNNER_JOB % checkout[0] + CHECK_JOB.replace(
+        "    runs-on: ubuntu-latest\n", RUNNER_HEADER
+    )
+    return content.replace(CHECK_JOB, job, 1)
 
 
 OLD_PERMISSIONS = (
@@ -543,12 +623,14 @@ def integrated(workflows: list[Path]) -> bool:
     return found and complete
 
 
-def workflow_installed(
+def setup_installed(
     root: Path, base: str, names: set[str], sources: tuple[Path, Path]
 ) -> bool:
-    """Whether a changed workflow is what the release's setup writes from the base one."""
-    name = ".github/workflows/hard-eng.yml"
-    return name not in names or name in setup_written(root, base, {name}, sources)
+    """Whether changed setup-owned files are what the release's setup writes from the base."""
+    from agent_hooks import HOOK_FILES
+
+    owned = names & {".github/workflows/hard-eng.yml", *HOOK_FILES.values()}
+    return not owned or setup_written(root, base, owned, sources) == owned
 
 
 def setup_written(
@@ -610,10 +692,14 @@ def configure_ci(
         )
         migrated = migrate_affected_tools(root, source, config, migrated)
         migrated = migrate_docs_token(migrate_impact_token(migrated))
+        migrated = migrate_swift_runner(config, migrate_launcher(source, migrated))
         if "\n  pull-requests:" not in migrated:
             migrated = migrated.replace(
                 OLD_PERMISSIONS, OLD_PERMISSIONS + PERMISSIONS, 1
             )
+        migrated = migrated.replace(
+            "MISE_MINIMUM_RELEASE_AGE: 0s\n", "MISE_MINIMUM_RELEASE_AGE: 2d\n"
+        )
         if migrated != original:
             changes[name] = migrated
         integrated(workflows)
@@ -662,7 +748,37 @@ def configure_ci(
         )
         .replace(block, triggers, 1)
     )
-    changes[name] = workflow_budget(root, changes[name])
+    changes[name] = workflow_budget(root, migrate_swift_runner(config, changes[name]))
+
+
+def add_workflow_checks(config: GateConfig) -> None:
+    for role, command in (
+        ("workflows", ["actionlint", "-no-color"]),
+        (
+            "ci-security",
+            [
+                "zizmor",
+                "--strict-collection",
+                "--persona=auditor",
+                "--format=plain",
+                ".",
+            ],
+        ),
+    ):
+        if any(
+            gate.get("role") == role
+            or (gate.get("command") and Path(gate["command"][0]).name == command[0])
+            for gate in config["shared"]
+        ):
+            continue
+        config["shared"].append(
+            {
+                "name": command[0],
+                "role": role,
+                "parallel": True,
+                "command": command,
+            }
+        )
 
 
 RUNNER_MULTIPLIERS = {"windows": 2, "macos": 10}
@@ -786,3 +902,53 @@ def require_ci_base(base: str | None) -> None:
             "pass github.event.pull_request.base.sha || github.event.before. "
             "Manual full checks may omit --base."
         )
+
+
+def push_base(root: Path, base: str | None) -> str | None:
+    """A force push names a base outside the new history; compare with HEAD's parent."""
+    if (
+        os.environ.get("GITHUB_ACTIONS") != "true"
+        or os.environ.get("GITHUB_EVENT_NAME") != "push"
+        or not base
+        or subprocess.run(
+            ["git", "cat-file", "-e", base + "^{commit}"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    ):
+        return base
+    parent = subprocess.run(
+        ["git", "rev-parse", "--verify", "-q", "HEAD^"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if parent.returncode:
+        return base
+    print(
+        f"Push base {base[:12]} is not in this history (force push); "
+        "checking changes since HEAD's parent.",
+        file=sys.stderr,
+    )
+    return parent.stdout.strip()
+
+
+PR_TEXT = ".github/workflows/pr-text.yml"
+
+
+def configure_github_ci(
+    root: Path, source: Path, config: GateConfig, changes: dict[str, str]
+) -> None:
+    workflow = ".github/workflows/hard-eng.yml"
+    configure_ci(root, source, config, changes)
+    if workflow in changes:
+        add_workflow_checks(config)
+    if workflow not in changes and not (root / workflow).is_file():
+        return
+    # The cloud GitHub proxy adds a Claude footer to PR bodies; this workflow removes it.
+    content = (source / PR_TEXT).read_text()
+    if not (root / PR_TEXT).is_file() or (root / PR_TEXT).read_text() != content:
+        changes[PR_TEXT] = content
