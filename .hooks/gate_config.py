@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
@@ -195,6 +196,7 @@ def nonproduction_source(relative: Path) -> bool:
         {"test", "tests", "integration_test", "__tests__", "node_modules", "vendor"}
         & set(relative.parts)
         or relative.name.startswith("test_")
+        or relative.name.endswith("Tests.swift")
         or relative.stem.endswith(("_test", ".test", ".spec"))
         or relative.name.endswith((".d.ts", ".d.mts", ".d.cts"))
     )
@@ -243,23 +245,21 @@ def generated_sources(root: Path, names: list[str]) -> set[str]:
     )
     if repository.returncode:
         return set()  # Standalone source directories have no Git attributes.
-    attributes = subprocess.check_output(
-        [
-            "git",
-            "check-attr",
-            "-z",
-            "--stdin",
-            "linguist-generated",
-            "linguist-vendored",
-        ],
-        cwd=root,
-        text=True,
-        input="\0".join(names) + "\0",
-    ).split("\0")
+    # A live stdin pipe deadlocked against git's per-path output on macOS (issue 375).
+    with tempfile.TemporaryFile() as paths:
+        paths.write(("\0".join(names) + "\0").encode())
+        paths.seek(0)
+        attributes = subprocess.check_output(
+            ["git", "check-attr", "-z", "--all", "--stdin"],
+            cwd=root,
+            text=True,
+            stdin=paths,
+        ).split("\0")
     return {
         name
-        for name, _, value in zip(attributes[::3], attributes[1::3], attributes[2::3])
-        if value in {"set", "true"}
+        for name, key, value in zip(attributes[::3], attributes[1::3], attributes[2::3])
+        if key in {"linguist-generated", "linguist-vendored"}
+        and value in {"set", "true"}
     }
 
 
@@ -293,12 +293,6 @@ def validate_dart_plugins(options: JsonObject) -> None:
         raise ValueError(
             f"Analyzer plugin version is older than the installed canonical profile ({changes}); run the supported Hard Eng updater and verify application compatibility"
         )
-
-
-def validate_dart_exclusions(directory: Path, values: object) -> None:
-    from project_setup import validate_dart_exclusions as validate
-
-    validate(directory, values)
 
 
 def validate_file_sizes(root: Path, exceptions: dict[str, dict[str, str]]) -> None:
@@ -342,7 +336,8 @@ def validate_file_sizes(root: Path, exceptions: dict[str, dict[str, str]]) -> No
             failures.append(f"{name}: {lines} lines")
     if failures:
         raise ValueError(
-            "Handwritten files exceed 1000 physical lines: " + "; ".join(failures)
+            "HE-FILE-LENGTH: Handwritten files exceed 1000 physical lines: "
+            + "; ".join(failures)
         )
 
 
@@ -640,22 +635,22 @@ def affected_groups(
 def selected_services(
     root: Path, packages: list[Group], selected: set[str]
 ) -> list[Group]:
-    """Retain ancestor-owned dependency checks without unrelated test suites."""
+    """Keep ancestor dependency checks and the lockfiles a Dart analyzer reads."""
     affected = []
+    dart = {
+        (root / g["path"]).resolve() for g in packages if g.get("language") == "dart"
+    }
+    chosen = {(root / path).resolve() for path in selected}
     for group in packages:
+        here = (root / group["path"]).resolve()
+        holds = any(path.is_relative_to(here) for path in chosen)
+        nested = here in dart and any(here.is_relative_to(p) for p in chosen & dart)
+        roles = {"lockfiles", "vulnerabilities"} if holds else {"lockfiles"}
+        services = [gate for gate in group["checks"] if gate.get("role") in roles]
         if group["path"] in selected:
             affected.append(group)
-        elif any(
-            (root / path).resolve().is_relative_to((root / group["path"]).resolve())
-            for path in selected
-        ):
-            services = [
-                gate
-                for gate in group["checks"]
-                if gate.get("role") in {"lockfiles", "vulnerabilities"}
-            ]
-            if services:
-                affected.append({**group, "checks": services})
+        elif (holds or nested) and services:
+            affected.append({**group, "checks": services})
     return affected
 
 
@@ -668,7 +663,7 @@ def validate_performance(group: Group) -> None:
     suites = [gate for gate in group["checks"] if gate.get("role") == "performance"]
     if group.get("language") and not suites and reason is None:
         raise ValueError(
-            "Missing mandatory performance suite; configure a workload and budget "
+            "HE-PERFORMANCE-SUITE: Missing mandatory performance suite; configure a workload and budget "
             "or a reviewed performance_exception"
         )
     for gate in suites:
@@ -694,7 +689,7 @@ def validate_group(root: Path, group: Group, report_paths: set[Path]) -> int:
         raise ValueError(
             f"Gate directory must exist inside the project: {group['path']}"
         )
-    if group.get("language") not in {None, *LANGUAGES.values()}:
+    if group.get("language") not in {None, "swift", *LANGUAGES.values()}:
         raise ValueError(f"Unsupported package language: {group.get('language')}")
     impact_inputs(group)
     required = {
@@ -718,6 +713,7 @@ def validate_group(root: Path, group: Group, report_paths: set[Path]) -> int:
             "dead-code-duplicates",
         },
         "dart": {"format", "types", "tests", "dead-code-duplicates", "boundaries"},
+        "swift": {"format-lint", "tests", "duplicates"},
     }.get(group.get("language", ""), set())
     roles = {gate.get("role") for gate in group["checks"] if isinstance(gate, dict)}
     if group.get("language") == "dart" and any(
@@ -830,6 +826,11 @@ def validate_required_checks(root: Path, config: GateConfig) -> None:
     files = repository_files(root)
     manifests = package_manifests(root, files)
     validate_manifest_groups(root, config, manifests)
+    from python_setup import require_listed_python_sources
+    from swift_setup import require_swift_groups
+
+    require_swift_groups(root, config, files)
+    require_listed_python_sources(root, config["packages"], files)
     if not config["packages"] and not manifests:
         return  # Ad-hoc command groups without a supported application manifest.
     shared_roles = {gate.get("role", "") for gate in config["shared"]}
@@ -892,10 +893,11 @@ def validate_package_services(
 ) -> None:
     from project_setup import (
         dependency_command,
-        python_roots,
         workspace_matches,
         workspace_members,
     )
+    from python_setup import python_roots
+    from swift_setup import parent_roles
 
     directory = (root / group["path"]).resolve()
     language = group.get("language") or manifests.get(str(Path(group["path"])), "")
@@ -907,6 +909,8 @@ def validate_package_services(
             str(directory.relative_to(owner)), workspace_members(owner, language)
         ):
             inherited.update(gate.get("role", "") for gate in parent["checks"])
+    if language == "swift":
+        inherited |= parent_roles(directory, by_directory)
     require_roles(group["path"], {"lockfiles", "vulnerabilities"}, roles | inherited)
     if language == "python":
         dependency_command(directory, language)  # Raises when no lockfile exists.

@@ -4,13 +4,15 @@ import json
 import math
 import re
 import subprocess
+import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from concurrent.futures import Future
 from pathlib import Path
 from typing import TextIO, cast
 
-from coverage_sources import erased_typescript
+from coverage_sources import erased_swift, erased_typescript
 from dart_coverage import erased_dart
 from dart_test_report import dart_events, failure_summary
 from fallow_report import validate_fallow, write_istanbul
@@ -212,6 +214,16 @@ def completed_tests(path: Path, kind: str) -> int:
             and event.get("result") == "success"
             for event in events
         )
+    if kind == "xcode-tests":
+        summary = json.loads(path.read_text())
+        passed = summary.get("passedTests")
+        if (
+            summary.get("result") != "Passed"
+            or summary.get("failedTests") != 0
+            or type(passed) is not int
+        ):
+            raise ValueError("Test report does not contain a successful completed run")
+        return passed
     # Local JUnit only; ElementTree rejects external entities (test_junit_rejects_entities).
     # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
     tree = ET.parse(path)
@@ -220,6 +232,47 @@ def completed_tests(path: Path, kind: str) -> int:
     if tree.findall(".//failure") or tree.findall(".//error"):
         raise ValueError("Test report contains failures or errors")
     return sum(test.find("skipped") is None for test in tree.iter("testcase"))
+
+
+def reported_skips(path: Path, kind: str) -> set[str]:
+    if kind == "dart-tests":
+        events = dart_events(path)
+        names = {
+            test.get("id"): test.get("name")
+            for event in events
+            if event.get("type") == "testStart"
+            and isinstance(test := event.get("test"), dict)
+        }
+        return {
+            str(names.get(event.get("testID")))
+            for event in events
+            if event.get("type") == "testDone" and event.get("skipped") is True
+        }
+    if kind == "xcode-tests":
+        return set()
+    # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
+    tree = ET.parse(path)
+    return {
+        test.get("name", "").split("[", 1)[0]
+        for test in tree.iter("testcase")
+        if test.find("skipped") is not None
+    }
+
+
+def skipped_tests(root: Path, groups: list[Group], since: float) -> set[str]:
+    """Skips in the test reports that this run wrote."""
+    names: set[str] = set()
+    for group in groups:
+        for gate in group["checks"]:
+            report = gate.get("report", {})
+            path = root / group["path"] / report.get("tests", "")
+            if (
+                gate.get("role") == "tests"
+                and path.is_file()
+                and path.stat().st_mtime >= since
+            ):
+                names |= reported_skips(path, report["type"])
+    return names
 
 
 def python_coverage(path: Path, directory: Path) -> dict[Path, tuple[int, int]]:
@@ -243,6 +296,27 @@ def python_coverage(path: Path, directory: Path) -> dict[Path, tuple[int, int]]:
         if file in files:
             raise ValueError(f"Duplicate Python coverage file: {name}")
         files[file] = covered, total
+    return files
+
+
+def xccov_coverage(path: Path, directory: Path) -> dict[Path, tuple[int, int]]:
+    """Per-file counts from `xccov view --report --json`; targets share a file."""
+    report = json.loads(path.read_text())
+    targets = report.get("targets") if isinstance(report, dict) else None
+    if not isinstance(targets, list):
+        raise TypeError("Invalid xccov targets")
+    files: dict[Path, tuple[int, int]] = {}
+    for target in targets:
+        for entry in target["files"]:
+            covered, total = entry["coveredLines"], entry["executableLines"]
+            if type(covered) is not int or type(total) is not int:
+                raise TypeError("Invalid xccov line counts")
+            if not 0 <= covered <= total:
+                raise ValueError("Invalid xccov line counts")
+            file = (directory / entry["path"]).resolve()
+            files[file] = max(
+                files.get(file, (0, 0)), (covered, total), key=lambda c: (c[1], c[0])
+            )
     return files
 
 
@@ -275,12 +349,16 @@ def lcov_coverage(path: Path, directory: Path) -> dict[Path, tuple[int, int]]:
 def line_coverage(
     path: Path, kind: str, directory: Path, expected: set[Path]
 ) -> tuple[int, int]:
-    reader = python_coverage if kind == "python-tests" else lcov_coverage
+    reader = {"python-tests": python_coverage, "xcode-tests": xccov_coverage}.get(
+        kind, lcov_coverage
+    )
     files = reader(path, directory)
     if kind == "lcov-tests" and "\nFN:" not in path.read_text():
         write_istanbul(path, directory)
     if kind == "lcov-tests":
         expected = expected - erased_typescript(expected - files.keys())
+    if kind == "xcode-tests":
+        expected = expected - erased_swift(expected - files.keys())
     if kind == "dart-tests":
         # Dart LCOV omits simple export barrels: they have no executable lines.
         expected = {
@@ -315,7 +393,8 @@ def line_coverage(
     total = sum(files[file][1] for file in expected)
     if not total:
         raise ValueError("Coverage report contains no executable lines")
-    report_branches(path, kind, directory, expected)
+    if kind != "xcode-tests":
+        report_branches(path, kind, directory, expected)
     return covered, total
 
 
@@ -360,7 +439,11 @@ def validate_osv_package(
     ):
         raise ValueError("OSV report is missing package identity")
     if item.get("vulnerabilities", []) != [] or item.get("groups", []) != []:
-        raise ValueError("OSV reports vulnerable packages")
+        found = item.get("vulnerabilities")
+        entries = found if isinstance(found, list) else []
+        ids = [str(entry.get("id")) for entry in entries if isinstance(entry, dict)]
+        name = f"{package.get('name') or commit}@{package.get('version')}"
+        raise ValueError(f"OSV reports vulnerable packages: {name}: " + ", ".join(ids))
     if image:
         origin = package["image_origin_details"]
         if not isinstance(origin, dict):
@@ -688,17 +771,38 @@ def validate_dart_decimate(path: Path) -> None:
         raise ValueError("Dart Decimate report is incomplete or malformed") from error
 
 
-def validate_jscpd(path: Path) -> None:
+def jscpd_scanned(path: Path) -> bool:
+    try:
+        formats = json.loads(path.read_text())["statistics"]["formats"]
+        return set(formats) in ({"python"}, {"swift"}) and all(
+            type(summary["sources"]) is int and summary["sources"] > 0
+            for summary in formats.values()
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def validate_jscpd(path: Path, below_minimum: Callable[[], bool] | None = None) -> None:
     try:
         report = json.loads(path.read_text())
         if report["duplicates"] != []:
             raise ValueError("jscpd reports duplicate code or malformed findings")
         stats = report["statistics"]
         formats, total = stats["formats"], stats["total"]
-        if not isinstance(formats, dict) or set(formats) != {"python"}:
-            raise ValueError("jscpd report requires Python analysis")
-        python = formats["python"]
-        for summary in (python, total):
+        if (
+            formats == {}
+            and total["sources"] == 0
+            and below_minimum
+            and below_minimum()
+        ):
+            print(
+                "jscpd: every file is below jscpd's --min-tokens, so no clone can exist"
+            )
+            return
+        if not isinstance(formats, dict) or set(formats) not in ({"python"}, {"swift"}):
+            raise ValueError("jscpd report requires Python or Swift analysis")
+        analysed = next(iter(formats.values()))
+        for summary in (analysed, total):
             for key in (
                 "clones",
                 "duplicatedLines",
@@ -713,10 +817,79 @@ def validate_jscpd(path: Path) -> None:
                     raise ValueError("jscpd reports duplication or invalid counts")
             for key in ("sources", "lines", "tokens"):
                 value = summary[key]
-                if type(value) is not int or value <= 0 or value != python[key]:
+                if type(value) is not int or value <= 0 or value != analysed[key]:
                     raise ValueError("jscpd analysis scope is empty or inconsistent")
     except (KeyError, TypeError, AttributeError) as error:
         raise ValueError("jscpd report is incomplete or malformed") from error
+
+
+def osv_lockfiles(command: list[str], directory: Path) -> list[str]:
+    """Leave out lockfiles that hold no package OSV can scan; [] when none is left."""
+    from python_setup import locks_nothing
+
+    if "--lockfile=bun.lock" in command and not (directory / "bun.lock").exists():
+        command = [value for value in command if value != "--lockfile=bun.lock"]
+    if "--lockfile=uv.lock" in command and locks_nothing(directory):
+        command = [value for value in command if value != "--lockfile=uv.lock"]
+        if not any(value.startswith("--lockfile=") for value in command):
+            return []
+    return command
+
+
+def jscpd_below_minimum(command: list[str], directory: Path, timeout: float) -> bool:
+    """An empty jscpd scope is real only if the smallest --min-tokens still scans nothing."""
+    options = {"--min-tokens", "-k", "--output", "-o"}
+    rescan = [
+        argument
+        for index, argument in enumerate(command)
+        if argument.split("=", 1)[0] not in options
+        and (index == 0 or command[index - 1] not in options)
+    ]
+    with tempfile.TemporaryDirectory(prefix="hard-eng-jscpd-") as output:
+        subprocess.run(
+            [*rescan, "--min-tokens", "1", "--output", output],
+            cwd=directory,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            check=False,
+        )
+        return jscpd_scanned(Path(output) / "jscpd-report.json")
+
+
+def validate_scanner_report(
+    scanner: str,
+    gate: Gate,
+    path: Path,
+    command: list[str],
+    directory: Path,
+    timeout: float,
+) -> None:
+    if scanner == "osv" and "--lockfile=bun.lock" in gate["command"]:
+        validate_osv(path, empty_bun=directory)
+    elif scanner == "jscpd":
+        validate_jscpd(path, lambda: jscpd_below_minimum(command, directory, timeout))
+    else:
+        SCANNERS[scanner](path)
+
+
+def scanner_result(
+    passed: bool,
+    scanner: str,
+    gate: Gate,
+    path: Path,
+    command: list[str],
+    directory: Path,
+    timeout: float,
+) -> None:
+    """OSV writes findings only to its report, so a failed scan shows them from there."""
+    if passed:
+        validate_scanner_report(scanner, gate, path, command, directory, timeout)
+    elif scanner == "osv" and path.is_file():
+        try:
+            validate_scanner_report(scanner, gate, path, command, directory, timeout)
+        except ValueError as error:
+            print(error)
 
 
 def validate_gitleaks(path: Path) -> None:
