@@ -12,10 +12,11 @@ from pathlib import Path, PurePosixPath
 
 from gate_config import changed_files, generated_sources, initial_base
 from plans import _is_test as is_test_path
+from plans import default_branch_point
 
 HASH = {".py", ".pyi", ".sh", ".bash", ".zsh"}
 JAVASCRIPT = {".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx"}
-SLASH = {".dart", ".rs", *JAVASCRIPT}
+SLASH = {".dart", ".rs", ".swift", *JAVASCRIPT}
 DIRECTIVE = re.compile(
     r"^(#!|#\s*-\*-|//\s*ignore(_for_file)?:|///\s*<reference|//go:|//\s*\+build"
     r"|//\s*#(region|endregion))|(eslint|prettier|biome|jscpd|istanbul|c8|coverage)[-:]"
@@ -225,29 +226,8 @@ def comment_blocks(path: Path) -> list[tuple[int, int]]:
     return blocks
 
 
-def branch_point(root: Path) -> str:
-    """Where HEAD left the shipping base, so committed branch changes count; else HEAD."""
-    from shipping import ShippingError, load_policy
-
-    try:
-        policy = load_policy(root, required=False)
-    except ShippingError:
-        policy = None
-    for reference in (f"origin/{policy['base']}", policy["base"]) if policy else ():
-        found = subprocess.run(
-            ["git", "merge-base", "HEAD", reference],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if found.returncode == 0:
-            return found.stdout.strip()
-    return "HEAD"
-
-
 def validate_comments(root: Path, base: str | None) -> None:
-    names = changed_files(root, base or branch_point(root))
+    names = changed_files(root, base or default_branch_point(root) or "HEAD")
     if names is None:
         raise ValueError(
             "Cannot verify comment scope; fetch or supply a valid Git --base"
@@ -269,7 +249,7 @@ def validate_comments(root: Path, base: str | None) -> None:
     ]
     if found:
         raise ValueError(
-            "Code comments are none by default: delete each block below, and add one "
+            "HE-COMMENT-LINES: Code comments are none by default: delete each block below, and add one "
             "terse line of why only where naming, types, structure or a test cannot "
             "carry a needed non-obvious constraint. " + "; ".join(found)
         )
@@ -285,7 +265,36 @@ SCRIPT_OFF = re.compile(
     r"|(/\*|//)\s*(istanbul|c8|v8) ignore"
 )
 DART_OFF = re.compile(r"//\s*ignore(_for_file)?:|\bskip:(?=\s*(?!false\b)\S)|@Skip\(")
+SWIFT_OFF = re.compile(
+    r"swift-format-ignore|\bXCTSkip|<(Skipped|Selected)Tests>"
+    r'|"(skipped|selected)Tests"|\bskipped\s*=\s*"YES"'
+)
+SECURITY_OFF = re.compile(r"\bno(semgrep|sem)\b|gitleaks:allow", re.IGNORECASE)
+SCAN_IGNORES = {".gitleaksignore", ".semgrepignore"}
 UNOWNED = (".hooks/", ".agents/", ".claude/")
+
+
+def disabled_traits(text: str) -> set[int]:
+    """Lines of `.disabled(` inside @Test(...) and @Suite(...), however the formatter wraps them."""
+    lines = set()
+    for attribute in re.finditer(r"@(?:Test|Suite)\s*\(", text):
+        depth, end = 1, attribute.end()
+        while end < len(text) and depth:
+            if text[end] == '"':
+                end = string_end(text, end + 1, '"', False, True)
+                continue
+            depth += (text[end] == "(") - (text[end] == ")")
+            end += 1
+        span = re.sub(
+            r'"(?:\\.|[^"\\\n])*"',
+            lambda string: " " * len(string[0]),
+            text[attribute.start() : end],
+        )
+        lines |= {
+            text.count("\n", 0, attribute.start() + hit.start()) + 1
+            for hit in re.finditer(r"\.disabled\(", span)
+        }
+    return lines
 
 
 def switch_off_pattern(name: str) -> re.Pattern[str] | None:
@@ -294,6 +303,8 @@ def switch_off_pattern(name: str) -> re.Pattern[str] | None:
         return PYTHON_OFF
     if suffix == ".dart":
         return DART_OFF
+    if suffix in {".swift", ".xcscheme", ".xctestplan"}:
+        return SWIFT_OFF
     return SCRIPT_OFF if suffix in JAVASCRIPT else None
 
 
@@ -371,7 +382,11 @@ def diff_lines(
 
 
 def assertion_lines(name: str, lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    words = ("assert",) if name.endswith(".py") else ("assert", "expect(")
+    words = (
+        ("assert",)
+        if name.endswith(".py")
+        else ("assert", "expect(", "XCTAssert", "#require(")
+    )
     return [(n, text) for n, text in lines if any(word in text for word in words)]
 
 
@@ -502,9 +517,27 @@ def lost_assertions(
     return lost
 
 
+def security_switch_offs(
+    root: Path, added: dict[str, list[tuple[int, str]]]
+) -> list[str]:
+    """Inline markers and ignore entries in any file hide Semgrep or Gitleaks findings."""
+    names = sorted(name for name in added if not name.startswith(UNOWNED))
+    skipped = generated_sources(root, names)
+    found: list[str] = []
+    for name in (name for name in names if name not in skipped):
+        ignore = PurePosixPath(name).name in SCAN_IGNORES
+        for number, text in added[name]:
+            entry = text.strip()
+            if hit := SECURITY_OFF.search(text):
+                found.append(f"{name}:{number} adds {hit[0]!r}")
+            elif ignore and entry and not entry.startswith("#"):
+                found.append(f"{name}:{number} adds {entry!r}")
+    return found
+
+
 def validate_suppressions(root: Path, base: str | None) -> None:
     try:
-        added, removed = diff_lines(root, base or branch_point(root))
+        added, removed = diff_lines(root, base or default_branch_point(root) or "HEAD")
     except subprocess.CalledProcessError as error:
         raise ValueError(
             "Cannot verify suppression scope; fetch or supply a valid Git --base"
@@ -515,7 +548,7 @@ def validate_suppressions(root: Path, base: str | None) -> None:
         if not name.startswith(UNOWNED) and switch_off_pattern(name) is not None
     )
     skipped = generated_sources(root, names)
-    found: list[str] = []
+    found = security_switch_offs(root, added)
     gained = 0
     blocks: list[tuple[str, list[tuple[int, str]]]] = []
     for name in names:
@@ -527,6 +560,13 @@ def validate_suppressions(root: Path, base: str | None) -> None:
             for number, text in added.get(name, [])
             if (hit := pattern.search(text))
         ]
+        if name.endswith(".swift") and (root / name).is_file():
+            traits = disabled_traits((root / name).read_text(errors="replace"))
+            found += [
+                f"{name}:{number} adds '.disabled('"
+                for number, _ in added.get(name, [])
+                if number in traits
+            ]
         if is_test_path(PurePosixPath(name)):
             gained += len(assertion_lines(name, added.get(name, [])))
             blocks += [(name, b) for b in removed_blocks(removed.get(name, []))]
@@ -543,6 +583,6 @@ def validate_suppressions(root: Path, base: str | None) -> None:
         )
     if found:
         raise ValueError(
-            "A change must not switch a check off: fix the cause instead of "
+            "HE-NO-SWITCH-OFF: A change must not switch a check off: fix the cause instead of "
             "suppressing, skipping or deleting the check. " + "; ".join(found)
         )

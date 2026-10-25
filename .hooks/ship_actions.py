@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from shipping import (
     load_policy,
     verify,
 )
+from tool_setup import TOOL_OWNER, temporary_root
 from update import require_current
 
 
@@ -76,8 +78,11 @@ def snapshot_environment(root: Path) -> dict[str, str]:
     return environment
 
 
-def link_env_files(root: Path, checkout: Path) -> None:
-    """Builds read ignored local .env* files; link them without reading them."""
+LOCAL_FILES = {".claude/settings.local.json", "CLAUDE.local.md"}
+
+
+def link_local_files(root: Path, checkout: Path) -> None:
+    """Builds read ignored local .env* files; link them and local settings without reading them."""
     ignored = git(
         root,
         "ls-files",
@@ -87,21 +92,50 @@ def link_env_files(root: Path, checkout: Path) -> None:
         "--exclude-standard",
         "--directory",
     )
+    hooks = Path(
+        git(root, "rev-parse", "--path-format=absolute", "--git-path", "hooks").strip()
+    )
     for name in filter(None, ignored.split("\0")):
         source = root / name
         target = checkout / name
+        if not target.parent.is_dir() or target.exists() or target.is_symlink():
+            continue
         if (
-            Path(name).name.startswith(".env")
-            and source.is_file()
-            and target.parent.is_dir()
-            and not target.exists()
-        ):
+            Path(name).name.startswith(".env") and source.is_file()
+        ) or name in LOCAL_FILES:
             target.symlink_to(source)
+        elif source.resolve() == hooks.resolve():
+            # Git ignores files inside a linked folder, not the link; Husky's folder holds only shims.
+            shutil.copytree(source, target, symlinks=True)
+
+
+def prepare_checkout(root: Path, checkout: Path, environment: dict[str, str]) -> None:
+    link_local_files(root, checkout)
+    if (checkout / ".gitmodules").is_file():
+        subprocess.run(
+            ["git", "submodule", "update", "--init", "--recursive", "--depth=1"],
+            cwd=checkout,
+            env=environment,
+            check=True,
+        )
+
+
+def post_checkout(checkout: Path) -> int:
+    """A new linked worktree gets the main checkout's local files, hooks and submodules."""
+    environment = snapshot_environment(checkout)
+    os.environ.clear()
+    os.environ.update(environment)
+    main = worktrees(checkout)[0]
+    if "bare" not in main and Path(main["worktree"]).resolve() != checkout.resolve():
+        prepare_checkout(Path(main["worktree"]), checkout, environment)
+    return 0
 
 
 @contextmanager
 def snapshot(root: Path, revision: str, environment: dict[str, str]) -> Generator[Path]:
-    with tempfile.TemporaryDirectory(prefix="hard-eng-push-") as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix="hard-eng-push-", dir=temporary_root()
+    ) as temporary:
         checkout = Path(temporary) / "project"
         subprocess.run(
             ["git", "worktree", "add", "--detach", str(checkout), revision],
@@ -110,21 +144,10 @@ def snapshot(root: Path, revision: str, environment: dict[str, str]) -> Generato
             check=True,
         )
         try:
-            link_env_files(root, checkout)
-            if (checkout / ".gitmodules").is_file():
-                subprocess.run(
-                    [
-                        "git",
-                        "submodule",
-                        "update",
-                        "--init",
-                        "--recursive",
-                        "--depth=1",
-                    ],
-                    cwd=checkout,
-                    env=environment,
-                    check=True,
-                )
+            environment[TOOL_OWNER] = os.pathsep.join(
+                [str(checkout.resolve()), str(root.resolve())]
+            )
+            prepare_checkout(root, checkout, environment)
             yield checkout
         finally:
             subprocess.run(
@@ -228,10 +251,28 @@ def pre_push(root: Path) -> int:
             check = ["check", *(["--base", base, *narrow] if base else [])]
             if returncode := run_hard_eng(checkout, check, environment):
                 return returncode
-            if base is not None:
+            changed = subprocess.run(
+                ["git", "diff", "--name-only"],
+                cwd=checkout,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.split()
+            if changed:
+                print(
+                    "Hard Eng: a gate changed pushed files: "
+                    + ", ".join(changed)
+                    + ". The push differs from what passed; apply the change, commit it and push again.",
+                    flush=True,
+                )
+                return 1
+            if base is not None and (limit := policy["pre_push_mutation_seconds"]):
                 began = time.monotonic()
                 arguments = ["mutation", "--base", base, "--in-place"]
-                run_hard_eng(checkout, arguments, environment)
+                run_hard_eng(
+                    checkout, [*arguments, "--seconds", str(limit)], environment
+                )
                 mutating += time.monotonic() - began
         elapsed = time.monotonic() - started - mutating
         if elapsed > policy["pre_push_seconds"]:
@@ -248,7 +289,12 @@ def pre_push(root: Path) -> int:
 def worktrees(root: Path) -> list[dict[str, str]]:
     records = git(root, "worktree", "list", "--porcelain", "-z")
     return [
-        dict(field.partition(" ")[::2] for field in record.split("\0") if field)
+        {
+            key: value
+            for key, _, value in (
+                field.partition(" ") for field in record.split("\0") if field
+            )
+        }
         for record in records.split("\0\0")
         if record
     ]
@@ -438,3 +484,7 @@ def run(
         )
     print(f"PASS ship {stage}: {pr_url} at {revision}")
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(post_checkout(Path(sys.argv[1])))
