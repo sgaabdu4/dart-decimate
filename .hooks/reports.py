@@ -59,6 +59,7 @@ SCAN_ROLES = frozenset(
         "secrets-history",
         "security",
         "vulnerabilities",
+        "freshness",
         "workflows",
         "ci-security",
         "shell",
@@ -869,6 +870,10 @@ def validate_scanner_report(
         validate_osv(path, empty_bun=directory)
     elif scanner == "jscpd":
         validate_jscpd(path, lambda: jscpd_below_minimum(command, directory, timeout))
+    elif scanner == "freshness":
+        from freshness import validate_freshness
+
+        validate_freshness(path, gate)
     else:
         SCANNERS[scanner](path)
 
