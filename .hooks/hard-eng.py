@@ -491,6 +491,7 @@ def gate_scanner(group: Group, gate: Gate, scanner: str | None) -> str | None:
         "secrets-history": "gitleaks",
         "security": "semgrep",
         "vulnerabilities": "osv",
+        "freshness": "freshness",
         "container-vulnerabilities": "osv-image",
         "react": "react-doctor",
         "deployment": "trivy",
