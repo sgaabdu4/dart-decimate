@@ -24,10 +24,6 @@ updates:
       npm:
         patterns:
           - "*"
-    ignore:
-      # Types track the oldest supported Node in engines.node.
-      - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
