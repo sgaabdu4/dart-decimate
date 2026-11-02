@@ -24,6 +24,7 @@ from gate_config import (
     repository_files,
     typescript_packages,
 )
+from hook_chain import is_own
 
 PACKAGE_MANAGERS = {"npm", "npx", "pnpm", "yarn", "yarnpkg", "bun", "bunx"}
 FLUTTER_PLATFORM_ROOTS = {"android", "ios", "web", "windows", "macos", "linux"}
@@ -169,7 +170,9 @@ def unlisted_shell_scripts(
     return sorted(
         str(path.relative_to(root))
         for path in files
-        if is_shell_script(path) and str(path.relative_to(root)) not in listed
+        if is_shell_script(path)
+        and str(path.relative_to(root)) not in listed
+        and not is_own(root, path)
     )
 
 
