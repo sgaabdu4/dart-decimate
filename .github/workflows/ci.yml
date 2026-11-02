@@ -40,10 +40,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           {
-            echo "MISE_DATA_DIR=$RUNNER_TEMP/hard-eng-tools/mise/data"
-            echo "MISE_CACHE_DIR=$RUNNER_TEMP/hard-eng-tools/mise/cache"
-            echo "MISE_STATE_DIR=$RUNNER_TEMP/hard-eng-tools/mise/state"
-            echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/hard-eng-tools/bun/cache"
+            echo "MISE_DATA_DIR=${MISE_DATA_DIR:-$RUNNER_TEMP/hard-eng-tools/mise/data}"
+            echo "MISE_CACHE_DIR=${MISE_CACHE_DIR:-$RUNNER_TEMP/hard-eng-tools/mise/cache}"
+            echo "MISE_STATE_DIR=${MISE_STATE_DIR:-$RUNNER_TEMP/hard-eng-tools/mise/state}"
+            echo "BUN_INSTALL_CACHE_DIR=${BUN_INSTALL_CACHE_DIR:-$RUNNER_TEMP/hard-eng-tools/bun/cache}"
           } >> "$GITHUB_ENV"
           python3 .hooks/hard-eng.py impact --base "$BASE_SHA" >> "$GITHUB_OUTPUT" || echo docs_only=false >> "$GITHUB_OUTPUT"
 
