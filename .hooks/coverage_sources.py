@@ -225,13 +225,10 @@ PLAYWRIGHT_IMPORT = re.compile(
 
 
 def root_tool_config(name: str) -> bool:
-    """A name like `next.config.ts`, or with one more part as in `vite.config.mobile.ts`: tool configuration at the package root."""
+    """A name like `next.config.ts`, with one more part as in `vite.config.mobile.ts`, or a hidden file such as `.eslintrc.cjs`: tool configuration at the package root."""
     tool, *middle, extension = name.split(".")
-    return (
-        extension in CONFIG_EXTENSIONS
-        and tool in TOOL_CONFIGS
-        and "config" in middle
-        and len(middle) <= 2
+    return extension in CONFIG_EXTENSIONS and (
+        not tool or (tool in TOOL_CONFIGS and "config" in middle and len(middle) <= 2)
     )
 
 
