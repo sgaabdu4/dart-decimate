@@ -238,7 +238,12 @@
       "name": "shellcheck",
       "role": "shell",
       "parallel": true,
-      "command": ["shellcheck", "--", ".githooks/pre-commit"]
+      "command": [
+        "shellcheck",
+        "--",
+        ".githooks/pre-commit",
+        ".githooks/post-checkout"
+      ]
     },
     {
       "name": "diff-whitespace",
