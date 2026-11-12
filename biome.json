@@ -13,7 +13,10 @@
       "scripts/**/*.mjs",
       "tests/js/**/*.mjs",
       "tests/npm/**/*.js",
-      "tests/performance/**/*.mjs"
+      "tests/performance/**/*.mjs",
+      "!.hooks",
+      "!.hard-eng",
+      "!coverage"
     ]
   },
   "formatter": {
