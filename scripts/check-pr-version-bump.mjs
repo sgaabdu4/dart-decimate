@@ -9,6 +9,11 @@ import {
   releasedFromHead,
 } from "./released-head.mjs";
 
+const cargoVersionPattern = /^version\s*=\s*"([^"]+)"/m;
+const semverPattern =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const numericIdentifierPattern = /^(0|[1-9]\d*)$/;
+
 /** @param {string} message @returns {never} */
 function exitWithError(message) {
   console.error(message);
@@ -39,7 +44,7 @@ function reportBaseFileError(error, baseRef, path) {
 
 /** @param {string} contents @param {string} label */
 function readCargoVersion(contents, label) {
-  const match = contents.match(/^version\s*=\s*"([^"]+)"/m);
+  const match = contents.match(cargoVersionPattern);
   if (!match) {
     exitWithError(`${label} is missing package version`);
   }
@@ -64,9 +69,7 @@ function readPackageVersion(contents, label) {
 
 /** @param {string} version @param {string} label */
 function parseSemver(version, label) {
-  const match = version.match(
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
-  );
+  const match = version.match(semverPattern);
   if (!match) {
     exitWithError(`${label} has invalid semver: ${version}`);
   }
@@ -92,7 +95,7 @@ function compareNumber(left, right) {
 
 /** @param {string} value */
 function isNumericIdentifier(value) {
-  return /^(0|[1-9]\d*)$/.test(value);
+  return numericIdentifierPattern.test(value);
 }
 
 /** @param {string[]} left @param {string[]} right */
