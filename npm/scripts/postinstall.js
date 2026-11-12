@@ -16,6 +16,7 @@ const root = path.resolve(__dirname, "../..");
 const exeExt = process.platform === "win32" ? ".exe" : "";
 const cargo = process.env.CARGO || "cargo";
 const cacheDir = path.join(root, "npm", "bin-cache");
+const trailingSlash = /\/$/;
 const packageVersion = readPackageVersion();
 const releaseBaseUrl =
   process.env.DART_DECIMATE_RELEASE_BASE_URL ||
@@ -68,7 +69,7 @@ async function installPrebuilt() {
   }
 
   const archivePath = path.join(os.tmpdir(), assetName);
-  const url = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
+  const url = `${releaseBaseUrl.replace(trailingSlash, "")}/${assetName}`;
   await download(url, archivePath, 0);
   const staging = fs.mkdtempSync(path.join(cacheDir, ".staging-"));
   try {
