@@ -158,7 +158,7 @@ jobs:
             target: x86_64-apple-darwin
             asset: dart-decimate-darwin-x64.tar.gz
             exe_ext: ""
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             asset: dart-decimate-darwin-arm64.tar.gz
             exe_ext: ""
