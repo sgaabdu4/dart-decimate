@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+if [ -x "$0.project" ]; then
+  "$0.project" "$@" || exit $?
+fi
+case "$1" in ""|*[!0]*) exit 0 ;; esac
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+case "$common" in */.git) runner="${common%/.git}/.hooks/ship_actions.py" ;; *) exit 0 ;; esac
+[ ! -f "$runner" ] || python3 "$runner" "$(git rev-parse --show-toplevel)" || echo "Hard Eng could not prepare this worktree." >&2
