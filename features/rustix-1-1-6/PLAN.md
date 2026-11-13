@@ -4,7 +4,7 @@ Status: Complete
 
 ## Outcome + scope
 
-The locked `rustix` crate moves from 1.1.5 to 1.1.6, the first release that fixes RUSTSEC-2026-0486 (GHSA-jh2m-fhpj-3vr7). The version moves to 0.0.74 because the version gates need a version above the base. Non-goals: other dependency updates and source changes.
+The locked `rustix` crate moves from 1.1.5 to 1.1.6, the first release that fixes RUSTSEC-2026-0486 (GHSA-jh2m-fhpj-3vr7). The version moves to 0.0.74 because the version gates need a version above the base. The CI toolchain (Rust 1.100 clippy) also flags `route_constructor_receiver` in `src/output/route_cycle.rs` with `needless_bool`, so that function returns its condition directly, with the same result. Non-goals: other dependency updates and other source changes.
 
 ## Repository context
 
