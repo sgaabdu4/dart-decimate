@@ -306,14 +306,10 @@ pub(super) fn route_constructor_receiver(
             .named_children(&mut cursor)
             .any(|child| route_constructor_receiver(root, child, route_classes, source));
     }
-    if matches!(
+    matches!(
         node.kind(),
         "constructor_invocation" | "const_object_expression" | "new_expression"
     ) && constructor_receiver_matches_route(root, node, route_classes, source)
-    {
-        return true;
-    }
-    false
 }
 
 fn constructor_receiver_matches_route(
