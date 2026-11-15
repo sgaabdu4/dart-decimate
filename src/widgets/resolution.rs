@@ -6,13 +6,13 @@ use crate::{DartCombinator, DartCombinatorKind, DependencyKind, DependencyVisibi
 use crate::{ResolvedDependency, ScannedProject};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct ClassKey {
-    pub(super) path: PathBuf,
-    pub(super) name: String,
+pub(crate) struct ClassKey {
+    pub(crate) path: PathBuf,
+    pub(crate) name: String,
 }
 
 #[derive(Debug)]
-pub(super) struct DeclarationResolver {
+pub(crate) struct DeclarationResolver {
     declarations: BTreeMap<PathBuf, BTreeSet<String>>,
     imports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
     exports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
@@ -21,7 +21,7 @@ pub(super) struct DeclarationResolver {
 }
 
 impl DeclarationResolver {
-    pub(super) fn new(
+    pub(crate) fn new(
         project: &ScannedProject,
         declarations: impl IntoIterator<Item = ClassKey>,
     ) -> Self {
@@ -87,7 +87,7 @@ impl DeclarationResolver {
         }
     }
 
-    pub(super) fn resolve(&self, from: &Path, reference: &str) -> BTreeSet<ClassKey> {
+    pub(crate) fn resolve(&self, from: &Path, reference: &str) -> BTreeSet<ClassKey> {
         let reference = compact_reference(reference);
         let segments = reference.split('.').collect::<Vec<_>>();
         let Some(first) = segments.first().copied() else {

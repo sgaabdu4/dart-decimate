@@ -383,6 +383,40 @@ fn strict_check_fails_an_unused_member_of_an_implemented_class()
 }
 
 #[test]
+fn strict_check_fails_an_unused_member_of_a_class_that_shares_a_name_with_a_base_class()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/a.dart';\nimport 'src/b.dart' as other;\n\nvoid main() {\n  final items = [Item(2), Item(1)]..sort();\n  print(items.length);\n  print(other.Ordered());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/a.dart",
+        "class Ordered {\n  Ordered(this.rank);\n\n  final int rank;\n\n  int compareTo(Ordered other) => rank - other.rank;\n}\n\nclass Item extends Ordered implements Comparable<Ordered> {\n  Item(super.rank);\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/b.dart",
+        "class Ordered {\n  int reallyUnused() => 1;\n}\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["unused_class_members"],
+        1,
+        "{:?}",
+        member_messages(&json)
+    );
+    assert!(member_messages(&json)[0].contains("Ordered.reallyUnused"));
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

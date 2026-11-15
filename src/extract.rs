@@ -220,7 +220,7 @@ pub struct TopLevelDeclaration {
 pub struct ClassSupertypes {
     /// Declared name of the class-like declaration.
     pub owner: String,
-    /// Names of the types after `extends`, `with` and `on` without type arguments or import prefixes.
+    /// Names of the types after `extends`, `with` and `on` without type arguments, keeping any import prefix.
     pub names: Vec<String>,
     /// Whether the declaration has an `implements` clause.
     pub implements: bool,
