@@ -59,11 +59,7 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
             }
             "" => {}
             _ if listing => {
-                let name = word
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(word)
-                    .trim_end_matches('?');
+                let name = word.trim_end_matches('?');
                 if !name.is_empty() {
                     names.push(name.to_owned());
                 }
