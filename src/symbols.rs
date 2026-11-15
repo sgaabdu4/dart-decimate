@@ -10,12 +10,14 @@ use crate::{
     MemberDeclaration, MemberKind, ScannedProject, TopLevelDeclaration,
 };
 
+mod duplicate_declarations;
 mod extensions;
 mod index;
 mod path_filters;
 mod private_type_leaks;
 mod riverpod;
 mod semantic_evidence;
+use duplicate_declarations::duplicate_declarations_across_libraries;
 use extensions::extend_implicit_extension_references;
 use path_filters::{is_library_source, is_private, is_public_library_entry};
 pub use private_type_leaks::PrivateTypeLeak;
@@ -135,7 +137,15 @@ pub fn analyze_symbols_with_options(
     options: SymbolAnalysisOptions,
 ) -> SymbolReport {
     let index = SymbolIndex::from_project(project);
-    let duplicate_exports = duplicate_exports_from_public(&index.public_exported_declarations);
+    let mut duplicate_exports = duplicate_exports_from_public(&index.public_exported_declarations);
+    if let Some(dead_code) = dead_code {
+        let across_libraries =
+            duplicate_declarations_across_libraries(project, dead_code, &index, &duplicate_exports);
+        duplicate_exports.extend(across_libraries);
+        duplicate_exports.sort_by(|left, right| {
+            (&left.entry_path, &left.name).cmp(&(&right.entry_path, &right.name))
+        });
+    }
     let private_type_leaks = if options.private_type_leaks {
         private_type_leaks(project, &index)
     } else {

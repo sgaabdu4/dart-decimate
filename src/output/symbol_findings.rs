@@ -168,7 +168,7 @@ fn duplicate_export_finding(root: &Path, duplicate: &DuplicateExport) -> Finding
         kind: FindingKind::DuplicateExport,
         severity: Severity::Error,
         message: format!(
-            "Public API entry exports multiple declarations named {}",
+            "Multiple library files declare or export a public name {}",
             duplicate.name
         ),
         path: path.clone(),
