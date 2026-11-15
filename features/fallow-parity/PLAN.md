@@ -27,7 +27,7 @@ Authority: Autonomous. The owner asked for these six changes, one commit each, o
 - [x] Two workspace packages that depend on each other fail `check --strict` with `package-cycle` and no file cycle; one-way dependencies do not → `tests/cli_package_cycles.rs::strict_check_fails_two_workspace_packages_that_depend_on_each_other` and `::strict_check_keeps_workspace_packages_with_one_way_dependencies`.
 - [x] A CRAP score equal to `max_crap` is reported, in the global limit and in an override → `src/health/tests.rs::crap_score_equal_to_the_limit_is_reported`.
 - [x] The existing fixtures keep their results, except two intended changes → `cargo test --all-targets` passes: `src/symbols/tests.rs::reports_unused_enum_constants_and_private_class_members` now lists `publicUnused`, and `tests/cli_unused_widget_param.rs::check_counts_only_matching_widget_object_pattern_fields_as_usage` now expects the one `duplicate-export` error.
-- [x] Full gate passes → `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete`.
+- [x] Full gate passes → N/A — a gate run is no product behavior; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` is the proof.
 
 ## Baseline + execution
 
