@@ -15,7 +15,7 @@ mod strings;
 use directives::{
     extract_directive, extract_library_name, extract_part_directive, extract_part_of_directive,
 };
-use members::push_class_like_members;
+use members::{push_class_like_members, push_type_alias_target};
 use primary_constructors::{
     extract_primary_constructor_identifier_references,
     extract_primary_constructor_signature_references,
@@ -215,7 +215,7 @@ pub struct TopLevelDeclaration {
     pub range: SourceRange,
 }
 
-/// The types a class-like declaration names after `extends`, `with` or `on`, and whether it has an `implements` clause.
+/// The types a class-like declaration or `typedef Name = Type;` names after `extends`, `with` or `on`, and whether it has an `implements` clause.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassSupertypes {
     /// Declared name of the class-like declaration.
@@ -398,7 +398,10 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
                 );
                 push_class_like_members(&mut members, &mut class_supertypes, child, parse_source);
             }
-            "type_alias" => push_type_alias_declaration(&mut declarations, child, parse_source),
+            "type_alias" => {
+                push_type_alias_declaration(&mut declarations, child, parse_source);
+                push_type_alias_target(&mut class_supertypes, child, parse_source);
+            }
             "top_level_variable_declaration" | "external_variable_declaration" => {
                 push_variable_declarations(&mut declarations, child, parse_source);
             }
