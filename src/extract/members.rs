@@ -1,13 +1,14 @@
 use tree_sitter::Node;
 
 use super::{
-    MemberDeclaration, MemberKind, collect_direct_identifier_children, collect_named_fields,
-    declared_return_type, field_text, find_first_named_descendant, find_first_named_descendant_in,
-    first_identifier_text,
+    ClassSupertypes, MemberDeclaration, MemberKind, collect_direct_identifier_children,
+    collect_named_fields, declared_return_type, field_text, find_first_named_descendant,
+    find_first_named_descendant_in, first_identifier_text,
 };
 
 pub(super) fn push_class_like_members(
     members: &mut Vec<MemberDeclaration>,
+    class_supertypes: &mut Vec<ClassSupertypes>,
     node: Node<'_>,
     source: &str,
 ) {
@@ -23,6 +24,52 @@ pub(super) fn push_class_like_members(
         for member in &mut members[start..] {
             member.contract = true;
         }
+        let header = source
+            .get(node.start_byte()..body.start_byte())
+            .unwrap_or_default();
+        class_supertypes.push(header_supertypes(owner, header));
+    }
+}
+
+fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
+    let mut flat = String::new();
+    let mut depth = 0_usize;
+    for character in header.chars() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => flat.push(character),
+            _ => {}
+        }
+    }
+    let mut names = Vec::new();
+    let mut implements = false;
+    let mut listing = false;
+    for word in flat.split(|character: char| character.is_whitespace() || character == ',') {
+        match word {
+            "extends" | "with" | "on" => listing = true,
+            "implements" => {
+                listing = true;
+                implements = true;
+            }
+            "" => {}
+            _ if listing => {
+                let name = word
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(word)
+                    .trim_end_matches('?');
+                if !name.is_empty() {
+                    names.push(name.to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    ClassSupertypes {
+        owner,
+        names,
+        implements,
     }
 }
 

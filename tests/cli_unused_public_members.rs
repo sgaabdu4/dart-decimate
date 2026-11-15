@@ -249,6 +249,82 @@ fn strict_check_keeps_the_api_of_a_package_that_has_a_library_entry_named_after_
     Ok(())
 }
 
+fn write_app_with_class_hierarchy(
+    fixture: &TempDir,
+    items: &str,
+    main_body: &str,
+) -> Result<(), std::io::Error> {
+    write(fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        fixture,
+        "lib/main.dart",
+        &format!("import 'src/items.dart';\n\nvoid main() {{\n{main_body}}}\n"),
+    )?;
+    write(fixture, "lib/src/items.dart", items)
+}
+
+#[test]
+fn strict_check_keeps_base_members_that_a_subclass_uses_for_an_interface()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_app_with_class_hierarchy(
+        &fixture,
+        "class Ordered {\n  Ordered(this.rank);\n\n  final int rank;\n\n  int compareTo(Ordered other) => rank - other.rank;\n}\n\nclass Item extends Ordered implements Comparable<Ordered> {\n  Item(super.rank);\n}\n",
+        "  final items = [Item(2), Item(1)]..sort();\n  print(items.length);\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["unused_class_members"],
+        0,
+        "{:?}",
+        member_messages(&json)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_iterator_members_that_a_base_class_supplies()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_app_with_class_hierarchy(
+        &fixture,
+        "class CountBase {\n  CountBase(this.left);\n\n  int left;\n\n  int get current => left;\n\n  bool moveNext() => left-- > 0;\n}\n\nclass Countdown extends CountBase implements Iterator<int> {\n  Countdown(super.left);\n}\n\nclass Range extends Iterable<int> {\n  Range(this.n);\n\n  final int n;\n\n  @override\n  Iterator<int> get iterator => Countdown(n);\n}\n",
+        "  for (final n in Range(3)) {\n    print(n);\n  }\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["unused_class_members"],
+        0,
+        "{:?}",
+        member_messages(&json)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_fails_an_unused_member_of_a_base_class_without_an_interface()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_app_with_class_hierarchy(
+        &fixture,
+        "class Base {\n  int spare() => 1;\n}\n\nclass Child extends Base {\n  Child();\n}\n",
+        "  print(Child());\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(json["summary"]["unused_class_members"], 1);
+    assert!(member_messages(&json)[0].contains("Base.spare"));
+
+    Ok(())
+}
+
 #[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {

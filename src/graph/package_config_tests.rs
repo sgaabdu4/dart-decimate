@@ -49,6 +49,7 @@ fn resolves_package_imports_using_ancestor_package_config_from_member_root()
         members: Vec::new(),
         references: Vec::new(),
         signature_references: Vec::new(),
+        class_supertypes: Vec::new(),
         routes: Vec::new(),
     };
 
@@ -190,6 +191,7 @@ fn dart_file(path: PathBuf, import_uri: &str) -> DartFile {
         members: Vec::new(),
         references: Vec::new(),
         signature_references: Vec::new(),
+        class_supertypes: Vec::new(),
         routes: Vec::new(),
     }
 }
@@ -206,6 +208,7 @@ fn empty_dart_file(path: PathBuf) -> DartFile {
         members: Vec::new(),
         references: Vec::new(),
         signature_references: Vec::new(),
+        class_supertypes: Vec::new(),
         routes: Vec::new(),
     }
 }

@@ -434,6 +434,34 @@ struct PublicMemberContext {
     entry_points: BTreeSet<PathBuf>,
     packages: Vec<PackageScope>,
     public_classes: BTreeSet<(PathBuf, String)>,
+    interface_ancestors: BTreeSet<String>,
+}
+
+fn interface_ancestors(project: &ScannedProject) -> BTreeSet<String> {
+    let hierarchy = project
+        .files
+        .iter()
+        .flat_map(|file| &file.class_supertypes)
+        .collect::<Vec<_>>();
+    let mut pending = hierarchy
+        .iter()
+        .filter(|class| class.implements)
+        .flat_map(|class| class.names.iter().cloned())
+        .collect::<Vec<_>>();
+    let mut ancestors = BTreeSet::new();
+    while let Some(name) = pending.pop() {
+        if ancestors.contains(&name) {
+            continue;
+        }
+        pending.extend(
+            hierarchy
+                .iter()
+                .filter(|class| class.owner == name)
+                .flat_map(|class| class.names.iter().cloned()),
+        );
+        ancestors.insert(name);
+    }
+    ancestors
 }
 
 fn owning_scope<'scope>(
@@ -459,6 +487,7 @@ impl PublicMemberContext {
         .map(|exported| (exported.path, exported.declaration.name))
         .collect();
         Self {
+            interface_ancestors: interface_ancestors(project),
             packages,
             public_classes,
             class_owners: index
@@ -512,6 +541,7 @@ impl PublicMemberContext {
             && self
                 .class_owners
                 .contains(&(indexed.path.clone(), indexed.member.owner.clone()))
+            && !self.interface_ancestors.contains(&indexed.member.owner)
             && !self.is_runtime_entry(&indexed.path)
             && !self.exports_class(&indexed.path, &indexed.member.owner)
             && !self

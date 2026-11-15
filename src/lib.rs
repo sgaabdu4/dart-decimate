@@ -98,10 +98,10 @@ pub use explain::{
     EXPLAIN_SCHEMA_VERSION, ExplainError, ExplainReport, explain_issue, render_explain_report,
 };
 pub use extract::{
-    DartCombinator, DartCombinatorKind, DartExport, DartFile, DartImport, DartLibrary, DartPart,
-    DartPartOf, DartRouteDeclaration, DartUriCondition, DeclarationKind, ExtractError,
-    IdentifierReference, Location, MemberDeclaration, MemberKind, SignatureReference, SourceRange,
-    TopLevelDeclaration, extract_dart_file, extract_dart_source,
+    ClassSupertypes, DartCombinator, DartCombinatorKind, DartExport, DartFile, DartImport,
+    DartLibrary, DartPart, DartPartOf, DartRouteDeclaration, DartUriCondition, DeclarationKind,
+    ExtractError, IdentifierReference, Location, MemberDeclaration, MemberKind, SignatureReference,
+    SourceRange, TopLevelDeclaration, extract_dart_file, extract_dart_source,
 };
 pub use feature_flags::{
     FeatureFlag, FeatureFlagConfidence, FeatureFlagError, FeatureFlagOccurrence,

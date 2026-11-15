@@ -564,6 +564,7 @@ fn preserves_import_and_export_visibility_metadata_on_edges()
         members: vec![],
         references: vec![],
         signature_references: vec![],
+        class_supertypes: vec![],
         routes: vec![],
     };
     let service = fixture.file("lib/src/service.dart", vec![], vec![]);
@@ -735,6 +736,7 @@ fn resolves_package_imports_to_path_dependencies() -> Result<(), Box<dyn std::er
         members: vec![],
         references: vec![],
         signature_references: vec![],
+        class_supertypes: vec![],
         routes: vec![],
     };
 
@@ -956,6 +958,7 @@ impl Fixture {
             members: vec![],
             references: vec![],
             signature_references: vec![],
+            class_supertypes: vec![],
             routes: vec![],
         }
     }

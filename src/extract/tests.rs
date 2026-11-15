@@ -825,3 +825,42 @@ export r'src\\raw.dart' if (dart.library.html) 'src\\web.dart';
 
     Ok(())
 }
+
+#[test]
+fn extracts_the_types_a_declaration_lists_after_supertype_keywords() -> Result<(), ExtractError> {
+    let source = "\
+class Plain {}
+class Item<T extends Num> extends Ordered<T> with Mixed, ui.Shared implements Comparable<Ordered>, Other? {}
+mixin Runner on Base {}
+";
+
+    let extracted = extract_dart_source("lib/items.dart", source)?;
+
+    assert_eq!(
+        extracted
+            .class_supertypes
+            .iter()
+            .map(|clause| (
+                clause.owner.as_str(),
+                clause.names.clone(),
+                clause.implements
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "Item",
+                vec![
+                    "Ordered".to_owned(),
+                    "Mixed".to_owned(),
+                    "Shared".to_owned(),
+                    "Comparable".to_owned(),
+                    "Other".to_owned()
+                ],
+                true
+            ),
+            ("Runner", vec!["Base".to_owned()], false)
+        ]
+    );
+
+    Ok(())
+}

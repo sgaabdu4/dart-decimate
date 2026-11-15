@@ -186,6 +186,7 @@ impl Fixture {
             members: vec![],
             references: vec![],
             signature_references: vec![],
+            class_supertypes: vec![],
             routes: vec![],
         }
     }
@@ -202,6 +203,7 @@ impl Fixture {
             members: vec![],
             references: vec![],
             signature_references: vec![],
+            class_supertypes: vec![],
             routes: vec![],
         }
     }
