@@ -853,9 +853,7 @@ mixin Runner on Base {}
                 vec![
                     "Ordered".to_owned(),
                     "Mixed".to_owned(),
-                    "Shared".to_owned(),
-                    "Comparable".to_owned(),
-                    "Other".to_owned()
+                    "Shared".to_owned()
                 ],
                 true,
                 true
