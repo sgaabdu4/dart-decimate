@@ -348,6 +348,41 @@ fn strict_check_keeps_base_members_that_a_subclass_mixes_in_an_interface_for()
 }
 
 #[test]
+fn strict_check_fails_an_unused_member_of_an_implemented_class()
+-> Result<(), Box<dyn std::error::Error>> {
+    let forms = [
+        "class FakeRepo implements Repo {\n  @override\n  int fetch() => 3;\n\n  @override\n  int legacy() => 4;\n}\n",
+        "class Mock {}\n\nclass MockRepo extends Mock implements Repo {}\n",
+        "class RepoImpl implements Repo {\n  @override\n  int fetch() => 3;\n\n  @override\n  int legacy() => 4;\n}\n",
+    ];
+    for form in forms {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(
+            &fixture,
+            "class Repo {\n  int fetch() => 1;\n\n  int legacy() => 2;\n}\n",
+            "  print(Repo().fetch());\n",
+        )?;
+        write(
+            &fixture,
+            "test/repo_test.dart",
+            &format!("import 'package:app/src/items.dart';\n\n{form}"),
+        )?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            json["summary"]["unused_class_members"],
+            1,
+            "{form}: {:?}",
+            member_messages(&json)
+        );
+        assert!(member_messages(&json)[0].contains("Repo.legacy"));
+    }
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

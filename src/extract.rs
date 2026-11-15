@@ -215,12 +215,12 @@ pub struct TopLevelDeclaration {
     pub range: SourceRange,
 }
 
-/// The types a class-like declaration names after `extends`, `with`, `implements` or `on`.
+/// The types a class-like declaration names after `extends`, `with` or `on`, and whether it has `implements` or `with` clauses.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassSupertypes {
     /// Declared name of the class-like declaration.
     pub owner: String,
-    /// Names of the listed supertypes without type arguments or import prefixes.
+    /// Names of the types after `extends`, `with` and `on` without type arguments or import prefixes.
     pub names: Vec<String>,
     /// Whether the declaration has an `implements` clause.
     pub implements: bool,
