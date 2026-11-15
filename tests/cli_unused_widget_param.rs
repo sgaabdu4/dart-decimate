@@ -464,8 +464,15 @@ class PrefixedPatternPanel {
     )?;
 
     let json = serde_json::from_slice::<Value>(&output)?;
-    assert_eq!(code, 0);
-    assert_eq!(json["verdict"], "pass");
+    let errors = json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["severity"] == "error")
+        .map(|finding| finding["rule_id"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(code, 1);
+    assert_eq!(errors, ["dart-decimate/duplicate-export"]);
     let targets = unused_widget_targets(&json);
 
     assert_targets_contain(&targets, OBJECT_PATTERN_UNUSED_TARGETS);
