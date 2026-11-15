@@ -1,9 +1,4 @@
 //! Dart Decimate analyzes Dart and Flutter repositories as module graphs.
-//!
-//! Phase 1 exposes a fast Tree-Sitter based extractor for imports, exports, and
-//! top-level declarations. Phase 2 builds a directed module graph from those
-//! syntax facts. Phase 3 runs graph traversals without evaluating variables,
-//! types, or function bodies. Phase 4 exposes the CLI and JSON output contract.
 
 /// Version compiled into the CLI and release artifacts.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
