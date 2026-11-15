@@ -4,7 +4,7 @@ Status: Draft
 
 ## Outcome + scope
 
-Six kinds of finding that a TypeScript code health scanner fails and `check . --threshold 0 --strict` passes today now fail it: an unused public class member, an export name declared in two library files, an unused dependency override, a misconfigured dependency override, a package cycle with no file cycle, and a CRAP score equal to the limit. Release as 0.0.76. Non-goals: other rules, publishing, new flags.
+Six kinds of finding that a TypeScript code health scanner fails and `check . --threshold 0 --strict` passes today now fail it: an unused public class member, an export name declared in two library files, an unused dependency override, a misconfigured dependency override, a package cycle with no file cycle, and a CRAP score equal to the limit. Release as 0.0.76. The new `package-cycle` rule gets the same `--package-cycles` filter flag as the other rules. Non-goals: other rules, publishing.
 
 ## Repository context
 
