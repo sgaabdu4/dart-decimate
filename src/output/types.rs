@@ -228,7 +228,7 @@ pub struct ReportSummary {
     pub private_type_leaks: usize,
     /// Unused enum constants.
     pub unused_enum_members: usize,
-    /// Unused private class-like members.
+    /// Unused class-like members.
     pub unused_class_members: usize,
     /// Public API symbols exported from multiple declarations.
     pub duplicate_exports: usize,
@@ -381,7 +381,7 @@ pub enum FindingKind {
     PrivateTypeLeak,
     /// Unused enum constant.
     UnusedEnumMember,
-    /// Unused private class-like member.
+    /// Unused class-like member.
     UnusedClassMember,
     /// Public API entry exposes multiple declarations with the same name.
     DuplicateExport,

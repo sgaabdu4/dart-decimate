@@ -90,6 +90,30 @@ test("an unused public method of a plain class fails the strict check", () => {
   assert.ok(ruleIds(report).includes("dart-decimate/unused-class-member"));
 });
 
+test("an unused member finding names the visibility of the member", () => {
+  const { report } = strictCheck({
+    "pubspec.yaml": "name: app\n",
+    "lib/main.dart":
+      "import 'src/cleaner.dart';\n\nvoid main() {\n  Cleaner();\n}\n",
+    "lib/src/cleaner.dart":
+      "class Cleaner {\n  int spare() => 1;\n\n  int _hidden() => 2;\n}\n",
+  });
+
+  const messages = report.findings.map(
+    (/** @type {{ message: string }} */ finding) => finding.message,
+  );
+  assert.ok(
+    messages.some((/** @type {string} */ message) =>
+      message.startsWith("Unused public class-like member Cleaner.spare"),
+    ),
+  );
+  assert.ok(
+    messages.some((/** @type {string} */ message) =>
+      message.startsWith("Unused private class-like member Cleaner._hidden"),
+    ),
+  );
+});
+
 test("a class member that another file uses keeps the strict check green", () => {
   const { status } = strictCheck({
     "pubspec.yaml": "name: app\n",
