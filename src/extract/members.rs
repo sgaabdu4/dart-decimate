@@ -54,7 +54,7 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
                 mixes_in = true;
             }
             "implements" => {
-                listing = true;
+                listing = false;
                 implements = true;
             }
             "" => {}
