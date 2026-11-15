@@ -225,6 +225,9 @@ pub struct MemberDeclaration {
     /// Declared method return type, when the member is a method.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
+    /// Whether an annotation or a supertype clause lets code outside the project call this member.
+    #[serde(default, skip_serializing)]
+    pub contract: bool,
     /// Location of the member declaration node.
     pub location: Location,
 }

@@ -319,6 +319,9 @@ Current implemented parity:
   methods, operators, and enum constants
 - conservative `dart-decimate/unused-enum-member` and
   `dart-decimate/unused-class-member` findings for reachable Dart libraries,
+  including unused public members of plain classes in `lib/` (annotated
+  members, classes with supertypes, generated-part libraries, entry files and
+  publicly exported classes are skipped),
   including same-library `part` reference handling, suppressions, rule config,
   baselines, and JSON schema coverage
 - syntactic reference extraction for identifiers and type identifiers,
