@@ -92,11 +92,9 @@ impl ChangedLineScope {
     }
 }
 
-/// Load changed-line scope from a unified diff file.
+/// Load changed-line scope from a unified diff file, failing when the diff cannot be read.
 ///
 /// # Errors
-///
-/// Returns [`SecurityGateError`] if the diff cannot be read.
 pub(crate) fn changed_lines_from_diff_file(
     root: &Path,
     path: &Path,
@@ -113,11 +111,9 @@ pub(crate) fn changed_lines_from_diff(root: &Path, source: &str) -> ChangedLineS
     changed_lines_from_unified_diff(root, source)
 }
 
-/// Load changed-line scope from Git changes since `base`.
+/// Load changed-line scope from Git changes since `base`, failing when Git or a file read fails.
 ///
 /// # Errors
-///
-/// Returns [`SecurityGateError`] if Git fails or an untracked file cannot be read.
 pub(crate) fn changed_lines_from_git(
     root: &Path,
     base: &str,

@@ -192,12 +192,9 @@ pub fn regression_baseline_from_report(report: &JsonReport) -> RegressionBaselin
     }
 }
 
-/// Load a baseline from disk.
+/// Load a baseline from disk, failing on an unreadable, malformed or unsupported file.
 ///
 /// # Errors
-///
-/// Returns [`BaselineError`] when the file is unreadable, malformed, or uses an
-/// unsupported schema version.
 pub fn load_baseline(path: impl AsRef<Path>) -> Result<Baseline, BaselineError> {
     let path = path.as_ref();
     let source = fs::read_to_string(path).map_err(|source| BaselineError::Read {
@@ -218,12 +215,9 @@ pub fn load_baseline(path: impl AsRef<Path>) -> Result<Baseline, BaselineError> 
     Ok(baseline)
 }
 
-/// Load a count-based regression baseline from disk.
+/// Load a count-based regression baseline, failing on an unreadable, malformed or unsupported file.
 ///
 /// # Errors
-///
-/// Returns [`BaselineError`] when the file is unreadable, malformed, or uses an
-/// unsupported schema version.
 pub fn load_regression_baseline(
     path: impl AsRef<Path>,
 ) -> Result<RegressionBaseline, BaselineError> {
@@ -247,22 +241,16 @@ pub fn load_regression_baseline(
     Ok(baseline)
 }
 
-/// Save a baseline to disk.
+/// Save a baseline to disk, failing when the directory or file cannot be written.
 ///
 /// # Errors
-///
-/// Returns [`BaselineError`] when the parent directory cannot be created or the
-/// file cannot be written.
 pub fn save_baseline(path: impl AsRef<Path>, baseline: &Baseline) -> Result<(), BaselineError> {
     save_json(path, baseline)
 }
 
-/// Save a count-based regression baseline to disk.
+/// Save a count-based regression baseline, failing when the directory or file cannot be written.
 ///
 /// # Errors
-///
-/// Returns [`BaselineError`] when the parent directory cannot be created or the
-/// file cannot be written.
 pub fn save_regression_baseline(
     path: impl AsRef<Path>,
     baseline: &RegressionBaseline,
