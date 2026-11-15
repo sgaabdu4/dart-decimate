@@ -8,7 +8,7 @@ use tempfile::TempDir;
 fn strict_check_fails_two_workspace_packages_that_depend_on_each_other()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
-    write_workspace(&fixture, "  a:\n    path: ../a\n")?;
+    write_workspace(&fixture, "  a:\n    path: ../a\n", true)?;
 
     let (code, json) = strict_check(&fixture)?;
 
@@ -28,7 +28,7 @@ fn strict_check_fails_two_workspace_packages_that_depend_on_each_other()
 fn strict_check_keeps_workspace_packages_with_one_way_dependencies()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
-    write_workspace(&fixture, "")?;
+    write_workspace(&fixture, "", false)?;
 
     let (code, json) = strict_check(&fixture)?;
 
@@ -38,7 +38,43 @@ fn strict_check_keeps_workspace_packages_with_one_way_dependencies()
     Ok(())
 }
 
-fn write_workspace(fixture: &TempDir, b_dependencies: &str) -> Result<(), std::io::Error> {
+#[test]
+fn strict_check_keeps_a_loop_that_only_a_dev_dependency_closes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_workspace(&fixture, "dev_dependencies:\n  a:\n    path: ../a\n", false)?;
+    write(
+        &fixture,
+        "packages/b/test/b_test.dart",
+        "import 'package:a/other.dart';\n\nvoid main() {\n  other();\n}\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["package_cycles"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_a_manifest_only_loop_that_no_lib_import_backs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_workspace(&fixture, "  a:\n    path: ../a\n", false)?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(json["summary"]["package_cycles"], 0);
+
+    Ok(())
+}
+
+fn write_workspace(
+    fixture: &TempDir,
+    b_dependencies: &str,
+    b_lib_imports_a: bool,
+) -> Result<(), std::io::Error> {
     write(
         fixture,
         "pubspec.yaml",
@@ -70,11 +106,11 @@ fn write_workspace(fixture: &TempDir, b_dependencies: &str) -> Result<(), std::i
     write(
         fixture,
         "packages/b/lib/b.dart",
-        &if b_dependencies.is_empty() {
-            "import 'package:c/c.dart';\n\nString fb() => fc();\n".to_owned()
-        } else {
+        &if b_lib_imports_a {
             "import 'package:a/other.dart';\nimport 'package:c/c.dart';\n\nString fb() => other() + fc();\n"
                 .to_owned()
+        } else {
+            "import 'package:c/c.dart';\n\nString fb() => fc();\n".to_owned()
         },
     )?;
     write(
