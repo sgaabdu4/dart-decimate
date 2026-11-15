@@ -337,9 +337,10 @@ Current implemented parity:
   expose same-library private Dart types, including `part` libraries,
   `show`/`hide`, suppressions, rule config, JSON schema, and explain coverage
 - `dart-decimate/duplicate-export` findings for public barrel APIs that expose the
-  same top-level symbol from multiple files, and for one public name declared in
-  two reachable library files under `lib/` (platform alternatives of one
-  conditional import are exempt)
+  same top-level symbol from multiple files, and for one library that imports or
+  exports two `lib/` files that declare one public name (prefixed imports,
+  `show`/`hide`, platform alternatives of one conditional import and FlutterFire
+  option files are exempt)
 - `dart-decimate/route-collision` findings for typed GoRouter routes and raw
   `GoRoute` route trees that resolve to the same path pattern or route name,
   with parameter-name normalization and nested route path joining

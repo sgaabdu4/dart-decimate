@@ -12,10 +12,18 @@ fn strict_check_fails_one_name_declared_in_two_library_files()
     write(
         &fixture,
         "lib/package.dart",
-        "import 'src/a.dart';\nimport 'src/b.dart' as b;\n\nvoid run() {\n  Label();\n  b.Label();\n}\n",
+        "import 'src/a.dart';\nimport 'src/b.dart';\n\nvoid run() {\n  first();\n  second();\n}\n",
     )?;
-    write(&fixture, "lib/src/a.dart", "class Label {}\n")?;
-    write(&fixture, "lib/src/b.dart", "class Label {}\n")?;
+    write(
+        &fixture,
+        "lib/src/a.dart",
+        "class Label {}\n\nvoid first() {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/b.dart",
+        "class Label {}\n\nvoid second() {}\n",
+    )?;
 
     let (code, json) = strict_check(&fixture)?;
 
@@ -25,6 +33,151 @@ fn strict_check_fails_one_name_declared_in_two_library_files()
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0]["files"][0], "lib/src/a.dart");
     assert_eq!(findings[0]["files"][1], "lib/src/b.dart");
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_files_that_no_library_imports_together()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: package\n")?;
+    write(
+        &fixture,
+        "lib/package.dart",
+        "import 'src/x.dart';\nimport 'src/y.dart';\n\nvoid run() {\n  xmake();\n  ymake();\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/x.dart",
+        "import 'a.dart';\n\nLabel xmake() => Label();\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/y.dart",
+        "import 'b.dart';\n\nLabel ymake() => Label();\n",
+    )?;
+    write(&fixture, "lib/src/a.dart", "class Label {}\n")?;
+    write(&fixture, "lib/src/b.dart", "class Label {}\n")?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["duplicate_exports"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_a_prefixed_import_of_the_second_declaration()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: package\n")?;
+    write(
+        &fixture,
+        "lib/package.dart",
+        "import 'src/a.dart';\nimport 'src/b.dart' as other;\n\nvoid run() {\n  Label();\n  other.Label();\n}\n",
+    )?;
+    write(&fixture, "lib/src/a.dart", "class Label {}\n")?;
+    write(&fixture, "lib/src/b.dart", "class Label {}\n")?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["duplicate_exports"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_a_barrel_that_exports_only_one_of_two_names()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: package\n")?;
+    write(
+        &fixture,
+        "lib/package.dart",
+        "export 'src/a.dart' show Shared;\nexport 'src/b.dart' hide Shared;\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'package.dart';\n\nvoid main() {\n  Shared();\n  Extra();\n}\n",
+    )?;
+    write(&fixture, "lib/src/a.dart", "class Shared {}\n")?;
+    write(
+        &fixture,
+        "lib/src/b.dart",
+        "class Shared {}\n\nclass Extra {}\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["duplicate_exports"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_fails_a_barrel_that_exports_the_same_name_twice()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: package\n")?;
+    write(
+        &fixture,
+        "lib/package.dart",
+        "export 'src/a.dart';\nexport 'src/b.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'package.dart';\n\nvoid main() {\n  first();\n  second();\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/a.dart",
+        "class Shared {}\n\nvoid first() {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/b.dart",
+        "class Shared {}\n\nvoid second() {}\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 1);
+    assert_eq!(duplicate_findings(&json).len(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_flavor_option_files_that_share_a_class_name()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'firebase_options_dev.dart';\nimport 'firebase_options_prod.dart';\n\nvoid main() {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/firebase_options_dev.dart",
+        "class DefaultFirebaseOptions {}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/firebase_options_prod.dart",
+        "class DefaultFirebaseOptions {}\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["duplicate_exports"], 0);
 
     Ok(())
 }
