@@ -477,6 +477,56 @@ fn strict_check_keeps_base_members_for_a_project_mixin_that_implements_an_interf
 }
 
 #[test]
+fn strict_check_follows_a_typedef_supertype_to_its_class() -> Result<(), Box<dyn std::error::Error>>
+{
+    let cases = [
+        (
+            "class Ordered {\n  int compareTo(Object other) => 0;\n}\n\ntypedef Alias = Ordered;\n\nclass Item extends Alias implements Comparable<Object> {}\n",
+            0,
+        ),
+        (
+            "class Ordered {\n  int compareTo(Object other) => 0;\n}\n\ntypedef Inner<T> = Ordered;\n\ntypedef Alias = Inner<int>;\n\nclass Item extends Alias implements Comparable<Object> {}\n",
+            0,
+        ),
+        (
+            "class Ordered {\n  int spare() => 0;\n}\n\ntypedef Alias = Ordered;\n\nclass Item extends Alias {}\n",
+            1,
+        ),
+    ];
+    for (items, expected) in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, "  print(Item());\n")?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            json["summary"]["unused_class_members"],
+            expected,
+            "{items}: {:?}",
+            member_messages(&json)
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_finishes_on_a_typedef_loop() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_app_with_class_hierarchy(
+        &fixture,
+        "abstract class I {}\n\ntypedef A = B;\n\ntypedef B = A;\n\nclass X extends A implements I {}\n",
+        "  print(X());\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0, "{:?}", member_messages(&json));
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

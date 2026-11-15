@@ -324,7 +324,8 @@ Current implemented parity:
   generated-part libraries, classes that a class extends or mixes in when it
   has an `implements` clause, a `with` clause naming a mixin from outside the
   project, or a `with` clause naming a project mixin that has an `implements`
-  clause, entry files and publicly exported classes
+  clause (a `typedef Name = Type;` supertype counts as its target class),
+  entry files and publicly exported classes
   are skipped; an application exports no public API, so its `lib/` classes are
   checked too. An application has `publish_to: none` with `lib/main.dart` or a
   `bin/` script, or a Flutter dependency with `lib/main.dart`. A package with
