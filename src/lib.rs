@@ -90,7 +90,7 @@ pub use decision_surface::{
 pub use dependencies::{
     DeclaredPackageDependency, DependencyHygieneError, DependencyHygieneReport, DependencyIssue,
     DependencyOverrideMisconfigReason, DependencySection, LocalPubPackage,
-    MisconfiguredDependencyOverride, PrivateSrcImport, UnlistedPackageDependency,
+    MisconfiguredDependencyOverride, PackageCycle, PrivateSrcImport, UnlistedPackageDependency,
     UnusedPackageDependency, analyze_dependency_hygiene, declared_package_dependencies,
     local_pub_packages,
 };

@@ -16,6 +16,7 @@ pub(crate) use codegen::file_uses_codegen_dependency;
 mod discovery;
 mod flutter_usage;
 mod overrides;
+mod package_cycles;
 mod package_graph;
 mod private_src_imports;
 mod pubspec_document;
@@ -25,6 +26,8 @@ pub use analyze::analyze_dependency_hygiene;
 use discovery::discover_packages;
 pub use overrides::{DependencyOverrideMisconfigReason, MisconfiguredDependencyOverride};
 use overrides::{is_honored_override_entry, misconfigured_dependency_overrides};
+pub use package_cycles::PackageCycle;
+use package_cycles::package_cycles;
 pub use private_src_imports::PrivateSrcImport;
 use private_src_imports::imports_private_src;
 use pubspec_document::{declared_dependencies_from_source, dependency_location};
@@ -41,6 +44,8 @@ pub struct DependencyHygieneReport {
     pub unlisted_dependencies: Vec<UnlistedPackageDependency>,
     /// Imports into another package's private `lib/src` implementation tree.
     pub private_src_imports: Vec<PrivateSrcImport>,
+    /// Local packages that depend on each other through their pubspecs.
+    pub package_cycles: Vec<PackageCycle>,
 }
 
 /// A declared pub dependency that has no Dart import/export usage.

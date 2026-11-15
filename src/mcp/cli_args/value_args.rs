@@ -169,6 +169,7 @@ pub(super) fn issue_filter_flag(issue_type: &str) -> Result<String, String> {
         "misconfigured-dependency-overrides" | "misconfigured-dependency-override" => {
             Ok("--misconfigured-dependency-overrides".to_owned())
         }
+        "package-cycles" | "package-cycle" => Ok("--package-cycles".to_owned()),
         "private-type-leak" | "private-type-leaks" => Ok("--private-type-leaks".to_owned()),
         _ => Err(format!("unsupported issue_type {issue_type}")),
     }

@@ -4,7 +4,7 @@ use super::format::{dependency_kind, display_path};
 use super::{Finding, FindingAction, FindingEdge, FindingKind, Severity};
 use crate::{
     DependencyHygieneReport, DependencyIssue, DependencyOverrideMisconfigReason, DependencySection,
-    MisconfiguredDependencyOverride, PrivateSrcImport, UnlistedPackageDependency,
+    MisconfiguredDependencyOverride, PackageCycle, PrivateSrcImport, UnlistedPackageDependency,
     UnusedPackageDependency,
 };
 
@@ -24,6 +24,12 @@ pub(super) fn add_dependency_hygiene_findings(
             .misconfigured_dependency_overrides
             .iter()
             .map(|dependency| misconfigured_override_finding(root, dependency)),
+    );
+    findings.extend(
+        report
+            .package_cycles
+            .iter()
+            .map(|cycle| package_cycle_finding(root, cycle)),
     );
     findings.extend(
         report
@@ -196,6 +202,39 @@ fn misconfigured_override_finding(
                     .unwrap_or_else(|| dependency.raw_key.clone()),
             )
             .with_config_key("dependency_overrides"),
+        ],
+    }
+}
+
+fn package_cycle_finding(root: &Path, cycle: &PackageCycle) -> Finding {
+    let files = cycle
+        .pubspec_paths
+        .iter()
+        .map(|path| display_path(root, path))
+        .collect::<Vec<_>>();
+    let path = files.first().cloned().unwrap_or_default();
+    Finding {
+        rule_id: "dart-decimate/package-cycle".to_owned(),
+        fingerprint: None,
+        kind: FindingKind::PackageCycle,
+        severity: Severity::Error,
+        message: format!(
+            "Packages {} depend on each other",
+            cycle.packages.join(", ")
+        ),
+        path: path.clone(),
+        line: 1,
+        column: 0,
+        safe_to_delete: false,
+        files,
+        edge: None,
+        actions: vec![
+            FindingAction::new(
+                "break-package-cycle",
+                "Move the shared code into a third package or remove one pubspec dependency",
+                false,
+            )
+            .with_target_path(path),
         ],
     }
 }

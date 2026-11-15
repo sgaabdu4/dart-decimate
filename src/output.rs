@@ -448,6 +448,7 @@ fn apply_dependency_summary(
         kind_count(findings, FindingKind::UnusedDependencyOverride);
     summary.misconfigured_dependency_overrides =
         kind_count(findings, FindingKind::MisconfiguredDependencyOverride);
+    summary.package_cycles = kind_count(findings, FindingKind::PackageCycle);
     summary.unlisted_dependencies = results
         .dependency_hygiene
         .as_ref()
@@ -627,6 +628,7 @@ fn apply_scoped_counts(summary: &mut ReportSummary, findings: &[Finding]) {
         kind_count(findings, FindingKind::UnusedDependencyOverride);
     summary.misconfigured_dependency_overrides =
         kind_count(findings, FindingKind::MisconfiguredDependencyOverride);
+    summary.package_cycles = kind_count(findings, FindingKind::PackageCycle);
     summary.unlisted_dependencies = kind_count(findings, FindingKind::UnlistedDependency);
     summary.private_src_imports = kind_count(findings, FindingKind::PrivateSrcImport);
     summary.dead_files = kind_count(findings, FindingKind::DeadFile);

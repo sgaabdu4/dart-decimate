@@ -12,7 +12,7 @@ use super::usage::DependencyUsage;
 use super::{
     DependencyHygieneError, DependencyHygieneReport, DependencyIssue, PrivateSrcImport, PubPackage,
     UnlistedPackageDependency, UnusedPackageDependency, dependency_issue, discover_packages,
-    imports_private_src, owning_package, package_name,
+    imports_private_src, owning_package, package_cycles, package_name,
 };
 
 type PackageUsage = BTreeMap<PathBuf, BTreeMap<String, DependencyUsage>>;
@@ -37,9 +37,11 @@ pub fn analyze_dependency_hygiene(
 
     sort_unused_dependencies(&mut unused_dependencies);
     sort_private_src_imports(&mut imports.private_src_imports);
+    let package_cycles = package_cycles(&packages);
 
     Ok(DependencyHygieneReport {
         unused_dependencies,
+        package_cycles,
         misconfigured_dependency_overrides: packages
             .into_iter()
             .flat_map(|package| package.misconfigured_dependency_overrides)
