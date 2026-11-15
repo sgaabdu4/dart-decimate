@@ -189,7 +189,13 @@ fn is_region_subtag(part: &str) -> bool {
 pub(crate) fn is_flutterfire_options_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|file_name| file_name == "firebase_options.dart")
+        .is_some_and(|file_name| {
+            file_name == "firebase_options.dart"
+                || (file_name.starts_with("firebase_options_")
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension == "dart"))
+        })
         && path
             .parent()
             .and_then(|parent| parent.file_name())
@@ -243,6 +249,7 @@ mod tests {
             Path::new("test/drift/generated/schema_v31.dart"),
             Path::new("lib/firebase_options.dart"),
             Path::new("packages/foo/lib/firebase_options.dart"),
+            Path::new("lib/firebase_options_dev.dart"),
         ] {
             assert!(is_generated_dart_path(path), "{}", path.display());
         }
@@ -259,6 +266,8 @@ mod tests {
             Path::new("test/drift/generated/schema_version.dart"),
             Path::new("lib/src/firebase_options.dart"),
             Path::new("packages/foo/lib/config/firebase_options.dart"),
+            Path::new("lib/src/firebase_options_dev.dart"),
+            Path::new("lib/firebase_options_dev.txt"),
         ] {
             assert!(!is_generated_dart_path(path), "{}", path.display());
         }
