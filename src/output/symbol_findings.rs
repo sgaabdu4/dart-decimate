@@ -208,7 +208,11 @@ fn unused_member_finding(root: &Path, unused: &UnusedMember) -> Finding {
         _ => (
             "dart-decimate/unused-class-member",
             FindingKind::UnusedClassMember,
-            "private class-like member",
+            if unused.name.starts_with('_') {
+                "private class-like member"
+            } else {
+                "public class-like member"
+            },
         ),
     };
     Finding {
