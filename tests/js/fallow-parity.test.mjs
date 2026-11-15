@@ -106,13 +106,27 @@ test("one public name declared in two library files fails the strict check", () 
   const { status, report } = strictCheck({
     "pubspec.yaml": "name: package\n",
     "lib/package.dart":
-      "import 'src/a.dart';\nimport 'src/b.dart' as b;\n\nvoid run() {\n  Label();\n  b.Label();\n}\n",
-    "lib/src/a.dart": "class Label {}\n",
-    "lib/src/b.dart": "class Label {}\n",
+      "import 'src/a.dart';\nimport 'src/b.dart';\n\nvoid run() {\n  first();\n  second();\n}\n",
+    "lib/src/a.dart": "class Label {}\n\nvoid first() {}\n",
+    "lib/src/b.dart": "class Label {}\n\nvoid second() {}\n",
   });
 
   assert.equal(status, 1);
   assert.ok(ruleIds(report).includes("dart-decimate/duplicate-export"));
+});
+
+test("same-name files that no library imports together keep the strict check green", () => {
+  const { status } = strictCheck({
+    "pubspec.yaml": "name: package\n",
+    "lib/package.dart":
+      "import 'src/x.dart';\nimport 'src/y.dart';\n\nvoid run() {\n  xmake();\n  ymake();\n}\n",
+    "lib/src/x.dart": "import 'a.dart';\n\nLabel xmake() => Label();\n",
+    "lib/src/y.dart": "import 'b.dart';\n\nLabel ymake() => Label();\n",
+    "lib/src/a.dart": "class Label {}\n",
+    "lib/src/b.dart": "class Label {}\n",
+  });
+
+  assert.equal(status, 0);
 });
 
 test("platform alternatives that share a name keep the strict check green", () => {
