@@ -843,22 +843,18 @@ mixin Runner on Base {}
             .map(|clause| (
                 clause.owner.as_str(),
                 clause.names.clone(),
-                clause.implements,
-                clause.mixes_in
+                clause.mixins.clone(),
+                clause.implements
             ))
             .collect::<Vec<_>>(),
         vec![
             (
                 "Item",
-                vec![
-                    "Ordered".to_owned(),
-                    "Mixed".to_owned(),
-                    "ui.Shared".to_owned()
-                ],
-                true,
+                vec!["Ordered".to_owned()],
+                vec!["Mixed".to_owned(), "ui.Shared".to_owned()],
                 true
             ),
-            ("Runner", vec!["Base".to_owned()], false, false)
+            ("Runner", vec!["Base".to_owned()], vec![], false)
         ]
     );
 

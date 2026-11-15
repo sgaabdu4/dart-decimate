@@ -43,15 +43,19 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
         }
     }
     let mut names = Vec::new();
+    let mut mixins = Vec::new();
     let mut implements = false;
-    let mut mixes_in = false;
+    let mut after_with = false;
     let mut listing = false;
     for word in flat.split(|character: char| character.is_whitespace() || character == ',') {
         match word {
-            "extends" | "on" => listing = true,
+            "extends" | "on" => {
+                listing = true;
+                after_with = false;
+            }
             "with" => {
                 listing = true;
-                mixes_in = true;
+                after_with = true;
             }
             "implements" => {
                 listing = false;
@@ -61,7 +65,7 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
             _ if listing => {
                 let name = word.trim_end_matches('?');
                 if !name.is_empty() {
-                    names.push(name.to_owned());
+                    if after_with { &mut mixins } else { &mut names }.push(name.to_owned());
                 }
             }
             _ => {}
@@ -70,8 +74,8 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
     ClassSupertypes {
         owner,
         names,
+        mixins,
         implements,
-        mixes_in,
     }
 }
 

@@ -438,6 +438,13 @@ struct PublicMemberContext {
     interface_ancestors: BTreeSet<ClassKey>,
 }
 
+struct HierarchyClass {
+    key: ClassKey,
+    marked: bool,
+    mixins: BTreeSet<ClassKey>,
+    parents: BTreeSet<ClassKey>,
+}
+
 fn interface_ancestors(project: &ScannedProject, index: &SymbolIndex) -> BTreeSet<ClassKey> {
     let resolver = DeclarationResolver::new(
         project,
@@ -446,28 +453,43 @@ fn interface_ancestors(project: &ScannedProject, index: &SymbolIndex) -> BTreeSe
             name: indexed.declaration.name.clone(),
         }),
     );
-    let mut supertypes = BTreeMap::<ClassKey, BTreeSet<ClassKey>>::new();
-    let mut pending = Vec::new();
+    let mut classes = Vec::new();
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
         for class in &file.class_supertypes {
-            let parents = class
-                .names
-                .iter()
-                .flat_map(|name| resolver.resolve(&path, name))
-                .collect::<BTreeSet<_>>();
-            if class.implements || class.mixes_in {
-                pending.extend(parents.iter().cloned());
-            }
-            supertypes
-                .entry(ClassKey {
+            let resolve_all = |names: &[String]| {
+                names
+                    .iter()
+                    .map(|name| resolver.resolve(&path, name))
+                    .collect::<Vec<_>>()
+            };
+            let extended = resolve_all(&class.names);
+            let mixed = resolve_all(&class.mixins);
+            classes.push(HierarchyClass {
+                key: ClassKey {
                     path: path.clone(),
                     name: class.owner.clone(),
-                })
-                .or_default()
-                .extend(parents);
+                },
+                marked: class.implements || mixed.iter().any(BTreeSet::is_empty),
+                mixins: mixed.iter().flatten().cloned().collect(),
+                parents: extended.into_iter().chain(mixed).flatten().collect(),
+            });
         }
     }
+    let marked = classes
+        .iter()
+        .filter(|class| class.marked)
+        .map(|class| class.key.clone())
+        .collect::<BTreeSet<_>>();
+    let mut pending = classes
+        .iter()
+        .filter(|class| class.marked || class.mixins.iter().any(|mixin| marked.contains(mixin)))
+        .flat_map(|class| class.parents.iter().cloned())
+        .collect::<Vec<_>>();
+    let supertypes = classes
+        .into_iter()
+        .map(|class| (class.key, class.parents))
+        .collect::<BTreeMap<_, _>>();
     let mut ancestors = BTreeSet::new();
     while let Some(class) = pending.pop() {
         if !ancestors.contains(&class) {
