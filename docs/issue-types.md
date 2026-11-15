@@ -37,6 +37,7 @@ unused-dev-dependency
 test-only-dependency
 unused-dependency-override
 misconfigured-dependency-override
+package-cycle
 unlisted-dependency
 private-src-import
 code-duplication

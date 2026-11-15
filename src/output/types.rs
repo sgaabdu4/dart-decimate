@@ -212,6 +212,8 @@ pub struct ReportSummary {
     pub unused_dependency_overrides: usize,
     /// Dependency override entries Pub cannot honor.
     pub misconfigured_dependency_overrides: usize,
+    /// Local packages that depend on each other through their pubspecs.
+    pub package_cycles: usize,
     /// Imported pub packages absent from pubspec dependencies.
     pub unlisted_dependencies: usize,
     /// Imports into another package's private `lib/src` implementation tree.
@@ -427,6 +429,8 @@ pub enum FindingKind {
     UnusedDependencyOverride,
     /// Dependency override key or value cannot be honored by Pub.
     MisconfiguredDependencyOverride,
+    /// Local packages depend on each other through their pubspecs.
+    PackageCycle,
     /// Imported pub package is missing from pubspec.
     UnlistedDependency,
     /// Import reaches into another package's private `lib/src` implementation tree.

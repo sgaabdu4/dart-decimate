@@ -575,6 +575,7 @@ fn recompute_summary(report: &mut JsonReport) {
         &report.findings,
         FindingKind::MisconfiguredDependencyOverride,
     );
+    report.summary.package_cycles = kind_count(&report.findings, FindingKind::PackageCycle);
     report.summary.unlisted_dependencies =
         kind_count(&report.findings, FindingKind::UnlistedDependency);
     report.summary.private_src_imports =

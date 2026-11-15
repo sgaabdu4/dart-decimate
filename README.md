@@ -337,6 +337,7 @@ Dart Decimate finds:
 - imports missing from `pubspec.yaml`
 - unused dependency overrides
 - invalid dependency overrides
+- local packages that depend on each other, even with no file import cycle
 - imports into another package's private `lib/src`
 - duplicate public API exports
 

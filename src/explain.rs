@@ -539,6 +539,18 @@ const ISSUES: &[IssueExplanation] = &[
         &[],
     ),
     issue!(
+        "package-cycle",
+        "dart-decimate/package-cycle",
+        &["package-cycle", "package-cycles"],
+        "Package cycle",
+        "Two or more local pub packages depend on each other through their pubspec dependencies sections.",
+        "Packages that depend on each other cannot be built, versioned or published on their own, even when no file imports form a cycle.",
+        "packages/a lists b under dependencies and packages/b lists a under dependencies.",
+        "Move the shared code into a third package, or remove one of the pubspec dependencies.",
+        &[],
+        &["dart-decimate check --package-cycles --format json"],
+    ),
+    issue!(
         "unlisted-dependency",
         "dart-decimate/unlisted-dependency",
         &[

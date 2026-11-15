@@ -364,6 +364,7 @@ const fn kind_key(kind: FindingKind) -> &'static str {
         FindingKind::TestOnlyDependency => "test-only-dependency",
         FindingKind::UnusedDependencyOverride => "unused-dependency-override",
         FindingKind::MisconfiguredDependencyOverride => "misconfigured-dependency-override",
+        FindingKind::PackageCycle => "package-cycle",
         FindingKind::UnlistedDependency => "unlisted-dependency",
         FindingKind::PrivateSrcImport => "private-src-import",
         FindingKind::CodeDuplication => "code-duplication",
