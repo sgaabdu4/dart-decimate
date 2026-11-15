@@ -127,6 +127,20 @@ test("an unused member of a class in an unpublished package fails the strict che
   assert.ok(ruleIds(report).includes("dart-decimate/unused-class-member"));
 });
 
+test("a published Flutter package with a bin script keeps its exported API", () => {
+  const { report } = strictCheck({
+    "pubspec.yaml":
+      "name: fancy_splash\nversion: 2.1.0\nenvironment:\n  sdk: ^3.8.0\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    "lib/fancy_splash.dart": "export 'src/splash.dart';\n",
+    "lib/src/splash.dart":
+      "class SplashConfig {\n  SplashConfig(this.color);\n\n  final int color;\n\n  int get brightness => color >> 8;\n}\n",
+    "bin/create.dart":
+      "import 'package:fancy_splash/fancy_splash.dart';\n\nvoid main() {\n  print(SplashConfig(1).color);\n}\n",
+  });
+
+  assert.ok(!ruleIds(report).includes("dart-decimate/unused-class-member"));
+});
+
 test("a library class of a published package keeps the strict check green", () => {
   const { status } = strictCheck({
     "pubspec.yaml": "name: app\n",
