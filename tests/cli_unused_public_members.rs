@@ -326,6 +326,28 @@ fn strict_check_fails_an_unused_member_of_a_base_class_without_an_interface()
 }
 
 #[test]
+fn strict_check_keeps_base_members_that_a_subclass_mixes_in_an_interface_for()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_app_with_class_hierarchy(
+        &fixture,
+        "import 'dart:collection';\n\nclass BagBase {\n  Iterator<int> get iterator => throw UnimplementedError();\n}\n\nclass Bag extends BagBase with IterableMixin<int> {}\n\nclass Store {\n  Iterable<String> get keys => const [];\n\n  void clear() {}\n\n  int? remove(Object? key) => null;\n}\n\nclass Settings extends Store with MapMixin<String, int> {}\n",
+        "  for (final n in Bag()) {\n    print(n);\n  }\n  print(Settings());\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["unused_class_members"],
+        0,
+        "{:?}",
+        member_messages(&json)
+    );
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

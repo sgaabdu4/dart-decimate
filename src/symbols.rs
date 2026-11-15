@@ -445,7 +445,7 @@ fn interface_ancestors(project: &ScannedProject) -> BTreeSet<String> {
         .collect::<Vec<_>>();
     let mut pending = hierarchy
         .iter()
-        .filter(|class| class.implements)
+        .filter(|class| class.implements || class.mixes_in)
         .flat_map(|class| class.names.iter().cloned())
         .collect::<Vec<_>>();
     let mut ancestors = BTreeSet::new();
