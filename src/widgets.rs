@@ -148,9 +148,6 @@ pub enum WidgetAnalysisError {
 /// Detect Flutter widget framework issues.
 ///
 /// # Errors
-///
-/// Returns [`WidgetAnalysisError`] if a scanned Dart file cannot be read or
-/// parsed during widget analysis.
 pub fn analyze_widgets(
     project: &ScannedProject,
     dead_code: Option<&DeadCodeReport>,
