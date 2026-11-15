@@ -397,7 +397,8 @@ Current implemented parity:
   `dart-decimate/test-only-dependency`, and
   `dart-decimate/unused-dependency-override`,
   `dart-decimate/misconfigured-dependency-override`, and
-  `dart-decimate/package-cycle` for local packages that depend on each other
+  `dart-decimate/package-cycle` for local packages whose `dependencies` entries,
+  each backed by a `lib/` import, depend on each other
 - conservative non-Dart tooling usage for dependency traces and unused-dev
   checks from Dart/Flutter config files such as `build.yaml`,
   `analysis_options.yaml`, Flutter launcher/splash config, workflow YAML, and

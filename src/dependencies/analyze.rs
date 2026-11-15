@@ -8,7 +8,7 @@ use crate::package_map::PackageMap;
 use crate::{DartFile, DependencyKind, Location, extract_dart_file, scan::ScannedProject};
 
 use super::codegen::codegen_dependencies_for_file;
-use super::usage::DependencyUsage;
+use super::usage::{DependencyUsage, is_library_file};
 use super::{
     DependencyHygieneError, DependencyHygieneReport, DependencyIssue, PrivateSrcImport, PubPackage,
     UnlistedPackageDependency, UnusedPackageDependency, dependency_issue, discover_packages,
@@ -20,6 +20,7 @@ type PackageUsage = BTreeMap<PathBuf, BTreeMap<String, DependencyUsage>>;
 #[derive(Default)]
 struct ImportUsage {
     used_by_package: PackageUsage,
+    library_imports: BTreeMap<PathBuf, BTreeSet<String>>,
     unlisted_by_identity: BTreeMap<(PathBuf, String), UnlistedPackageDependency>,
     private_src_imports: Vec<PrivateSrcImport>,
 }
@@ -37,7 +38,7 @@ pub fn analyze_dependency_hygiene(
 
     sort_unused_dependencies(&mut unused_dependencies);
     sort_private_src_imports(&mut imports.private_src_imports);
-    let package_cycles = package_cycles(&packages);
+    let package_cycles = package_cycles(&packages, &imports.library_imports);
 
     Ok(DependencyHygieneReport {
         unused_dependencies,
@@ -170,6 +171,14 @@ fn record_directive(
     };
     if dependency == owner.name {
         return;
+    }
+
+    if is_library_file(&owner.root, file_path) {
+        usage
+            .library_imports
+            .entry(owner.root.clone())
+            .or_default()
+            .insert(dependency.clone());
     }
 
     if imports_private_src(specifier) && !is_generated_dart_path(file_path) {
