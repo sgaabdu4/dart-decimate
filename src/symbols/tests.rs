@@ -243,6 +243,7 @@ void runLive() {
             ("Mode", "off", MemberKind::EnumConstant),
             ("Controller", "_unusedField", MemberKind::Field),
             ("Controller", "_unused", MemberKind::Method),
+            ("Controller", "publicUnused", MemberKind::Method),
             ("InternalText", "_unusedLength", MemberKind::Getter),
         ]
     );

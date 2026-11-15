@@ -187,7 +187,7 @@ Dart Decimate finds:
 - unused public exports
 - unused type aliases
 - unused enum values
-- unused private class members
+- unused private class members, and unused public members of classes in `lib/`
 - unrendered Flutter widgets
 - missing entry points
 - stale `dart-decimate-ignore` comments
