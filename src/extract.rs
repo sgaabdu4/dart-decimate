@@ -90,8 +90,7 @@ pub struct DartFile {
     pub declarations: Vec<TopLevelDeclaration>,
     /// Class-like member declarations in source order.
     pub members: Vec<MemberDeclaration>,
-    /// Identifier uses in source order, including non-raw string interpolation,
-    /// excluding import/export metadata and obvious declaration-name positions.
+    /// Identifier uses in source order, excluding import/export metadata and declaration names.
     pub references: Vec<IdentifierReference>,
     /// Type references from public declaration signatures, excluding bodies.
     pub signature_references: Vec<SignatureReference>,
@@ -232,8 +231,7 @@ pub struct MemberDeclaration {
     pub location: Location,
 }
 
-/// A syntactic identifier or type identifier use, including references found in
-/// non-raw string interpolation.
+/// A syntactic identifier or type identifier use, including non-raw string interpolation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IdentifierReference {
     /// Referenced identifier text.
@@ -317,16 +315,9 @@ pub enum ExtractError {
     },
 }
 
-/// Extract graph-relevant syntax facts from a Dart file on disk.
-///
-/// This phase intentionally ignores function bodies and does not perform type
-/// evaluation, name resolution, or import resolution.
+/// Extract syntax facts from a Dart file on disk, ignoring function bodies and name resolution.
 ///
 /// # Errors
-///
-/// Returns [`ExtractError::Read`] when the file cannot be read, or a parser
-/// error when Tree-Sitter cannot load the Dart grammar, cannot produce a tree,
-/// or finds Dart syntax errors.
 pub fn extract_dart_file(path: impl AsRef<Path>) -> Result<DartFile, ExtractError> {
     let path = path.as_ref();
     let source = fs::read_to_string(path).map_err(|source| ExtractError::Read {
@@ -337,15 +328,9 @@ pub fn extract_dart_file(path: impl AsRef<Path>) -> Result<DartFile, ExtractErro
     extract_dart_source(path, &source)
 }
 
-/// Extract graph-relevant syntax facts from Dart source text.
-///
-/// `path` is carried into the returned facts and error messages. It does not
-/// need to exist on disk.
+/// Extract syntax facts from Dart source text; `path` labels the facts and need not exist.
 ///
 /// # Errors
-///
-/// Returns a parser error when Tree-Sitter cannot load the Dart grammar, cannot
-/// produce a tree, or finds Dart syntax errors.
 pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartFile, ExtractError> {
     let path = path.as_ref().to_path_buf();
     let parsed =

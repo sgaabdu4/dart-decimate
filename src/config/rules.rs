@@ -25,11 +25,9 @@ pub enum RuleLevel {
 /// Rule severity configuration keyed by rule id or alias.
 pub type RuleConfig = BTreeMap<String, RuleLevel>;
 
-/// Validate all configured rule names.
+/// Validate all configured rule names, failing on an unsupported rule key.
 ///
 /// # Errors
-///
-/// Returns [`RuleError`] when a rule key is not supported by Dart Decimate.
 pub fn validate_rules(rules: &RuleConfig) -> Result<(), RuleError> {
     let _ = RuleMatcher::new(rules)?;
     Ok(())
@@ -57,11 +55,9 @@ pub fn missing_suppression_reasons_enabled(rules: &RuleConfig) -> bool {
         })
 }
 
-/// Apply configured rule severities to an already-built report.
+/// Apply configured rule severities to a built report, failing on an unsupported rule key.
 ///
 /// # Errors
-///
-/// Returns [`RuleError`] when a rule key is not supported by Dart Decimate.
 pub fn apply_rules_to_report(report: &mut JsonReport, rules: &RuleConfig) -> Result<(), RuleError> {
     let rules = RuleMatcher::new(rules)?;
     if rules.is_empty() {
