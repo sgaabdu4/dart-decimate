@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::dependencies::{PackageScope, package_scopes};
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
 use crate::{
@@ -364,7 +365,7 @@ fn unused_member_from_declaration(
         || !reachable_files.contains(&indexed.path)
         || dead_files.contains(&indexed.path)
         || is_generated_dart_path(&indexed.path)
-        || !is_library_source(&project.root, &indexed.path)
+        || !public_members.in_library(&project.root, &indexed.path)
         || !should_check_member(index, public_members, indexed)
     {
         return None;
@@ -407,6 +408,7 @@ fn should_check_member(
         MemberKind::EnumConstant => {
             !is_private(&indexed.member.name)
                 && !index.is_public_export(&indexed.path, &indexed.member.owner)
+                && !public_members.exports_class(&indexed.path, &indexed.member.owner)
         }
         MemberKind::Field | MemberKind::Getter | MemberKind::Setter | MemberKind::Method => {
             is_private(&indexed.member.name) || public_members.checks(index, indexed)
@@ -430,11 +432,35 @@ struct PublicMemberContext {
     class_owners: BTreeSet<(PathBuf, String)>,
     generated_part_libraries: BTreeSet<PathBuf>,
     entry_points: BTreeSet<PathBuf>,
+    packages: Vec<PackageScope>,
+    public_classes: BTreeSet<(PathBuf, String)>,
+}
+
+fn owning_scope<'scope>(
+    packages: &'scope [PackageScope],
+    path: &Path,
+) -> Option<&'scope PackageScope> {
+    packages
+        .iter()
+        .filter(|scope| path.starts_with(&scope.root))
+        .max_by_key(|scope| scope.root.components().count())
 }
 
 impl PublicMemberContext {
     fn new(project: &ScannedProject, dead_code: &DeadCodeReport, index: &SymbolIndex) -> Self {
+        let packages = package_scopes(&project.root);
+        let public_classes = public_exported_declarations_from(project, |path| {
+            owning_scope(&packages, path).map_or_else(
+                || is_public_library_entry(&project.root, path),
+                |scope| !scope.application && is_public_library_entry(&scope.root, path),
+            )
+        })
+        .into_iter()
+        .map(|exported| (exported.path, exported.declaration.name))
+        .collect();
         Self {
+            packages,
+            public_classes,
             class_owners: index
                 .declarations
                 .iter()
@@ -459,14 +485,35 @@ impl PublicMemberContext {
         }
     }
 
+    fn exports_class(&self, path: &Path, owner: &str) -> bool {
+        self.public_classes
+            .contains(&(path.to_path_buf(), owner.to_owned()))
+    }
+
+    fn in_library(&self, root: &Path, path: &Path) -> bool {
+        owning_scope(&self.packages, path).map_or_else(
+            || is_library_source(root, path),
+            |scope| is_library_source(&scope.root, path),
+        )
+    }
+
+    fn is_runtime_entry(&self, path: &Path) -> bool {
+        self.entry_points.contains(path)
+            && !owning_scope(&self.packages, path).is_some_and(|scope| {
+                scope.application
+                    && is_public_library_entry(&scope.root, path)
+                    && path.file_name().is_none_or(|name| name != "main.dart")
+            })
+    }
+
     fn checks(&self, index: &SymbolIndex, indexed: &IndexedMember) -> bool {
         !indexed.member.contract
             && !CONTRACT_MEMBER_NAMES.contains(&indexed.member.name.as_str())
             && self
                 .class_owners
                 .contains(&(indexed.path.clone(), indexed.member.owner.clone()))
-            && !self.entry_points.contains(&indexed.path)
-            && !index.is_public_export(&indexed.path, &indexed.member.owner)
+            && !self.is_runtime_entry(&indexed.path)
+            && !self.exports_class(&indexed.path, &indexed.member.owner)
             && !self
                 .generated_part_libraries
                 .contains(index.library_path(&indexed.path))
@@ -499,12 +546,19 @@ fn library_by_path(project: &ScannedProject) -> BTreeMap<PathBuf, PathBuf> {
 }
 
 fn public_exported_declarations(project: &ScannedProject) -> Vec<PublicExportedDeclaration> {
+    public_exported_declarations_from(project, |path| is_public_library_entry(&project.root, path))
+}
+
+fn public_exported_declarations_from(
+    project: &ScannedProject,
+    is_public_entry: impl Fn(&Path) -> bool,
+) -> Vec<PublicExportedDeclaration> {
     let declarations = declarations_by_path(project);
     let public_entry_files = project
         .files
         .iter()
         .map(|file| normalize_against(&project.root, &file.path))
-        .filter(|path| is_public_library_entry(&project.root, path))
+        .filter(|path| is_public_entry(path))
         .collect::<BTreeSet<_>>();
 
     let dependencies = project.graph.dependencies();
