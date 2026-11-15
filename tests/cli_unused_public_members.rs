@@ -87,6 +87,42 @@ fn strict_check_keeps_members_that_a_contract_or_another_file_uses()
     Ok(())
 }
 
+#[test]
+fn unused_member_message_names_the_visibility_of_the_member()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/cleaner.dart';\n\nvoid main() {\n  Cleaner();\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/cleaner.dart",
+        "class Cleaner {\n  int spare() => 1;\n\n  int _hidden() => 2;\n}\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    let messages = member_messages(&json);
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.starts_with("Unused public class-like member Cleaner.spare")),
+        "{messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.starts_with("Unused private class-like member Cleaner._hidden")),
+        "{messages:?}"
+    );
+
+    Ok(())
+}
+
 fn member_messages(json: &Value) -> Vec<String> {
     json["findings"]
         .as_array()
