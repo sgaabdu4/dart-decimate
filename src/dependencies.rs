@@ -16,6 +16,7 @@ pub(crate) use codegen::file_uses_codegen_dependency;
 mod discovery;
 mod flutter_usage;
 mod overrides;
+mod package_graph;
 mod private_src_imports;
 mod pubspec_document;
 mod pubspec_entry;
@@ -132,7 +133,7 @@ pub enum DependencyIssue {
     DevDependencyInProduction,
     /// Runtime dependency is imported only from development-only files.
     TestOnlyDependency,
-    /// Dependency override is absent from the resolved lockfile package graph.
+    /// Dependency override is absent from the lockfile or not reached by the resolved package graph.
     UnusedDependencyOverride,
 }
 
@@ -283,6 +284,7 @@ pub(super) struct PubPackage {
     flutter_metadata_dependencies: BTreeSet<String>,
     misconfigured_dependency_overrides: Vec<MisconfiguredDependencyOverride>,
     locked_packages: Option<BTreeSet<String>>,
+    needed_packages: Option<BTreeSet<String>>,
 }
 
 impl PubPackage {
@@ -319,7 +321,7 @@ struct DeclaredDependency {
 fn dependency_issue(
     dependency: &DeclaredDependency,
     usage: Option<&DependencyUsage>,
-    locked_packages: Option<&BTreeSet<String>>,
+    package: &PubPackage,
 ) -> Option<DependencyIssue> {
     match dependency.section {
         DependencySection::Dependencies => match usage {
@@ -332,10 +334,17 @@ fn dependency_issue(
             Some(_) => None,
             None => Some(DependencyIssue::UnusedDevDependency),
         },
-        DependencySection::DependencyOverrides => locked_packages.and_then(|locked| {
-            (!locked.contains(&dependency.name))
-                .then_some(DependencyIssue::UnusedDependencyOverride)
-        }),
+        DependencySection::DependencyOverrides => {
+            let missing_from_lock = package
+                .locked_packages
+                .as_ref()
+                .is_some_and(|locked| !locked.contains(&dependency.name));
+            let unneeded = package
+                .needed_packages
+                .as_ref()
+                .is_some_and(|needed| !needed.contains(&dependency.name));
+            (missing_from_lock || unneeded).then_some(DependencyIssue::UnusedDependencyOverride)
+        }
     }
 }
 
@@ -353,6 +362,8 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
     let overrides = read_pubspec_overrides(&root)?;
     let flutter_metadata_dependencies = flutter_usage::flutter_metadata_dependencies(&root, &value);
 
+    let needed_packages = package_graph::needed_packages(&root, name);
+
     Ok(Some(PubPackage {
         name: name.to_owned(),
         root,
@@ -367,6 +378,7 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
             overrides.as_ref(),
         ),
         locked_packages: read_locked_packages(path),
+        needed_packages,
     }))
 }
 

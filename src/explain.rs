@@ -516,10 +516,10 @@ const ISSUES: &[IssueExplanation] = &[
             "dependency-overrides"
         ],
         "Unused dependency override",
-        "A Dart dependency override is absent from the resolved pubspec.lock package graph.",
+        "A Dart dependency override targets a package that the resolved dependency graph never reaches, or that pubspec.lock does not contain.",
         "Overrides are temporary build policy and should not linger after the resolver stops using them.",
-        "dependency_overrides: stale is declared but pubspec.lock does not contain stale.",
-        "Compare the override with pubspec.lock and active Pub resolution before removing it.",
+        "dependency_overrides: stale is declared but no package in .dart_tool/package_graph.json depends on stale.",
+        "Compare the override with .dart_tool/package_graph.json, pubspec.lock and active Pub resolution before removing it.",
         &[],
         &["dart-decimate trace-dependency --format json --dependency <package>"],
     ),
