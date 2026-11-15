@@ -47,6 +47,7 @@ N/A — this changes static CLI findings, not a rendered interface.
 
 Result: Passed
 Evidence: `cargo test --all-targets` passes after the two intended expectation changes. Each of the four item commits compiles alone (`cargo check --all-targets`). The full Hard Eng check passed every gate but freshness, which found biome 2.6.7 and was repaired in its own commit. The shortened comment blocks keep clippy pedantic green.
+Retro: old multi-line comment blocks in touched files failed the check → HE-COMMENT-LINES caught it, repaired in its own commit; a newer biome passed the age limit mid-task → the freshness gate caught it, updated in its own commit; a hunk-splitting script slip misplaced lines in one commit → None — caught by diffing the tree against a backup and by `cargo check` on each commit, and no repository rule can prevent a local script slip.
 E2E: Passed — the built binary ran `check . --threshold 0 --strict --format json` on 35 parity samples. The six former misses now exit 1: unused-class-member, duplicate-export, unused-dependency-override, misconfigured-dependency-override, package-cycle and high-crap-score. The clean samples exit 0, and the `crap` sample without a `max_crap` setting still exits 0 by design.
 
 Delivery target: Merge
