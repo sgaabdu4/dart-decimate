@@ -260,7 +260,7 @@ fn crap_finding(
     let crap_score = crap_score(function.cyclomatic, covered_lines, executable_lines);
     let thresholds = threshold_context.crap_thresholds(function, crap_score)?;
     let max_crap = thresholds.effective.max_crap?;
-    if crap_score <= max_crap {
+    if crap_score < max_crap {
         return None;
     }
 

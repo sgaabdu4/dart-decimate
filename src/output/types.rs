@@ -285,7 +285,7 @@ pub struct ReportSummary {
     pub coverage_files: usize,
     /// Dart files with no observed covered executable lines.
     pub coverage_gaps: usize,
-    /// Functions exceeding the CRAP threshold.
+    /// Functions at or above the CRAP threshold.
     pub crap_functions: usize,
     /// Highest CRAP score.
     pub max_crap_score: usize,
@@ -441,7 +441,7 @@ pub enum FindingKind {
     HighComplexity,
     /// Dart file has no observed covered executable lines.
     CoverageGap,
-    /// Function exceeded the CRAP threshold.
+    /// Function reached the CRAP threshold.
     HighCrapScore,
     /// File is a low-scoring health hotspot.
     HealthHotspot,

@@ -208,7 +208,7 @@ impl ThresholdContext {
     }
 
     fn crap_active(&self, crap_score: usize, max_crap: usize) -> bool {
-        self.max_crap.is_some_and(|global| crap_score > global) || crap_score > max_crap
+        self.max_crap.is_some_and(|global| crap_score >= global) || crap_score >= max_crap
     }
 
     fn mark_matched(&mut self, index: usize, function: &FunctionMetrics) {

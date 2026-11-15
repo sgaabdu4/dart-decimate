@@ -187,6 +187,60 @@ end_of_record
 }
 
 #[test]
+fn crap_score_equal_to_the_limit_is_reported() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_coverage_source(&fixture)?;
+    write(
+        &fixture,
+        "coverage/lcov.info",
+        "SF:lib/main.dart
+DA:2,0
+DA:3,0
+DA:4,0
+DA:5,0
+end_of_record
+",
+    )?;
+    let project = scan_project(fixture.path())?;
+    let report_at = |max_crap: usize, threshold_overrides: Vec<HealthThresholdOverride>| {
+        analyze_health(
+            &project,
+            &HealthOptions {
+                coverage_path: Some("coverage/lcov.info".into()),
+                max_crap: Some(max_crap),
+                threshold_overrides,
+                ..HealthOptions::default()
+            },
+        )
+    };
+
+    let at_limit = report_at(20, Vec::new())?;
+    let above_limit = report_at(21, Vec::new())?;
+    let override_at_limit = report_at(
+        100,
+        vec![HealthThresholdOverride {
+            files: vec!["lib/main.dart".to_owned()],
+            functions: vec!["uncovered".to_owned()],
+            max_cyclomatic: None,
+            max_cognitive: None,
+            max_crap: Some(20),
+            max_unit_size: None,
+            reason: None,
+        }],
+    )?;
+
+    assert_eq!(at_limit.crap.len(), 1);
+    assert_eq!(at_limit.crap[0].crap_score, 20);
+    assert_eq!(above_limit.crap, []);
+    assert_eq!(
+        override_at_limit.threshold_overrides[0].status,
+        HealthThresholdOverrideStatus::Active
+    );
+
+    Ok(())
+}
+
+#[test]
 fn covered_lcov_lines_do_not_emit_coverage_findings() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write_coverage_source(&fixture)?;
