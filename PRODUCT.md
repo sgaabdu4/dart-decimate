@@ -321,8 +321,10 @@ Current implemented parity:
   `dart-decimate/unused-class-member` findings for reachable Dart libraries,
   including unused public members of plain classes in `lib/` of each package,
   also from a workspace root (annotated members, classes with supertypes,
-  generated-part libraries, classes that a class with an `implements` or
-  `with` clause extends or mixes in, entry files and publicly exported classes
+  generated-part libraries, classes that a class extends or mixes in when it
+  has an `implements` clause, a `with` clause naming a mixin from outside the
+  project, or a `with` clause naming a project mixin that has an `implements`
+  clause, entry files and publicly exported classes
   are skipped; an application exports no public API, so its `lib/` classes are
   checked too. An application has `publish_to: none` with `lib/main.dart` or a
   `bin/` script, or a Flutter dependency with `lib/main.dart`. A package with

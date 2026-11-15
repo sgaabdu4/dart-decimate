@@ -417,6 +417,66 @@ fn strict_check_fails_an_unused_member_of_a_class_that_shares_a_name_with_a_base
 }
 
 #[test]
+fn strict_check_fails_an_unused_member_of_a_class_that_only_a_project_mixin_extends()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            "class Base {\n  int get value => 1;\n\n  int spare() => 0;\n}\n\nmixin M on Base {\n  int twice() => value * 2;\n}\n\nclass A extends Base with M {}\n",
+            "  print(A().twice());\n",
+            "Base.spare",
+        ),
+        (
+            "class BaseRepo {\n  int fetch() => 1;\n\n  int legacy() => 2;\n}\n\nmixin Logs {\n  void log() {}\n}\n\nclass Repo extends BaseRepo with Logs {}\n",
+            "  print(Repo().fetch());\n  Repo().log();\n",
+            "BaseRepo.legacy",
+        ),
+        (
+            "mixin class Helper {\n  int used() => 1;\n\n  int spare() => 2;\n}\n\nclass A with Helper {}\n",
+            "  print(A().used());\n",
+            "Helper.spare",
+        ),
+    ];
+    for (items, main_body, expected) in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, main_body)?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            json["summary"]["unused_class_members"],
+            1,
+            "{expected}: {:?}",
+            member_messages(&json)
+        );
+        assert!(member_messages(&json)[0].contains(expected));
+    }
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_base_members_for_a_project_mixin_that_implements_an_interface()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_app_with_class_hierarchy(
+        &fixture,
+        "class Base {\n  int compareTo(Object other) => 0;\n}\n\nmixin M implements Comparable<Object> {}\n\nclass A extends Base with M {}\n",
+        "  print(A());\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["unused_class_members"],
+        0,
+        "{:?}",
+        member_messages(&json)
+    );
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
