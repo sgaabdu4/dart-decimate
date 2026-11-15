@@ -22,8 +22,8 @@ mod pubspec_entry;
 mod usage;
 pub use analyze::analyze_dependency_hygiene;
 use discovery::discover_packages;
-use overrides::misconfigured_dependency_overrides;
 pub use overrides::{DependencyOverrideMisconfigReason, MisconfiguredDependencyOverride};
+use overrides::{is_honored_override_entry, misconfigured_dependency_overrides};
 pub use private_src_imports::PrivateSrcImport;
 use private_src_imports::imports_private_src;
 use pubspec_document::{declared_dependencies_from_source, dependency_location};
@@ -507,7 +507,7 @@ fn declared_dependencies_for_sections(
             mapping.iter().filter_map(move |(name, value)| {
                 let name = name.clone();
                 if section == DependencySection::DependencyOverrides
-                    && (!valid_dart_package_name(&name) || value.is_null())
+                    && !is_honored_override_entry(&name, value)
                 {
                     return None;
                 }

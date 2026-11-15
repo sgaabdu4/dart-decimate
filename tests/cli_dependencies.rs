@@ -749,6 +749,43 @@ dependencies:\n  http: ^1.0.0\n",
     Ok(())
 }
 
+#[test]
+fn strict_check_fails_a_blank_string_dependency_override() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\n\
+dependencies:\n  helper:\n    path: helper\n\
+dependency_overrides:\n  helper: \"\"\n",
+    )?;
+    write(&fixture, "helper/pubspec.yaml", "name: helper\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'package:helper/helper.dart';\nvoid main() {}\n",
+    )?;
+    write(&fixture, "helper/lib/helper.dart", "void help() {}\n")?;
+
+    let (code, json) = run_json([
+        "dart-decimate",
+        "check",
+        fixture.path().to_str().unwrap_or("."),
+        "--threshold",
+        "0",
+        "--strict",
+        "--format",
+        "json",
+    ])?;
+
+    assert_eq!(code, 1);
+    assert!(rule_ids(&json).contains(&"dart-decimate/misconfigured-dependency-override"));
+    assert_eq!(json["summary"]["misconfigured_dependency_overrides"], 1);
+
+    Ok(())
+}
+
 fn run_json<const N: usize>(args: [&str; N]) -> Result<(i32, Value), Box<dyn std::error::Error>> {
     let mut output = Vec::new();
     let code = run_from(args, &mut output)?;

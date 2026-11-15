@@ -37,6 +37,14 @@ pub enum DependencyOverrideMisconfigReason {
     EmptyValue,
 }
 
+pub(super) fn is_blank_override_value(value: &Value) -> bool {
+    value.is_null() || value.as_str().is_some_and(|text| text.trim().is_empty())
+}
+
+pub(super) fn is_honored_override_entry(name: &str, value: &Value) -> bool {
+    valid_dart_package_name(name) && !is_blank_override_value(value)
+}
+
 pub(super) fn misconfigured_dependency_overrides(
     value: &Value,
     source: &str,
@@ -52,7 +60,7 @@ pub(super) fn misconfigured_dependency_overrides(
             let raw_key = name.clone();
             let reason = if !valid_dart_package_name(name) {
                 DependencyOverrideMisconfigReason::UnparsableKey
-            } else if value.is_null() {
+            } else if is_blank_override_value(value) {
                 DependencyOverrideMisconfigReason::EmptyValue
             } else {
                 return None;
