@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::dependencies::{PackageScope, package_scopes};
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
+use crate::widgets::resolution::{ClassKey, DeclarationResolver};
 use crate::{
     DartCombinatorKind, DeadCodeReport, DeclarationKind, DependencyKind, Location,
     MemberDeclaration, MemberKind, ScannedProject, TopLevelDeclaration,
@@ -434,32 +435,45 @@ struct PublicMemberContext {
     entry_points: BTreeSet<PathBuf>,
     packages: Vec<PackageScope>,
     public_classes: BTreeSet<(PathBuf, String)>,
-    interface_ancestors: BTreeSet<String>,
+    interface_ancestors: BTreeSet<ClassKey>,
 }
 
-fn interface_ancestors(project: &ScannedProject) -> BTreeSet<String> {
-    let hierarchy = project
-        .files
-        .iter()
-        .flat_map(|file| &file.class_supertypes)
-        .collect::<Vec<_>>();
-    let mut pending = hierarchy
-        .iter()
-        .filter(|class| class.implements || class.mixes_in)
-        .flat_map(|class| class.names.iter().cloned())
-        .collect::<Vec<_>>();
-    let mut ancestors = BTreeSet::new();
-    while let Some(name) = pending.pop() {
-        if ancestors.contains(&name) {
-            continue;
-        }
-        pending.extend(
-            hierarchy
+fn interface_ancestors(project: &ScannedProject, index: &SymbolIndex) -> BTreeSet<ClassKey> {
+    let resolver = DeclarationResolver::new(
+        project,
+        index.declarations.iter().map(|indexed| ClassKey {
+            path: indexed.path.clone(),
+            name: indexed.declaration.name.clone(),
+        }),
+    );
+    let mut supertypes = BTreeMap::<ClassKey, BTreeSet<ClassKey>>::new();
+    let mut pending = Vec::new();
+    for file in &project.files {
+        let path = normalize_against(&project.root, &file.path);
+        for class in &file.class_supertypes {
+            let parents = class
+                .names
                 .iter()
-                .filter(|class| class.owner == name)
-                .flat_map(|class| class.names.iter().cloned()),
-        );
-        ancestors.insert(name);
+                .flat_map(|name| resolver.resolve(&path, name))
+                .collect::<BTreeSet<_>>();
+            if class.implements || class.mixes_in {
+                pending.extend(parents.iter().cloned());
+            }
+            supertypes
+                .entry(ClassKey {
+                    path: path.clone(),
+                    name: class.owner.clone(),
+                })
+                .or_default()
+                .extend(parents);
+        }
+    }
+    let mut ancestors = BTreeSet::new();
+    while let Some(class) = pending.pop() {
+        if !ancestors.contains(&class) {
+            pending.extend(supertypes.get(&class).into_iter().flatten().cloned());
+            ancestors.insert(class);
+        }
     }
     ancestors
 }
@@ -487,7 +501,7 @@ impl PublicMemberContext {
         .map(|exported| (exported.path, exported.declaration.name))
         .collect();
         Self {
-            interface_ancestors: interface_ancestors(project),
+            interface_ancestors: interface_ancestors(project, index),
             packages,
             public_classes,
             class_owners: index
@@ -541,7 +555,10 @@ impl PublicMemberContext {
             && self
                 .class_owners
                 .contains(&(indexed.path.clone(), indexed.member.owner.clone()))
-            && !self.interface_ancestors.contains(&indexed.member.owner)
+            && !self.interface_ancestors.contains(&ClassKey {
+                path: indexed.path.clone(),
+                name: indexed.member.owner.clone(),
+            })
             && !self.is_runtime_entry(&indexed.path)
             && !self.exports_class(&indexed.path, &indexed.member.owner)
             && !self

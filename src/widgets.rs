@@ -17,7 +17,7 @@ mod lifecycle;
 mod params;
 mod patterns;
 mod reads;
-mod resolution;
+pub(crate) mod resolution;
 mod top_level;
 mod unrendered;
 
