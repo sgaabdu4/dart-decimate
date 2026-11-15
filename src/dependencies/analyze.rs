@@ -264,7 +264,7 @@ fn unused_dependency(
         usage.record_tooling();
     }
     let usage = usage.any().then_some(usage);
-    let issue = dependency_issue(dependency, usage.as_ref(), package.locked_packages.as_ref())?;
+    let issue = dependency_issue(dependency, usage.as_ref(), package)?;
     Some(UnusedPackageDependency {
         package: package.name.clone(),
         pubspec_path: dependency.source_path.clone(),

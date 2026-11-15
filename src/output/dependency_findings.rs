@@ -121,7 +121,7 @@ fn message(dependency: &UnusedPackageDependency) -> String {
             dependency.package, dependency.dependency
         ),
         DependencyIssue::UnusedDependencyOverride => format!(
-            "{} declares unused dependency override {} that is absent from pubspec.lock resolved packages",
+            "{} declares unused dependency override {} that is absent from pubspec.lock or not reached by the dependency graph",
             dependency.package, dependency.dependency
         ),
     }
