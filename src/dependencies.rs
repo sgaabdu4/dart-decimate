@@ -309,19 +309,23 @@ pub(crate) fn package_scopes(root: &Path) -> Vec<PackageScope> {
         .collect()
 }
 
-fn is_application(value: &Value, root: &Path) -> bool {
-    let has_entry = root.join("lib").join("main.dart").is_file()
-        || fs::read_dir(root.join("bin")).is_ok_and(|entries| {
-            entries
-                .flatten()
-                .any(|entry| entry.path().extension().is_some_and(|ext| ext == "dart"))
-        });
-    let unpublished = string_field(value, "publish_to") == Some("none")
-        || (mapping_field(value, "dependencies")
+fn is_application(value: &Value, root: &Path, name: &str) -> bool {
+    if root.join("lib").join(format!("{name}.dart")).is_file() {
+        return false;
+    }
+    let has_main = root.join("lib").join("main.dart").is_file();
+    if string_field(value, "publish_to") == Some("none") {
+        return has_main
+            || fs::read_dir(root.join("bin")).is_ok_and(|entries| {
+                entries
+                    .flatten()
+                    .any(|entry| entry.path().extension().is_some_and(|ext| ext == "dart"))
+            });
+    }
+    has_main
+        && mapping_field(value, "dependencies")
             .is_some_and(|dependencies| dependencies.contains_key("flutter"))
-            && !mapping_field(value, "flutter")
-                .is_some_and(|flutter| flutter.contains_key("plugin")));
-    has_entry && unpublished
+        && !mapping_field(value, "flutter").is_some_and(|flutter| flutter.contains_key("plugin"))
 }
 
 impl PubPackage {
@@ -400,7 +404,7 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
     let flutter_metadata_dependencies = flutter_usage::flutter_metadata_dependencies(&root, &value);
 
     let needed_packages = package_graph::needed_packages(&root, name);
-    let application = is_application(&value, &root);
+    let application = is_application(&value, &root, name);
 
     Ok(Some(PubPackage {
         name: name.to_owned(),
