@@ -527,6 +527,69 @@ fn strict_check_finishes_on_a_typedef_loop() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn strict_check_keeps_base_members_for_interfaces_that_the_tool_cannot_read()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        "import 'dart:collection';\n\ntypedef IM = IterableMixin<int>;\n\nclass BagBase {\n  Iterator<int> get iterator => throw UnimplementedError();\n}\n\nclass Bag extends BagBase with IM {}\n",
+        "import 'dart:collection';\n\nclass BagBase {\n  Iterator<int> get iterator => throw UnimplementedError();\n}\n\nclass Bag = BagBase with IterableMixin<int>;\n",
+        "class Ordered {\n  int compareTo(Object other) => 0;\n}\n\n@Deprecated('x')\ntypedef Alias = Ordered;\n\nclass Item extends Alias implements Comparable<Object> {}\n",
+        "class Ordered {\n  int compareTo(Object other) => 0;\n}\n\ntypedef Alias = /* old */ Ordered;\n\nclass Item extends Alias implements Comparable<Object> {}\n",
+    ];
+    for items in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, "  print(Bag());\n  print(Item());\n")?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            json["summary"]["unused_class_members"],
+            0,
+            "{items}: {:?}",
+            member_messages(&json)
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_protects_only_the_members_that_a_project_interface_declares()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            "class Base {\n  String get label => 'b';\n\n  String get spare => 's';\n}\n\nmixin Named {\n  String get label;\n}\n\nclass P extends Base with Named {}\n",
+            "  print(P());\n",
+            "Base.spare",
+            "Base.label",
+        ),
+        (
+            "abstract class Repo {\n  int size();\n}\n\nclass Base {\n  int size() => 0;\n\n  int legacy() => 1;\n}\n\nclass RepoImpl extends Base implements Repo {}\n",
+            "  print(RepoImpl().size());\n",
+            "Base.legacy",
+            "Base.size",
+        ),
+    ];
+    for (items, main_body, reported, kept) in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, main_body)?;
+
+        let (_, json) = strict_check(&fixture)?;
+        let messages = member_messages(&json);
+
+        assert!(
+            messages.iter().any(|message| message.contains(reported)),
+            "{reported}: {messages:?}"
+        );
+        assert!(
+            !messages.iter().any(|message| message.contains(kept)),
+            "{kept}: {messages:?}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

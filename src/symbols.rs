@@ -435,17 +435,40 @@ struct PublicMemberContext {
     entry_points: BTreeSet<PathBuf>,
     packages: Vec<PackageScope>,
     public_classes: BTreeSet<(PathBuf, String)>,
-    interface_ancestors: BTreeSet<ClassKey>,
+    interface_skips: InterfaceSkips,
 }
 
 struct HierarchyClass {
-    key: ClassKey,
-    marked: bool,
-    mixins: BTreeSet<ClassKey>,
-    parents: BTreeSet<ClassKey>,
+    extended: BTreeSet<ClassKey>,
+    mixed: BTreeSet<ClassKey>,
+    implemented: BTreeSet<ClassKey>,
+    outside_extended: bool,
+    outside_interface: bool,
 }
 
-fn interface_ancestors(project: &ScannedProject, index: &SymbolIndex) -> BTreeSet<ClassKey> {
+impl HierarchyClass {
+    fn interfaces(&self) -> impl Iterator<Item = &ClassKey> {
+        self.mixed.iter().chain(&self.implemented)
+    }
+}
+
+#[derive(Default)]
+struct InterfaceSkips {
+    whole_classes: BTreeSet<ClassKey>,
+    named_members: BTreeMap<ClassKey, BTreeSet<String>>,
+}
+
+impl InterfaceSkips {
+    fn protects(&self, class: &ClassKey, member: &str) -> bool {
+        self.whole_classes.contains(class)
+            || self
+                .named_members
+                .get(class)
+                .is_some_and(|names| names.contains(member))
+    }
+}
+
+fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSkips {
     let resolver = DeclarationResolver::new(
         project,
         index.declarations.iter().map(|indexed| ClassKey {
@@ -453,51 +476,96 @@ fn interface_ancestors(project: &ScannedProject, index: &SymbolIndex) -> BTreeSe
             name: indexed.declaration.name.clone(),
         }),
     );
-    let mut classes = Vec::new();
+    let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
+    let mut member_names = BTreeMap::<ClassKey, BTreeSet<String>>::new();
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
+        for member in &file.members {
+            member_names
+                .entry(ClassKey {
+                    path: path.clone(),
+                    name: member.owner.clone(),
+                })
+                .or_default()
+                .insert(member.name.clone());
+        }
         for class in &file.class_supertypes {
             let resolve_all = |names: &[String]| {
-                names
+                let sets = names
                     .iter()
                     .map(|name| resolver.resolve(&path, name))
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                let outside = sets.iter().any(BTreeSet::is_empty);
+                (sets.into_iter().flatten().collect::<BTreeSet<_>>(), outside)
             };
-            let extended = resolve_all(&class.names);
-            let mixed = resolve_all(&class.mixins);
-            classes.push(HierarchyClass {
-                key: ClassKey {
-                    path: path.clone(),
-                    name: class.owner.clone(),
+            let (extended, outside_extended) = resolve_all(&class.names);
+            let (mixed, outside_mixed) = resolve_all(&class.mixins);
+            let (implemented, outside_implemented) = resolve_all(&class.implemented);
+            let key = ClassKey {
+                path: path.clone(),
+                name: class.owner.clone(),
+            };
+            classes.insert(
+                key,
+                HierarchyClass {
+                    extended,
+                    mixed,
+                    implemented,
+                    outside_extended,
+                    outside_interface: outside_mixed || outside_implemented,
                 },
-                marked: class.implements || mixed.iter().any(BTreeSet::is_empty),
-                mixins: mixed.iter().flatten().cloned().collect(),
-                parents: extended.into_iter().chain(mixed).flatten().collect(),
-            });
+            );
         }
     }
-    let marked = classes
-        .iter()
-        .filter(|class| class.marked)
-        .map(|class| class.key.clone())
-        .collect::<BTreeSet<_>>();
-    let mut pending = classes
-        .iter()
-        .filter(|class| class.marked || class.mixins.iter().any(|mixin| marked.contains(mixin)))
-        .flat_map(|class| class.parents.iter().cloned())
-        .collect::<Vec<_>>();
-    let supertypes = classes
-        .into_iter()
-        .map(|class| (class.key, class.parents))
-        .collect::<BTreeMap<_, _>>();
-    let mut ancestors = BTreeSet::new();
-    while let Some(class) = pending.pop() {
-        if !ancestors.contains(&class) {
-            pending.extend(supertypes.get(&class).into_iter().flatten().cloned());
-            ancestors.insert(class);
+    let mut skips = InterfaceSkips::default();
+    for class in classes.values() {
+        let mut reached = BTreeSet::new();
+        let mut open = class.outside_interface;
+        let mut pending = class.interfaces().cloned().collect::<Vec<_>>();
+        while let Some(reached_class) = pending.pop() {
+            if reached.insert(reached_class.clone())
+                && let Some(parent) = classes.get(&reached_class)
+            {
+                open |= parent.outside_extended || parent.outside_interface;
+                pending.extend(parent.extended.iter().chain(parent.interfaces()).cloned());
+            }
+        }
+        if reached.is_empty() && !open {
+            continue;
+        }
+        let mut ancestors = BTreeSet::new();
+        let mut pending = class
+            .extended
+            .iter()
+            .chain(&class.mixed)
+            .cloned()
+            .collect::<Vec<_>>();
+        while let Some(ancestor) = pending.pop() {
+            if ancestors.insert(ancestor.clone())
+                && let Some(parent) = classes.get(&ancestor)
+            {
+                pending.extend(parent.extended.iter().chain(&parent.mixed).cloned());
+            }
+        }
+        if open {
+            skips.whole_classes.extend(ancestors);
+            continue;
+        }
+        let names = reached
+            .iter()
+            .filter_map(|reached_class| member_names.get(reached_class))
+            .flatten()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        for ancestor in ancestors.difference(&reached) {
+            skips
+                .named_members
+                .entry(ancestor.clone())
+                .or_default()
+                .extend(names.iter().cloned());
         }
     }
-    ancestors
+    skips
 }
 
 fn owning_scope<'scope>(
@@ -523,7 +591,7 @@ impl PublicMemberContext {
         .map(|exported| (exported.path, exported.declaration.name))
         .collect();
         Self {
-            interface_ancestors: interface_ancestors(project, index),
+            interface_skips: interface_skips(project, index),
             packages,
             public_classes,
             class_owners: index
@@ -577,10 +645,13 @@ impl PublicMemberContext {
             && self
                 .class_owners
                 .contains(&(indexed.path.clone(), indexed.member.owner.clone()))
-            && !self.interface_ancestors.contains(&ClassKey {
-                path: indexed.path.clone(),
-                name: indexed.member.owner.clone(),
-            })
+            && !self.interface_skips.protects(
+                &ClassKey {
+                    path: indexed.path.clone(),
+                    name: indexed.member.owner.clone(),
+                },
+                &indexed.member.name,
+            )
             && !self.is_runtime_entry(&indexed.path)
             && !self.exports_class(&indexed.path, &indexed.member.owner)
             && !self

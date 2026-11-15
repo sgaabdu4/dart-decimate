@@ -12,6 +12,14 @@ pub(super) fn push_class_like_members(
     node: Node<'_>,
     source: &str,
 ) {
+    let mut cursor = node.walk();
+    let application = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "mixin_application_class");
+    if let Some(application) = application {
+        push_mixin_application(class_supertypes, application, source);
+        return;
+    }
     let Some(owner) = declaration_owner_name(node, source) else {
         return;
     };
@@ -31,36 +39,50 @@ pub(super) fn push_class_like_members(
     }
 }
 
-pub(super) fn push_type_alias_target(
+fn push_mixin_application(
     class_supertypes: &mut Vec<ClassSupertypes>,
     node: Node<'_>,
     source: &str,
 ) {
     let flat = without_type_arguments(node.utf8_text(source.as_bytes()).unwrap_or_default());
-    let Some(rest) = flat.trim_start().strip_prefix("typedef") else {
-        return;
-    };
-    let rest = rest.trim_start();
-    let name_end = rest
-        .find(|character: char| !(character.is_alphanumeric() || matches!(character, '_' | '$')))
-        .unwrap_or(rest.len());
-    let (owner, rest) = rest.split_at(name_end);
-    let Some(target) = rest.trim_start().strip_prefix('=') else {
-        return;
-    };
-    let target = target
-        .split_whitespace()
-        .next()
-        .map(|word| word.trim_end_matches(';').trim_end_matches('?'))
-        .filter(|word| !word.is_empty());
-    if !owner.is_empty()
-        && let Some(target) = target
+    if let Some((owner, rest)) = flat.split_once('=')
+        && let Some(owner) = owner.split_whitespace().next_back()
     {
+        let header = format!("extends {}", rest.trim_end().trim_end_matches(';'));
+        class_supertypes.push(header_supertypes(owner.to_owned(), &header));
+    }
+}
+
+pub(super) fn push_type_alias_target(
+    class_supertypes: &mut Vec<ClassSupertypes>,
+    node: Node<'_>,
+    source: &str,
+) {
+    let mut cursor = node.walk();
+    if !node.children(&mut cursor).any(|child| child.kind() == "=") {
+        return;
+    }
+    let owner = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "type_identifier")
+        .and_then(|child| child.utf8_text(source.as_bytes()).ok());
+    let target = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "type")
+        .and_then(|child| child.utf8_text(source.as_bytes()).ok())
+        .map(without_type_arguments)
+        .and_then(|text| {
+            text.split_whitespace()
+                .next()
+                .map(|word| word.trim_end_matches('?').to_owned())
+        })
+        .filter(|word| !word.is_empty());
+    if let (Some(owner), Some(target)) = (owner, target) {
         class_supertypes.push(ClassSupertypes {
             owner: owner.to_owned(),
-            names: vec![target.to_owned()],
+            names: vec![target],
             mixins: Vec::new(),
-            implements: false,
+            implemented: Vec::new(),
         });
     }
 }
@@ -79,43 +101,45 @@ fn without_type_arguments(text: &str) -> String {
     flat
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Clause {
+    Extends,
+    With,
+    Implements,
+    Skipped,
+}
+
 fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
     let flat = without_type_arguments(header);
-    let mut names = Vec::new();
-    let mut mixins = Vec::new();
-    let mut implements = false;
-    let mut after_with = false;
-    let mut listing = false;
+    let mut supertypes = ClassSupertypes {
+        owner,
+        names: Vec::new(),
+        mixins: Vec::new(),
+        implemented: Vec::new(),
+    };
+    let mut clause = None;
     for word in flat.split(|character: char| character.is_whitespace() || character == ',') {
         match word {
-            "extends" | "on" => {
-                listing = true;
-                after_with = false;
-            }
-            "with" => {
-                listing = true;
-                after_with = true;
-            }
-            "implements" => {
-                listing = false;
-                implements = true;
-            }
+            "extends" => clause = Some(Clause::Extends),
+            "with" => clause = Some(Clause::With),
+            "implements" => clause = Some(Clause::Implements),
+            "on" => clause = Some(Clause::Skipped),
             "" => {}
-            _ if listing => {
+            _ => {
                 let name = word.trim_end_matches('?');
+                let list = match clause {
+                    Some(Clause::Extends) => &mut supertypes.names,
+                    Some(Clause::With) => &mut supertypes.mixins,
+                    Some(Clause::Implements) => &mut supertypes.implemented,
+                    Some(Clause::Skipped) | None => continue,
+                };
                 if !name.is_empty() {
-                    if after_with { &mut mixins } else { &mut names }.push(name.to_owned());
+                    list.push(name.to_owned());
                 }
             }
-            _ => {}
         }
     }
-    ClassSupertypes {
-        owner,
-        names,
-        mixins,
-        implements,
-    }
+    supertypes
 }
 
 fn header_has_contract(node: Node<'_>, body: Node<'_>, source: &str) -> bool {
