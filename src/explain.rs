@@ -219,7 +219,7 @@ const ISSUES: &[IssueExplanation] = &[
         "Unused class member",
         "A private class field, getter, setter, or method is not referenced in its Dart library, or a public one of a class in lib/ is not referenced by any reachable file.",
         "Dart private names are library-scoped, including `part` files, so unused private members are cleanup candidates. Public members of a class that no reachable file uses are dead API surface.",
-        "void _legacyHandler() {} is never called in the library, or int spare() => 1; is declared in a class that no reachable file calls it on. Annotated members, classes with extends, implements, with or on clauses, classes in libraries with generated parts, entry files, publicly exported classes, and contract names such as toString and toJson are not checked.",
+        "void _legacyHandler() {} is never called in the library, or int spare() => 1; is declared in a class that no reachable file calls it on. Annotated members, classes with extends, implements, with or on clauses, classes in libraries with generated parts, entry files, classes that a published package exports, and contract names such as toString and toJson are not checked. An application, which is a package with lib/main.dart or a bin/ script and either publish_to: none or a Flutter dependency, exports no public API, so its lib/ classes are checked. An unpublished package without an entry point is a shared library and keeps its API. Each workspace package is checked from the workspace root.",
         "Check reflection, generated bindings, and framework callbacks before removal.",
         next_line_suppressions!("unused-class-member"),
         &["dart-decimate trace-symbol --format json --symbol <file>:<class>"],

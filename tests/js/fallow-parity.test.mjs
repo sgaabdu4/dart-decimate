@@ -114,6 +114,31 @@ test("an unused member finding names the visibility of the member", () => {
   );
 });
 
+test("an unused member of a class in an unpublished package fails the strict check", () => {
+  const { status, report } = strictCheck({
+    "pubspec.yaml": "name: app\npublish_to: none\n",
+    "lib/main.dart":
+      "import 'features/cleaner.dart';\n\nvoid main() {\n  print(Cleaner().clean(' x '));\n}\n",
+    "lib/features/cleaner.dart":
+      "class Cleaner {\n  String clean(String text) => text.trim();\n\n  int spare() => 1;\n}\n",
+  });
+
+  assert.equal(status, 1);
+  assert.ok(ruleIds(report).includes("dart-decimate/unused-class-member"));
+});
+
+test("a library class of a published package keeps the strict check green", () => {
+  const { status } = strictCheck({
+    "pubspec.yaml": "name: app\n",
+    "lib/main.dart":
+      "import 'features/cleaner.dart';\n\nvoid main() {\n  print(Cleaner().clean(' x '));\n}\n",
+    "lib/features/cleaner.dart":
+      "class Cleaner {\n  String clean(String text) => text.trim();\n\n  int spare() => 1;\n}\n",
+  });
+
+  assert.equal(status, 0);
+});
+
 test("a class member that another file uses keeps the strict check green", () => {
   const { status } = strictCheck({
     "pubspec.yaml": "name: app\n",

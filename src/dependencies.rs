@@ -290,6 +290,38 @@ pub(super) struct PubPackage {
     misconfigured_dependency_overrides: Vec<MisconfiguredDependencyOverride>,
     locked_packages: Option<BTreeSet<String>>,
     needed_packages: Option<BTreeSet<String>>,
+    application: bool,
+}
+
+pub(crate) struct PackageScope {
+    pub(crate) root: PathBuf,
+    pub(crate) application: bool,
+}
+
+pub(crate) fn package_scopes(root: &Path) -> Vec<PackageScope> {
+    discover_packages(root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|package| PackageScope {
+            root: package.root,
+            application: package.application,
+        })
+        .collect()
+}
+
+fn is_application(value: &Value, root: &Path) -> bool {
+    let has_entry = root.join("lib").join("main.dart").is_file()
+        || fs::read_dir(root.join("bin")).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|entry| entry.path().extension().is_some_and(|ext| ext == "dart"))
+        });
+    let unpublished = string_field(value, "publish_to") == Some("none")
+        || (mapping_field(value, "dependencies")
+            .is_some_and(|dependencies| dependencies.contains_key("flutter"))
+            && !mapping_field(value, "flutter")
+                .is_some_and(|flutter| flutter.contains_key("plugin")));
+    has_entry && unpublished
 }
 
 impl PubPackage {
@@ -368,6 +400,7 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
     let flutter_metadata_dependencies = flutter_usage::flutter_metadata_dependencies(&root, &value);
 
     let needed_packages = package_graph::needed_packages(&root, name);
+    let application = is_application(&value, &root);
 
     Ok(Some(PubPackage {
         name: name.to_owned(),
@@ -384,6 +417,7 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
         ),
         locked_packages: read_locked_packages(path),
         needed_packages,
+        application,
     }))
 }
 

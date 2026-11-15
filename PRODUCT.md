@@ -319,9 +319,13 @@ Current implemented parity:
   methods, operators, and enum constants
 - conservative `dart-decimate/unused-enum-member` and
   `dart-decimate/unused-class-member` findings for reachable Dart libraries,
-  including unused public members of plain classes in `lib/` (annotated
-  members, classes with supertypes, generated-part libraries, entry files and
-  publicly exported classes are skipped),
+  including unused public members of plain classes in `lib/` of each package,
+  also from a workspace root (annotated members, classes with supertypes,
+  generated-part libraries, entry files and publicly exported classes are
+  skipped; an application, meaning a package with `lib/main.dart` or a `bin/`
+  script and either `publish_to: none` or a Flutter dependency, exports no
+  public API, so its `lib/` classes are checked too; an unpublished package
+  without an entry point is a shared library and keeps its API),
   including same-library `part` reference handling, suppressions, rule config,
   baselines, and JSON schema coverage
 - syntactic reference extraction for identifiers and type identifiers,
