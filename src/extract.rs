@@ -224,6 +224,8 @@ pub struct ClassSupertypes {
     pub names: Vec<String>,
     /// Whether the declaration has an `implements` clause.
     pub implements: bool,
+    /// Whether the declaration has a `with` clause.
+    pub mixes_in: bool,
 }
 
 /// A class-like member declaration that can become a future symbol node.

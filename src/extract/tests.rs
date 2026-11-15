@@ -843,7 +843,8 @@ mixin Runner on Base {}
             .map(|clause| (
                 clause.owner.as_str(),
                 clause.names.clone(),
-                clause.implements
+                clause.implements,
+                clause.mixes_in
             ))
             .collect::<Vec<_>>(),
         vec![
@@ -856,9 +857,10 @@ mixin Runner on Base {}
                     "Comparable".to_owned(),
                     "Other".to_owned()
                 ],
+                true,
                 true
             ),
-            ("Runner", vec!["Base".to_owned()], false)
+            ("Runner", vec!["Base".to_owned()], false, false)
         ]
     );
 
