@@ -17,7 +17,32 @@ pub(super) fn push_class_like_members(
     let Some(body) = node.child_by_field_name("body") else {
         return;
     };
+    let start = members.len();
     collect_class_like_members(members, &owner, body, source);
+    if header_has_contract(node, body, source) {
+        for member in &mut members[start..] {
+            member.contract = true;
+        }
+    }
+}
+
+fn header_has_contract(node: Node<'_>, body: Node<'_>, source: &str) -> bool {
+    let header = source
+        .get(node.start_byte()..body.start_byte())
+        .unwrap_or_default();
+    header.trim_start().starts_with('@')
+        || header.split_whitespace().any(|word| {
+            matches!(word, "extends" | "implements" | "with" | "on") || word.starts_with('@')
+        })
+}
+
+fn member_is_annotated(node: Node<'_>, source: &str) -> bool {
+    source
+        .get(node.start_byte()..)
+        .is_some_and(|text| text.trim_start().starts_with('@'))
+        || node
+            .prev_sibling()
+            .is_some_and(|sibling| sibling.kind() == "annotation")
 }
 
 fn declaration_owner_name(node: Node<'_>, source: &str) -> Option<String> {
@@ -54,12 +79,18 @@ fn push_class_member(
     node: Node<'_>,
     source: &str,
 ) {
+    let start = members.len();
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         match child.kind() {
             "declaration" => push_bodyless_member(members, owner, child, source),
             "method_declaration" => push_method_member(members, owner, child, source),
             _ => {}
+        }
+    }
+    if member_is_annotated(node, source) {
+        for member in &mut members[start..] {
+            member.contract = true;
         }
     }
 }
@@ -82,6 +113,7 @@ fn push_bodyless_member(
         kind: MemberKind::Field,
         name,
         return_type: None,
+        contract: false,
         location: node.start_position().into(),
     }));
 }
@@ -142,6 +174,7 @@ fn push_signature_member(
             kind,
             name,
             return_type,
+            contract: false,
             location: node.start_position().into(),
         });
     }
@@ -190,6 +223,7 @@ fn push_member(
             kind,
             name,
             return_type: None,
+            contract: false,
             location: node.start_position().into(),
         });
     }

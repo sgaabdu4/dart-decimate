@@ -257,11 +257,18 @@ fn unused_members(
         .map(|dead_file| dead_file.path.clone())
         .collect::<BTreeSet<_>>();
 
+    let public_members = PublicMemberContext::new(project, dead_code, index);
     let mut unused_members = index
         .members
         .iter()
         .filter_map(|member| {
-            unused_member_from_declaration(project, index, &reachable_files, &dead_files, member)
+            unused_member_from_declaration(
+                project,
+                index,
+                (&reachable_files, &dead_files),
+                &public_members,
+                member,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -349,8 +356,8 @@ fn is_simple_unused_declaration(index: &SymbolIndex, indexed: &IndexedDeclaratio
 fn unused_member_from_declaration(
     project: &ScannedProject,
     index: &SymbolIndex,
-    reachable_files: &BTreeSet<PathBuf>,
-    dead_files: &BTreeSet<PathBuf>,
+    (reachable_files, dead_files): (&BTreeSet<PathBuf>, &BTreeSet<PathBuf>),
+    public_members: &PublicMemberContext,
     indexed: &IndexedMember,
 ) -> Option<UnusedMember> {
     if !indexed.path.starts_with(&project.root)
@@ -358,7 +365,7 @@ fn unused_member_from_declaration(
         || dead_files.contains(&indexed.path)
         || is_generated_dart_path(&indexed.path)
         || !is_library_source(&project.root, &indexed.path)
-        || !should_check_member(index, indexed)
+        || !should_check_member(index, public_members, indexed)
     {
         return None;
     }
@@ -370,9 +377,11 @@ fn unused_member_from_declaration(
             reachable_files,
         ) + index.dot_shorthand_reference_count(&indexed.member.name, reachable_files)
             + index.qualified_reference_count(&indexed.member.owner, "values", reachable_files)
-    } else {
+    } else if is_private(&indexed.member.name) {
         let library = index.library_path(&indexed.path);
         index.library_reference_count(&indexed.member.name, library, reachable_files)
+    } else {
+        index.reference_count(&indexed.member.name, reachable_files)
     };
     if reference_count != 0 {
         return None;
@@ -389,16 +398,78 @@ fn unused_member_from_declaration(
     })
 }
 
-fn should_check_member(index: &SymbolIndex, indexed: &IndexedMember) -> bool {
+fn should_check_member(
+    index: &SymbolIndex,
+    public_members: &PublicMemberContext,
+    indexed: &IndexedMember,
+) -> bool {
     match indexed.member.kind {
         MemberKind::EnumConstant => {
             !is_private(&indexed.member.name)
                 && !index.is_public_export(&indexed.path, &indexed.member.owner)
         }
         MemberKind::Field | MemberKind::Getter | MemberKind::Setter | MemberKind::Method => {
-            is_private(&indexed.member.name)
+            is_private(&indexed.member.name) || public_members.checks(index, indexed)
         }
         MemberKind::Constructor | MemberKind::Operator => false,
+    }
+}
+
+const CONTRACT_MEMBER_NAMES: &[&str] = &[
+    "build",
+    "call",
+    "createState",
+    "fromJson",
+    "hashCode",
+    "noSuchMethod",
+    "toJson",
+    "toString",
+];
+
+struct PublicMemberContext {
+    class_owners: BTreeSet<(PathBuf, String)>,
+    generated_part_libraries: BTreeSet<PathBuf>,
+    entry_points: BTreeSet<PathBuf>,
+}
+
+impl PublicMemberContext {
+    fn new(project: &ScannedProject, dead_code: &DeadCodeReport, index: &SymbolIndex) -> Self {
+        Self {
+            class_owners: index
+                .declarations
+                .iter()
+                .filter(|indexed| indexed.declaration.kind == DeclarationKind::Class)
+                .map(|indexed| (indexed.path.clone(), indexed.declaration.name.clone()))
+                .collect(),
+            generated_part_libraries: project
+                .files
+                .iter()
+                .filter(|file| {
+                    file.parts
+                        .iter()
+                        .any(|part| is_generated_dart_path(Path::new(&part.uri)))
+                })
+                .map(|file| {
+                    index
+                        .library_path(&normalize_against(&project.root, &file.path))
+                        .to_path_buf()
+                })
+                .collect(),
+            entry_points: dead_code.entry_points.iter().cloned().collect(),
+        }
+    }
+
+    fn checks(&self, index: &SymbolIndex, indexed: &IndexedMember) -> bool {
+        !indexed.member.contract
+            && !CONTRACT_MEMBER_NAMES.contains(&indexed.member.name.as_str())
+            && self
+                .class_owners
+                .contains(&(indexed.path.clone(), indexed.member.owner.clone()))
+            && !self.entry_points.contains(&indexed.path)
+            && !index.is_public_export(&indexed.path, &indexed.member.owner)
+            && !self
+                .generated_part_libraries
+                .contains(index.library_path(&indexed.path))
     }
 }
 
