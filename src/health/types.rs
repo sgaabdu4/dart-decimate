@@ -215,7 +215,7 @@ pub struct HealthReport {
     pub flutter_style: Option<crate::FlutterStyleReport>,
     /// Source files with no covered executable lines.
     pub coverage_gaps: Vec<CoverageGapFinding>,
-    /// Functions exceeding configured CRAP threshold.
+    /// Functions at or above the configured CRAP threshold.
     pub crap: Vec<CrapFinding>,
     /// Configured threshold override statuses.
     pub threshold_overrides: Vec<HealthThresholdOverrideReport>,
@@ -400,7 +400,7 @@ pub enum CoverageGapReason {
     ZeroCoveredLines,
 }
 
-/// One function-like declaration exceeding the configured CRAP threshold.
+/// One function-like declaration at or above the configured CRAP threshold.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CrapFinding {
     /// Dart file path.

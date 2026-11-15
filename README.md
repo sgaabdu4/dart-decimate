@@ -219,7 +219,7 @@ Cyclomatic complexity means "how many paths can this function take?"
 Cognitive complexity means "how hard is this function to understand?"
 
 CRAP score combines complexity with test coverage. A complex function with poor
-coverage gets a worse score.
+coverage gets a worse score. A score equal to `max_crap` is reported.
 
 Dart Decimate finds:
 
