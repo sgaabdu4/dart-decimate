@@ -141,6 +141,18 @@ test("a published Flutter package with a bin script keeps its exported API", () 
   assert.ok(!ruleIds(report).includes("dart-decimate/unused-class-member"));
 });
 
+test("base class members that a subclass needs for an interface keep the strict check green", () => {
+  const { report } = strictCheck({
+    "pubspec.yaml": "name: app\npublish_to: none\n",
+    "lib/main.dart":
+      "import 'src/items.dart';\n\nvoid main() {\n  final items = [Item(2), Item(1)]..sort();\n  print(items.length);\n}\n",
+    "lib/src/items.dart":
+      "class Ordered {\n  Ordered(this.rank);\n\n  final int rank;\n\n  int compareTo(Ordered other) => rank - other.rank;\n}\n\nclass Item extends Ordered implements Comparable<Ordered> {\n  Item(super.rank);\n}\n",
+  });
+
+  assert.ok(!ruleIds(report).includes("dart-decimate/unused-class-member"));
+});
+
 test("a library class of a published package keeps the strict check green", () => {
   const { status } = strictCheck({
     "pubspec.yaml": "name: app\n",

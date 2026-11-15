@@ -90,6 +90,9 @@ pub struct DartFile {
     pub declarations: Vec<TopLevelDeclaration>,
     /// Class-like member declarations in source order.
     pub members: Vec<MemberDeclaration>,
+    /// Supertype clauses of class-like declarations in source order.
+    #[serde(default, skip_serializing)]
+    pub class_supertypes: Vec<ClassSupertypes>,
     /// Identifier uses in source order, excluding import/export metadata and declaration names.
     pub references: Vec<IdentifierReference>,
     /// Type references from public declaration signatures, excluding bodies.
@@ -210,6 +213,17 @@ pub struct TopLevelDeclaration {
     pub location: Location,
     /// Source line range covered by the declaration node.
     pub range: SourceRange,
+}
+
+/// The types a class-like declaration names after `extends`, `with`, `implements` or `on`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClassSupertypes {
+    /// Declared name of the class-like declaration.
+    pub owner: String,
+    /// Names of the listed supertypes without type arguments or import prefixes.
+    pub names: Vec<String>,
+    /// Whether the declaration has an `implements` clause.
+    pub implements: bool,
 }
 
 /// A class-like member declaration that can become a future symbol node.
@@ -345,6 +359,7 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
     let mut parts = Vec::new();
     let mut declarations = Vec::new();
     let mut members = Vec::new();
+    let mut class_supertypes = Vec::new();
     let mut references = extract_identifier_references(root, parse_source);
     references.extend(extract_dot_shorthand_references(source));
     references.extend(extract_primary_constructor_identifier_references(source));
@@ -367,43 +382,19 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
             }
             "class_declaration" => {
                 push_class_declaration(&mut declarations, child, parse_source);
-                push_class_like_members(&mut members, child, parse_source);
+                push_class_like_members(&mut members, &mut class_supertypes, child, parse_source);
             }
-            "mixin_declaration" => {
+            "mixin_declaration"
+            | "extension_declaration"
+            | "extension_type_declaration"
+            | "enum_declaration" => {
                 push_named_declaration(
                     &mut declarations,
                     child,
                     parse_source,
-                    DeclarationKind::Mixin,
+                    named_declaration_kind(child.kind()),
                 );
-                push_class_like_members(&mut members, child, parse_source);
-            }
-            "extension_declaration" => {
-                push_named_declaration(
-                    &mut declarations,
-                    child,
-                    parse_source,
-                    DeclarationKind::Extension,
-                );
-                push_class_like_members(&mut members, child, parse_source);
-            }
-            "extension_type_declaration" => {
-                push_named_declaration(
-                    &mut declarations,
-                    child,
-                    parse_source,
-                    DeclarationKind::ExtensionType,
-                );
-                push_class_like_members(&mut members, child, parse_source);
-            }
-            "enum_declaration" => {
-                push_named_declaration(
-                    &mut declarations,
-                    child,
-                    parse_source,
-                    DeclarationKind::Enum,
-                );
-                push_class_like_members(&mut members, child, parse_source);
+                push_class_like_members(&mut members, &mut class_supertypes, child, parse_source);
             }
             "type_alias" => push_type_alias_declaration(&mut declarations, child, parse_source),
             "top_level_variable_declaration" | "external_variable_declaration" => {
@@ -430,6 +421,7 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
         parts,
         declarations,
         members,
+        class_supertypes,
         references,
         signature_references,
         routes,
@@ -490,6 +482,15 @@ fn push_class_declaration(
             location: node.start_position().into(),
             range: SourceRange::from_node(node),
         });
+    }
+}
+
+fn named_declaration_kind(node_kind: &str) -> DeclarationKind {
+    match node_kind {
+        "mixin_declaration" => DeclarationKind::Mixin,
+        "extension_declaration" => DeclarationKind::Extension,
+        "extension_type_declaration" => DeclarationKind::ExtensionType,
+        _ => DeclarationKind::Enum,
     }
 }
 
