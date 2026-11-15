@@ -398,8 +398,8 @@ Current implemented parity:
   conventions
 - generated Dart imports into known generator internals, such as
   `package:slang/generated.dart`, do not create unlisted-dependency findings
-- lockfile-backed `dependency_overrides` hygiene for overrides absent from the
-  resolved `pubspec.lock` package graph
+- `dependency_overrides` hygiene for overrides absent from `pubspec.lock` or not
+  reached by the resolved `.dart_tool/package_graph.json` graph
 - misconfigured `dependency_overrides` hygiene for invalid package keys and
   empty override values
 - Fallow-style `ignoreDependencyOverrides` config entries for intentional

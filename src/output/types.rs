@@ -208,7 +208,7 @@ pub struct ReportSummary {
     pub test_only_dependencies: usize,
     /// Dependency override findings across all override hygiene classes.
     pub dependency_overrides: usize,
-    /// Dependency overrides absent from the resolved lockfile package graph.
+    /// Dependency overrides absent from the lockfile or not reached by the resolved package graph.
     pub unused_dependency_overrides: usize,
     /// Dependency override entries Pub cannot honor.
     pub misconfigured_dependency_overrides: usize,
@@ -423,7 +423,7 @@ pub enum FindingKind {
     DevDependencyInProduction,
     /// Runtime dependency is imported only from dev/test files.
     TestOnlyDependency,
-    /// Dependency override is absent from the resolved lockfile package graph.
+    /// Dependency override is absent from the lockfile or not reached by the resolved package graph.
     UnusedDependencyOverride,
     /// Dependency override key or value cannot be honored by Pub.
     MisconfiguredDependencyOverride,

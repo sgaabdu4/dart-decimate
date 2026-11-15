@@ -786,6 +786,123 @@ dependency_overrides:\n  helper: \"\"\n",
     Ok(())
 }
 
+const OVERRIDE_LOCK: &str = "packages:\n  helper:\n    dependency: \"direct main\"\n    description:\n      path: helper\n      relative: true\n    source: path\n    version: \"1.0.0\"\n  spare:\n    dependency: \"direct overridden\"\n    description:\n      name: spare\n    source: hosted\n    version: \"1.0.0\"\n";
+
+fn write_override_fixture(
+    fixture: &TempDir,
+    helper_pubspec: &str,
+    package_graph: Option<&str>,
+) -> Result<(), std::io::Error> {
+    write(
+        fixture,
+        "pubspec.yaml",
+        "name: app\n\
+dependencies:\n  helper:\n    path: helper\n\
+dependency_overrides:\n  spare: ^1.0.0\n",
+    )?;
+    write(fixture, "pubspec.lock", OVERRIDE_LOCK)?;
+    write(fixture, "helper/pubspec.yaml", helper_pubspec)?;
+    write(fixture, "helper/lib/helper.dart", "void help() {}\n")?;
+    write(
+        fixture,
+        "lib/main.dart",
+        "import 'package:helper/helper.dart';\nvoid main() {}\n",
+    )?;
+    if let Some(graph) = package_graph {
+        write(fixture, ".dart_tool/package_graph.json", graph)?;
+    }
+    Ok(())
+}
+
+fn strict_check(fixture: &TempDir) -> Result<(i32, Value), Box<dyn std::error::Error>> {
+    run_json([
+        "dart-decimate",
+        "check",
+        fixture.path().to_str().unwrap_or("."),
+        "--threshold",
+        "0",
+        "--strict",
+        "--format",
+        "json",
+    ])
+}
+
+fn graph_json(helper_dependencies: &str) -> String {
+    format!(
+        "{{\"roots\":[\"app\"],\"packages\":[\
+{{\"name\":\"app\",\"dependencies\":[\"helper\"],\"devDependencies\":[]}},\
+{{\"name\":\"helper\",\"dependencies\":[{helper_dependencies}]}},\
+{{\"name\":\"spare\",\"dependencies\":[]}}],\"configVersion\":1}}"
+    )
+}
+
+#[test]
+fn strict_check_fails_an_override_the_dependency_graph_never_uses()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_override_fixture(&fixture, "name: helper\n", Some(&graph_json("")))?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 1);
+    assert!(rule_ids(&json).contains(&"dart-decimate/unused-dependency-override"));
+    assert_eq!(json["summary"]["unused_dependency_overrides"], 1);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_an_override_that_a_dependency_needs() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    write_override_fixture(
+        &fixture,
+        "name: helper\ndependencies:\n  spare: ^1.0.0\n",
+        Some(&graph_json("\"spare\"")),
+    )?;
+    write(
+        &fixture,
+        "helper/lib/helper.dart",
+        "import 'package:spare/spare.dart';\nvoid help() {}\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["unused_dependency_overrides"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_an_override_when_the_dependency_graph_is_missing()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write_override_fixture(&fixture, "name: helper\n", None)?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["unused_dependency_overrides"], 0);
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_an_override_when_the_graph_belongs_to_another_package()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let other_graph = graph_json("").replace("\"roots\":[\"app\"]", "\"roots\":[\"other\"]");
+    write_override_fixture(&fixture, "name: helper\n", Some(&other_graph))?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["unused_dependency_overrides"], 0);
+
+    Ok(())
+}
+
 fn run_json<const N: usize>(args: [&str; N]) -> Result<(i32, Value), Box<dyn std::error::Error>> {
     let mut output = Vec::new();
     let code = run_from(args, &mut output)?;
