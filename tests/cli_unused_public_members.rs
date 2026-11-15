@@ -184,6 +184,72 @@ fn strict_check_keeps_the_members_of_a_published_package_library()
 }
 
 #[test]
+fn strict_check_keeps_the_api_of_a_published_flutter_package_with_a_bin_script()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: fancy_splash\nversion: 2.1.0\nenvironment:\n  sdk: ^3.8.0\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    )?;
+    write(
+        &fixture,
+        "lib/fancy_splash.dart",
+        "export 'src/splash.dart';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/splash.dart",
+        "class SplashConfig {\n  SplashConfig(this.color);\n\n  final int color;\n\n  int get brightness => color >> 8;\n\n  SplashConfig withColor(int value) => SplashConfig(value);\n}\n",
+    )?;
+    write(
+        &fixture,
+        "bin/create.dart",
+        "import 'package:fancy_splash/fancy_splash.dart';\n\nvoid main() {\n  print(SplashConfig(1).color);\n}\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["unused_class_members"],
+        0,
+        "{:?}",
+        member_messages(&json)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn strict_check_keeps_the_api_of_a_package_that_has_a_library_entry_named_after_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: toolkit\npublish_to: none\nenvironment:\n  sdk: ^3.8.0\n",
+    )?;
+    write(&fixture, "lib/toolkit.dart", "export 'src/config.dart';\n")?;
+    write(
+        &fixture,
+        "lib/src/config.dart",
+        "class Config {\n  int get level => 1;\n\n  int get spare => 2;\n}\n",
+    )?;
+    write(
+        &fixture,
+        "bin/run.dart",
+        "import 'package:toolkit/toolkit.dart';\n\nvoid main() {\n  print(Config().level);\n}\n",
+    )?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(code, 0, "{:?}", member_messages(&json));
+    assert_eq!(json["summary"]["unused_class_members"], 0);
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
