@@ -43,6 +43,12 @@ fn architecture_items(summary: &ReportSummary) -> Vec<String> {
     );
     push_count(
         &mut items,
+        summary.package_cycles,
+        "package cycle",
+        "package cycles",
+    );
+    push_count(
+        &mut items,
         summary.boundary_violations,
         "boundary violation",
         "boundary violations",
@@ -365,6 +371,7 @@ pub(super) const fn kind_label(kind: FindingKind) -> &'static str {
         FindingKind::TestOnlyDependency => "Test-only production dependency",
         FindingKind::UnusedDependencyOverride => "Unused dependency override",
         FindingKind::MisconfiguredDependencyOverride => "Misconfigured dependency override",
+        FindingKind::PackageCycle => "Package cycle",
         FindingKind::UnlistedDependency => "Unlisted dependency",
         FindingKind::PrivateSrcImport => "Private lib/src import",
         FindingKind::CodeDuplication => "Code duplication",
@@ -426,6 +433,7 @@ pub(super) const fn why_text(kind: FindingKind) -> &'static str {
         | FindingKind::TestOnlyDependency
         | FindingKind::UnusedDependencyOverride
         | FindingKind::MisconfiguredDependencyOverride
+        | FindingKind::PackageCycle
         | FindingKind::UnlistedDependency => {
             "The pubspec dependency graph and the Dart import graph do not agree."
         }

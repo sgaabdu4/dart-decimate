@@ -195,6 +195,7 @@ fn all_known_aliases() -> Vec<&'static str> {
         FindingKind::TestOnlyDependency,
         FindingKind::UnusedDependencyOverride,
         FindingKind::MisconfiguredDependencyOverride,
+        FindingKind::PackageCycle,
         FindingKind::UnlistedDependency,
         FindingKind::CodeDuplication,
         FindingKind::HighCyclomaticComplexity,
@@ -418,6 +419,11 @@ fn dependency_kind_aliases(kind: FindingKind) -> Option<Vec<&'static str>> {
         FindingKind::MisconfiguredDependencyOverride => {
             Some(misconfigured_dependency_override_aliases().into())
         }
+        FindingKind::PackageCycle => Some(vec![
+            "dart-decimate/package-cycle",
+            "package-cycle",
+            "package-cycles",
+        ]),
         FindingKind::UnlistedDependency => Some(vec![
             "dart-decimate/unlisted-dependency",
             "unlisted-dependency",

@@ -416,6 +416,7 @@ fn recompute_summary(report: &mut JsonReport) {
         kind_count(report, FindingKind::UnusedDependencyOverride);
     report.summary.misconfigured_dependency_overrides =
         kind_count(report, FindingKind::MisconfiguredDependencyOverride);
+    report.summary.package_cycles = kind_count(report, FindingKind::PackageCycle);
     report.summary.unlisted_dependencies = kind_count(report, FindingKind::UnlistedDependency);
     report.summary.private_src_imports = kind_count(report, FindingKind::PrivateSrcImport);
     report.summary.dead_files = kind_count(report, FindingKind::DeadFile);

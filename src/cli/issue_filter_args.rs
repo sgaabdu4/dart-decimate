@@ -82,6 +82,10 @@ fn shared_issue_filter_command(command: Command) -> Command {
             "misconfigured-dependency-overrides",
             "Report only invalid pub dependency overrides",
         ))
+        .arg(filter_arg(
+            "package-cycles",
+            "Report only local packages that depend on each other",
+        ))
 }
 
 pub(super) fn issue_filters(command: ReportCommand, matches: &ArgMatches) -> IssueFilters {
@@ -164,6 +168,12 @@ fn push_dependency_filters(matches: &ArgMatches, kinds: &mut Vec<FindingKind>) {
         kinds,
         "misconfigured-dependency-overrides",
         &[FindingKind::MisconfiguredDependencyOverride],
+    );
+    push_flag(
+        matches,
+        kinds,
+        "package-cycles",
+        &[FindingKind::PackageCycle],
     );
 }
 
