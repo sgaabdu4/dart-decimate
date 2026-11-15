@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use petgraph::algo::tarjan_scc;
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{DependencySection, PubPackage};
 
-/// Local pub packages that depend on each other through pubspec dependency sections.
+/// Local pub packages whose runtime dependencies, backed by `lib/` imports, form a loop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageCycle {
     /// Package names in the cycle, sorted for deterministic output.
@@ -16,7 +16,10 @@ pub struct PackageCycle {
     pub pubspec_paths: Vec<PathBuf>,
 }
 
-pub(super) fn package_cycles(packages: &[PubPackage]) -> Vec<PackageCycle> {
+pub(super) fn package_cycles(
+    packages: &[PubPackage],
+    library_imports: &BTreeMap<PathBuf, BTreeSet<String>>,
+) -> Vec<PackageCycle> {
     let mut graph = DiGraph::<usize, ()>::new();
     let nodes = (0..packages.len())
         .map(|index| graph.add_node(index))
@@ -27,11 +30,15 @@ pub(super) fn package_cycles(packages: &[PubPackage]) -> Vec<PackageCycle> {
     }
 
     for (index, package) in packages.iter().enumerate() {
+        let imported = library_imports.get(&package.root);
         for dependency in &package.dependencies {
             let Some(&target) = by_name.get(dependency.name.as_str()) else {
                 continue;
             };
-            if target != index && dependency.section != DependencySection::DependencyOverrides {
+            if target != index
+                && dependency.section == DependencySection::Dependencies
+                && imported.is_some_and(|imported| imported.contains(&dependency.name))
+            {
                 graph.update_edge(nodes[index], nodes[target], ());
             }
         }

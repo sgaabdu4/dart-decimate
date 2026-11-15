@@ -225,6 +225,44 @@ test("workspace packages with one-way dependencies keep the strict check green",
   assert.equal(status, 0);
 });
 
+test("a package loop that only a dev dependency closes keeps the strict check green", () => {
+  const { status } = strictCheck({
+    "pubspec.yaml":
+      "name: root\nenvironment:\n  sdk: ^3.6.0\nworkspace:\n  - packages/a\n  - packages/b\n",
+    "packages/a/pubspec.yaml":
+      "name: a\nresolution: workspace\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  b:\n    path: ../b\n",
+    "packages/b/pubspec.yaml":
+      "name: b\nresolution: workspace\nenvironment:\n  sdk: ^3.6.0\ndev_dependencies:\n  a:\n    path: ../a\n",
+    "packages/a/lib/a.dart":
+      "import 'package:b/b.dart';\n\nString fa() => fb();\n",
+    "packages/b/lib/b.dart": "String fb() => 'b';\n",
+    "packages/b/test/b_test.dart":
+      "import 'package:a/a.dart';\n\nvoid main() {\n  fa();\n}\n",
+    "packages/a/bin/main.dart":
+      "import 'package:a/a.dart';\n\nvoid main() {\n  print(fa());\n}\n",
+  });
+
+  assert.equal(status, 0);
+});
+
+test("a manifest-only package loop with no lib import is not a package cycle", () => {
+  const { report } = strictCheck({
+    "pubspec.yaml":
+      "name: root\nenvironment:\n  sdk: ^3.6.0\nworkspace:\n  - packages/a\n  - packages/b\n",
+    "packages/a/pubspec.yaml":
+      "name: a\nresolution: workspace\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  b:\n    path: ../b\n",
+    "packages/b/pubspec.yaml":
+      "name: b\nresolution: workspace\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  a:\n    path: ../a\n",
+    "packages/a/lib/a.dart":
+      "import 'package:b/b.dart';\n\nString fa() => fb();\n",
+    "packages/b/lib/b.dart": "String fb() => 'b';\n",
+    "packages/a/bin/main.dart":
+      "import 'package:a/a.dart';\n\nvoid main() {\n  print(fa());\n}\n",
+  });
+
+  assert.ok(!ruleIds(report).includes("dart-decimate/package-cycle"));
+});
+
 test("a CRAP score equal to the limit is reported", () => {
   const atLimit = crapRun(20);
   const aboveLimit = crapRun(21);
