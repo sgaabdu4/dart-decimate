@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 use crate::graph::{normalize_path, resolve_local_uri};
 use crate::package_map::{PackageMap, parse_yaml};
 
+mod loader;
+#[cfg(test)]
+mod loader_tests;
 #[cfg(test)]
 mod tests;
 
