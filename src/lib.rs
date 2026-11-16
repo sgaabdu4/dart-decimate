@@ -193,8 +193,8 @@ pub use semantic::{
     SemanticOmissionReason, SemanticReport, SemanticTypeCoupling,
 };
 pub use symbols::{
-    DuplicateExport, DuplicateExportDeclaration, PrivateTypeLeak, SymbolAnalysisOptions,
-    SymbolIndex, SymbolReport, UnusedExport, UnusedMember, analyze_symbols,
+    DuplicateExport, DuplicateExportDeclaration, MissingFile, PrivateTypeLeak,
+    SymbolAnalysisOptions, SymbolIndex, SymbolReport, UnusedExport, UnusedMember, analyze_symbols,
     analyze_symbols_with_options, analyze_unused_exports,
 };
 pub use trace::{

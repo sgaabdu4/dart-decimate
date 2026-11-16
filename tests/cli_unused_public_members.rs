@@ -1731,6 +1731,122 @@ fn missing_files_and_unlisted_packages_keep_both_steps() -> Result<(), Box<dyn s
     Ok(())
 }
 
+fn step_reasons(json: &Value, id: &str) -> Vec<String> {
+    json["next_steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|step| step["id"] == id)
+        .filter_map(|step| step["reason"].as_str().map(str::to_owned))
+        .collect()
+}
+
+#[test]
+fn missing_parts_give_one_step_for_each_package_that_can_use_them()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_, json) = missing_import_fixture(&[
+        (
+            "lib/main.dart",
+            "part 'a.g.dart';\npart 'b.g.dart';\npart 'c.g.dart';\n\nclass Item extends GenBase {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Item());\n}\n",
+        ),
+        (
+            "test/w.dart",
+            "part 'w.g.dart';\n\nclass Plain {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Plain());\n}\n",
+        ),
+    ])?;
+
+    assert_eq!(next_step_commands(&json), ["dart run build_runner build"]);
+    let reasons = step_reasons(&json, "generate-missing-import");
+    assert_eq!(reasons.len(), 1, "{reasons:?}");
+    for file in ["a.g.dart", "b.g.dart", "c.g.dart"] {
+        assert!(reasons[0].contains(file), "{reasons:?}");
+    }
+    assert!(!reasons[0].contains("w.g.dart"), "{reasons:?}");
+    assert!(reasons[0].contains("is a part but missing"), "{reasons:?}");
+    assert!(!reasons[0].contains("imported but missing"), "{reasons:?}");
+
+    Ok(())
+}
+
+#[test]
+fn missing_files_of_a_local_path_package_get_the_step_in_that_package()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    let flutter = toolchain.path().join("flutter");
+    let config = |extra: &str, name: &str| {
+        format!(
+            "{{\"configVersion\":2,\"generatorVersion\":\"3.14.0\",\"flutterRoot\":\"file://{}\",\"packages\":[{packages},{extra}{{\"name\":\"{name}\",\"rootUri\":\"../\",\"packageUri\":\"lib/\"}}]}}",
+            flutter.display()
+        )
+    };
+    write(
+        &fixture,
+        "app/pubspec.yaml",
+        "name: app\npublish_to: none\ndependencies:\n  core:\n    path: ../core\n",
+    )?;
+    write(
+        &fixture,
+        "app/lib/main.dart",
+        "import 'package:core/x.g.dart';\n\nclass Impl extends GenBase {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "app/.dart_tool/package_config.json",
+        &config(
+            "{\"name\":\"core\",\"rootUri\":\"../../core\",\"packageUri\":\"lib/\"},",
+            "app",
+        ),
+    )?;
+    write(
+        &fixture,
+        "core/pubspec.yaml",
+        "name: core\npublish_to: none\n",
+    )?;
+    write(&fixture, "core/lib/core.dart", "void core() {}\n")?;
+    write(
+        &fixture,
+        "core/.dart_tool/package_config.json",
+        &config("", "core"),
+    )?;
+
+    let (_, from_parent) = strict_check(&fixture)?;
+    assert_eq!(
+        next_step_commands(&from_parent),
+        [
+            "cd app && dart pub get",
+            "cd core && dart run build_runner build"
+        ]
+    );
+
+    let mut output = Vec::new();
+    run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().join("app").to_str().unwrap_or("."),
+            "--threshold",
+            "0",
+            "--strict",
+            "--format",
+            "json",
+        ],
+        &mut output,
+    )?;
+    let from_app = serde_json::from_slice::<Value>(&output)?;
+    let commands = next_step_commands(&from_app);
+    assert!(
+        commands
+            .iter()
+            .any(|command| command.contains("core")
+                && command.ends_with("dart run build_runner build")),
+        "{commands:?}"
+    );
+
+    Ok(())
+}
+
 #[test]
 fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
