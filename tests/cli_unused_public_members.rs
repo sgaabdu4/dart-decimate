@@ -733,6 +733,49 @@ fn strict_check_keeps_a_mixin_member_that_the_superclass_chain_requires()
 }
 
 #[test]
+fn strict_check_checks_the_members_of_classes_declared_in_entry_files()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app = "name: app\npublish_to: none\n";
+    let package = "name: pkg\nversion: 1.0.0\nenvironment:\n  sdk: ^3.8.0\n";
+    let plain = "class Plain {\n  void used() {}\n\n  void spare() {}\n}\n\nvoid main() {\n  Plain().used();\n}\n";
+    let cases = [
+        (app, "lib/main.dart", plain, vec!["Plain.spare"]),
+        (
+            app,
+            "lib/main.dart",
+            "class MyApp {\n  void build() {}\n}\n\nvoid main() {\n  print(MyApp());\n}\n",
+            vec![],
+        ),
+        (
+            app,
+            "lib/main_dev.dart",
+            "class Flavor {\n  void only() {}\n}\n\nvoid main() {\n  Flavor().only();\n}\n",
+            vec![],
+        ),
+        (package, "lib/pkg.dart", plain, vec![]),
+    ];
+    for (pubspec, path, source, expected) in cases {
+        let fixture = tempfile::tempdir()?;
+        write(&fixture, "pubspec.yaml", pubspec)?;
+        write(&fixture, path, source)?;
+        if path == "lib/main_dev.dart" {
+            write(&fixture, "lib/main.dart", "void main() {}\n")?;
+        }
+
+        let (_, json) = strict_check(&fixture)?;
+        let mut found = member_messages(&json)
+            .iter()
+            .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
+            .collect::<Vec<_>>();
+        found.sort();
+
+        assert_eq!(found, expected, "{path}: {source}");
+    }
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
