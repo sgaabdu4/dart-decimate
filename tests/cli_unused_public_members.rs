@@ -602,6 +602,36 @@ fn strict_check_protects_only_the_members_that_a_project_interface_declares()
 }
 
 #[test]
+fn strict_check_protects_a_mixin_member_only_for_an_abstract_declaration()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            "mixin class A {\n  void x() {}\n\n  void ya() {}\n}\n\nmixin class B {\n  void x() {}\n\n  void yb() {}\n}\n\nclass P with A, B {}\n",
+            vec!["A.x", "A.ya", "B.x", "B.yb"],
+        ),
+        (
+            "abstract mixin class A {\n  void x();\n}\n\nmixin class B {\n  void x() {}\n\n  void y() {}\n}\n\nclass P with B, A {}\n",
+            vec!["A.x", "B.y"],
+        ),
+    ];
+    for (items, expected) in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, "  print(P());\n")?;
+
+        let (_, json) = strict_check(&fixture)?;
+        let mut found = member_messages(&json)
+            .iter()
+            .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
+            .collect::<Vec<_>>();
+        found.sort();
+
+        assert_eq!(found, expected, "{items}");
+    }
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

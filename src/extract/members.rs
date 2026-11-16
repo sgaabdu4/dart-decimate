@@ -218,7 +218,7 @@ fn push_bodyless_member(
     source: &str,
 ) {
     if let Some(kind) = member_signature_kind(node) {
-        push_signature_member(members, owner, kind, node, source);
+        push_signature_member(members, owner, kind, (node, false), source);
         return;
     }
 
@@ -230,6 +230,7 @@ fn push_bodyless_member(
         name,
         return_type: None,
         contract: false,
+        has_body: true,
         location: node.start_position().into(),
     }));
 }
@@ -246,7 +247,7 @@ fn push_method_member(
     let Some(kind) = member_signature_kind(signature) else {
         return;
     };
-    push_signature_member(members, owner, kind, signature, source);
+    push_signature_member(members, owner, kind, (signature, true), source);
 }
 
 fn member_signature_kind(node: Node<'_>) -> Option<MemberKind> {
@@ -269,7 +270,7 @@ fn push_signature_member(
     members: &mut Vec<MemberDeclaration>,
     owner: &str,
     kind: MemberKind,
-    node: Node<'_>,
+    (node, has_body): (Node<'_>, bool),
     source: &str,
 ) {
     let Some(signature) = find_member_signature_node(node) else {
@@ -291,6 +292,7 @@ fn push_signature_member(
             name,
             return_type,
             contract: false,
+            has_body,
             location: node.start_position().into(),
         });
     }
@@ -340,6 +342,7 @@ fn push_member(
             name,
             return_type: None,
             contract: false,
+            has_body: true,
             location: node.start_position().into(),
         });
     }

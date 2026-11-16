@@ -243,6 +243,9 @@ pub struct MemberDeclaration {
     /// Whether an annotation or a supertype clause lets code outside the project call this member.
     #[serde(default, skip_serializing)]
     pub contract: bool,
+    /// Whether the member has an implementation: false only for an abstract method, getter or setter.
+    #[serde(default, skip_serializing)]
+    pub has_body: bool,
     /// Location of the member declaration node.
     pub location: Location,
 }

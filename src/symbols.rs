@@ -446,10 +446,10 @@ struct HierarchyClass {
     outside_interface: bool,
 }
 
-impl HierarchyClass {
-    fn interfaces(&self) -> impl Iterator<Item = &ClassKey> {
-        self.mixed.iter().chain(&self.implemented)
-    }
+#[derive(Default)]
+struct DeclaredNames {
+    all: BTreeSet<String>,
+    without_body: BTreeSet<String>,
 }
 
 #[derive(Default)]
@@ -477,17 +477,20 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
         }),
     );
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
-    let mut member_names = BTreeMap::<ClassKey, BTreeSet<String>>::new();
+    let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
         for member in &file.members {
-            member_names
+            let declared = member_names
                 .entry(ClassKey {
                     path: path.clone(),
                     name: member.owner.clone(),
                 })
-                .or_default()
-                .insert(member.name.clone());
+                .or_default();
+            declared.all.insert(member.name.clone());
+            if !member.has_body {
+                declared.without_body.insert(member.name.clone());
+            }
         }
         for class in &file.class_supertypes {
             let resolve_all = |names: &[String]| {
@@ -519,15 +522,42 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
     }
     let mut skips = InterfaceSkips::default();
     for class in classes.values() {
-        let mut reached = BTreeSet::new();
+        let mut reached = BTreeMap::<ClassKey, bool>::new();
         let mut open = class.outside_interface;
-        let mut pending = class.interfaces().cloned().collect::<Vec<_>>();
-        while let Some(reached_class) = pending.pop() {
-            if reached.insert(reached_class.clone())
-                && let Some(parent) = classes.get(&reached_class)
+        let mut pending = class
+            .mixed
+            .iter()
+            .map(|mixin| (mixin.clone(), false))
+            .chain(
+                class
+                    .implemented
+                    .iter()
+                    .map(|interface| (interface.clone(), true)),
+            )
+            .collect::<Vec<_>>();
+        while let Some((reached_class, duty)) = pending.pop() {
+            if reached
+                .get(&reached_class)
+                .is_some_and(|known| *known || !duty)
             {
+                continue;
+            }
+            reached.insert(reached_class.clone(), duty);
+            if let Some(parent) = classes.get(&reached_class) {
                 open |= parent.outside_extended || parent.outside_interface;
-                pending.extend(parent.extended.iter().chain(parent.interfaces()).cloned());
+                pending.extend(
+                    parent
+                        .extended
+                        .iter()
+                        .chain(&parent.mixed)
+                        .map(|supertype| (supertype.clone(), duty))
+                        .chain(
+                            parent
+                                .implemented
+                                .iter()
+                                .map(|interface| (interface.clone(), true)),
+                        ),
+                );
             }
         }
         if reached.is_empty() && !open {
@@ -552,10 +582,19 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             continue;
         }
         for ancestor in &ancestors {
+            let ancestor_is_reached = reached.contains_key(ancestor);
             let names = reached
                 .iter()
-                .filter(|reached_class| *reached_class != ancestor)
-                .filter_map(|reached_class| member_names.get(reached_class))
+                .filter(|(reached_class, _)| *reached_class != ancestor)
+                .filter_map(|(reached_class, duty)| {
+                    member_names.get(reached_class).map(|declared| {
+                        if *duty || !ancestor_is_reached {
+                            &declared.all
+                        } else {
+                            &declared.without_body
+                        }
+                    })
+                })
                 .flatten()
                 .cloned()
                 .collect::<BTreeSet<_>>();
