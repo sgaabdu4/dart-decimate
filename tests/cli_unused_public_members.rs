@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 
 use dart_decimate::cli::run_from;
 use serde_json::Value;
@@ -884,6 +885,274 @@ fn strict_check_keeps_members_that_callers_and_contracts_use_in_an_unpublished_p
         "{:?}",
         member_messages(&json)
     );
+
+    Ok(())
+}
+
+const FRAMEWORK: &str = "abstract class BuildContext {}\n\nabstract class Widget {}\n\nabstract class StatefulWidget extends Widget {\n  State createState();\n}\n\nabstract class StatelessWidget extends Widget {\n  Widget build(BuildContext context);\n}\n\nabstract class State<T extends StatefulWidget> {\n  void initState() {}\n\n  void dispose() {}\n\n  Widget build(BuildContext context);\n}\n";
+
+fn write_toolchain(
+    toolchain: &TempDir,
+    sdk_version: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let flutter = toolchain.path().join("flutter");
+    let sky = flutter.join("bin/cache/pkg/sky_engine/lib");
+    let files = [
+        (flutter.join("bin/cache/dart-sdk/version"), sdk_version),
+        (
+            flutter.join("bin/cache/dart-sdk/lib/libraries.json"),
+            "{\"vm_common\":{\"libraries\":{}},\"vm\":{\"libraries\":{}}}",
+        ),
+        (
+            sky.join("_embedder.yaml"),
+            "embedded_libs:\n  \"dart:core\": \"core/core.dart\"\n",
+        ),
+        (
+            sky.join("core/core.dart"),
+            "library dart.core;\n\npart \"comparable.dart\";\n\nclass Object {}\n",
+        ),
+        (
+            sky.join("core/comparable.dart"),
+            "part of dart.core;\n\nabstract interface class Comparable<T> {\n  int compareTo(T other);\n}\n",
+        ),
+        (
+            flutter.join("packages/flutter/lib/widgets.dart"),
+            "export 'src/framework.dart';\n",
+        ),
+        (
+            flutter.join("packages/flutter/lib/src/framework.dart"),
+            FRAMEWORK,
+        ),
+    ];
+    for (path, source) in files {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, source)?;
+    }
+    Ok(format!(
+        "{{\"name\":\"flutter\",\"rootUri\":\"file://{flutter}/packages/flutter\",\"packageUri\":\"lib/\"}},{{\"name\":\"sky_engine\",\"rootUri\":\"file://{flutter}/bin/cache/pkg/sky_engine\",\"packageUri\":\"lib/\"}}",
+        flutter = flutter.display()
+    ))
+}
+
+fn write_package_config(
+    fixture: &TempDir,
+    toolchain: &TempDir,
+    packages: &str,
+    extra: &[(&str, &Path)],
+) -> Result<(), std::io::Error> {
+    let extra = extra
+        .iter()
+        .map(|(name, root)| {
+            format!(
+                ",{{\"name\":\"{name}\",\"rootUri\":\"file://{}\",\"packageUri\":\"lib/\"}}",
+                root.display()
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    write(
+        fixture,
+        ".dart_tool/package_config.json",
+        &format!(
+            "{{\"configVersion\":2,\"generatorVersion\":\"3.14.0\",\"flutterRoot\":\"file://{}/flutter\",\"packages\":[{packages}{extra},{{\"name\":\"app\",\"rootUri\":\"../\",\"packageUri\":\"lib/\"}}]}}",
+            toolchain.path().display()
+        ),
+    )
+}
+
+fn found_members(json: &Value) -> Vec<String> {
+    member_messages(json)
+        .iter()
+        .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
+        .collect()
+}
+
+fn strict_check_with_toolchain(
+    items: &str,
+    main: &str,
+) -> Result<(i32, Value), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(&fixture, "lib/main.dart", main)?;
+    write(&fixture, "lib/src/items.dart", items)?;
+    write_package_config(&fixture, &toolchain, &packages, &[])?;
+    strict_check(&fixture)
+}
+
+#[test]
+fn outside_superclass_mixin_reports_names_the_outside_type_lacks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_, json) = strict_check_with_toolchain(
+        "mixin Tracker {\n  void initState() {}\n\n  void spare() {}\n}\n",
+        "import 'package:flutter/widgets.dart';\nimport 'src/items.dart';\n\nclass Page extends State<StatefulWidget> with Tracker {}\n\nvoid main() {\n  print(Page());\n}\n",
+    )?;
+
+    assert_eq!(found_members(&json), ["Tracker.spare"]);
+
+    Ok(())
+}
+
+#[test]
+fn outside_hook_with_body_stays_protected() -> Result<(), Box<dyn std::error::Error>> {
+    let (_, json) = strict_check_with_toolchain(
+        "mixin Tracker {\n  void dispose() {}\n\n  void spare() {}\n}\n",
+        "import 'package:flutter/widgets.dart';\nimport 'src/items.dart';\n\nclass Page extends State<StatefulWidget> with Tracker {}\n\nvoid main() {\n  print(Page());\n}\n",
+    )?;
+
+    assert_eq!(found_members(&json), ["Tracker.spare"]);
+
+    Ok(())
+}
+
+#[test]
+fn outside_interface_base_reports_names_the_interface_lacks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_, json) = strict_check_with_toolchain(
+        "class Base {\n  int compareTo(Object other) => 0;\n\n  int spare() => 1;\n}\n\nclass Item extends Base implements Comparable<Item> {}\n",
+        "import 'src/items.dart';\n\nvoid main() {\n  print(Item());\n}\n",
+    )?;
+
+    assert_eq!(found_members(&json), ["Base.spare"]);
+
+    Ok(())
+}
+
+#[test]
+fn outside_supertype_chain_protects_inherited_names() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    let pkg = toolchain.path().join("pkg");
+    let files = [
+        (
+            "lib/pkg.dart",
+            "export 'src/alpha.dart' show Alpha, Entry;\nexport 'src/zed.dart' hide Entry;\n",
+        ),
+        (
+            "lib/src/alpha.dart",
+            "import 'beta.dart';\n\ntypedef Entry = Alpha;\n\nabstract class Alpha implements Beta {\n  void alphaHook();\n}\n",
+        ),
+        (
+            "lib/src/beta.dart",
+            "import 'gamma.dart' as g;\n\nabstract class Beta extends g.Gamma {\n  void betaHook() {}\n}\n",
+        ),
+        (
+            "lib/src/gamma.dart",
+            "class Gamma {\n  void gammaHook() {}\n}\n",
+        ),
+        (
+            "lib/src/zed.dart",
+            "class Entry {\n  void zedHook() {}\n}\n",
+        ),
+    ];
+    for (path, source) in files {
+        let path = pkg.join(path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, source)?;
+    }
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/items.dart';\n\nvoid main() {\n  print(Item());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/items.dart",
+        "import 'package:pkg/pkg.dart' as p;\n\nclass Base {\n  void alphaHook() {}\n\n  void betaHook() {}\n\n  void gammaHook() {}\n\n  void zedHook() {}\n}\n\nclass Item extends Base implements p.Entry {}\n",
+    )?;
+    write_package_config(&fixture, &toolchain, &packages, &[("pkg", &pkg)])?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(found_members(&json), ["Base.zedHook"]);
+
+    Ok(())
+}
+
+#[test]
+fn unread_outside_types_keep_whole_class_skip() -> Result<(), Box<dyn std::error::Error>> {
+    let items = "import 'package:pkg/pkg.dart';\n\nclass Base {\n  int compareTo(Object other) => 0;\n\n  int spare() => 1;\n}\n\nclass Item extends Base implements Ambiguous, Remote {}\n";
+    let main = "import 'src/items.dart';\n\nvoid main() {\n  print(Item());\n}\n";
+    let sources = [
+        (
+            "lib/pkg.dart",
+            "export 'src/remote.dart';\nexport 'src/other.dart';\n",
+        ),
+        (
+            "lib/src/remote.dart",
+            "abstract class Remote {\n  int compareTo(Object other);\n}\n\nabstract class Ambiguous {}\n",
+        ),
+        ("lib/src/other.dart", "abstract class Ambiguous {}\n"),
+    ];
+    let cases = [
+        "no config",
+        "missing folder",
+        "parse error",
+        "other version",
+        "ambiguous name",
+    ];
+    for case in cases {
+        let fixture = tempfile::tempdir()?;
+        let toolchain = tempfile::tempdir()?;
+        let sdk_version = if case == "other version" {
+            "3.13.0"
+        } else {
+            "3.14.0"
+        };
+        let packages = write_toolchain(&toolchain, sdk_version)?;
+        let pkg = toolchain.path().join("pkg");
+        for (path, source) in sources {
+            let source = if case == "parse error" && path.ends_with("remote.dart") {
+                "abstract class Remote {{{\n"
+            } else if case == "ambiguous name" || !path.ends_with("other.dart") {
+                source
+            } else {
+                "class Spare {}\n"
+            };
+            if case != "missing folder" {
+                let path = pkg.join(path);
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(path, source)?;
+            }
+        }
+        write(
+            &fixture,
+            "pubspec.yaml",
+            "name: app\npublish_to: none\ndependencies:\n  pkg: any\n",
+        )?;
+        write(&fixture, "lib/main.dart", main)?;
+        write(&fixture, "lib/src/items.dart", items)?;
+        if case != "no config" {
+            write_package_config(&fixture, &toolchain, &packages, &[("pkg", &pkg)])?;
+        }
+
+        let (code, json) = strict_check(&fixture)?;
+
+        assert_eq!(found_members(&json), Vec::<String>::new(), "{case}");
+        assert_eq!(code, 0, "{case}");
+        assert!(
+            json["summary"]["outside_types_unread"].as_u64() > Some(0),
+            "{case}: {}",
+            json["summary"]
+        );
+        let commands = json["next_steps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|step| step["id"] == "read-outside-types")
+            .filter_map(|step| step["command"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(commands, ["dart pub get"], "{case}");
+    }
 
     Ok(())
 }

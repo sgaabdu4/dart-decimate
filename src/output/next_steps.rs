@@ -57,6 +57,8 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
         });
     }
 
+    steps.extend(read_outside_types_step(root, results));
+
     if let Some(clone) = results
         .duplicates
         .as_ref()
@@ -100,4 +102,19 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
     }
 
     steps
+}
+
+fn read_outside_types_step(root: &Path, results: &AnalysisResults) -> Option<NextStep> {
+    results
+        .symbols
+        .as_ref()
+        .filter(|report| report.outside_types_unread > 0)?;
+    let flutter = std::fs::read_to_string(root.join("pubspec.yaml"))
+        .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
+    Some(NextStep {
+        id: "read-outside-types".to_owned(),
+        command: if flutter { "flutter pub get" } else { "dart pub get" }.to_owned(),
+        reason: "Write the package config so SDK and package supertypes can be read, then class members that depend on them are checked"
+            .to_owned(),
+    })
 }
