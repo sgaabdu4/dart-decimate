@@ -285,6 +285,16 @@ impl Reader {
                 .or_default()
                 .push(import);
         }
+        let targets = imports
+            .iter()
+            .filter_map(
+                |import| match self.sources.resolve(library, &import.uri, from_outside) {
+                    Target::Outside(path) => Some(path),
+                    Target::Local | Target::Unknown => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        self.loader.prefetch(&targets, name);
         let mut found = BTreeSet::new();
         let mut matching = 0_usize;
         let mut incomplete = false;
@@ -335,6 +345,18 @@ impl Reader {
         let Outline::Read(file) = self.loader.load(library, name) else {
             return walk;
         };
+        let targets = file
+            .exports
+            .iter()
+            .filter(|export| visible_through_combinators(name, &export.combinators))
+            .filter_map(
+                |export| match self.sources.resolve(library, &export.uri, true) {
+                    Target::Outside(path) => Some(path),
+                    Target::Local | Target::Unknown => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        self.loader.prefetch(&targets, name);
         let mut groups = BTreeMap::<(usize, usize), Vec<&crate::DartExport>>::new();
         for export in &file.exports {
             groups
@@ -378,6 +400,17 @@ impl Reader {
                 name: name.to_owned(),
             });
         }
+        let parts = file
+            .parts
+            .iter()
+            .filter_map(
+                |part| match self.sources.resolve(library, &part.uri, true) {
+                    Target::Outside(path) => Some(path),
+                    Target::Local | Target::Unknown => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        self.loader.prefetch(&parts, name);
         for part in &file.parts {
             let Target::Outside(path) = self.sources.resolve(library, &part.uri, true) else {
                 walk.complete = false;

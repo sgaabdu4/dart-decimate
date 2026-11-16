@@ -85,3 +85,52 @@ fn loader_finds_declarations_that_modifiers_and_line_breaks_separate()
 
     Ok(())
 }
+
+#[test]
+fn prefetch_loads_many_files_at_once_and_load_reuses_them() -> Result<(), Box<dyn std::error::Error>>
+{
+    let folder = tempfile::tempdir()?;
+    let forwarding = folder.path().join("forwarding.dart");
+    let declaring = folder.path().join("declaring.dart");
+    let other = folder.path().join("other.dart");
+    let missing = folder.path().join("missing.dart");
+    fs::write(&forwarding, "export 'declaring.dart';\n")?;
+    fs::write(&declaring, "class Wanted {}\n")?;
+    fs::write(&other, "class Unrelated {}\n")?;
+    let forwarding_parses = track_parse_count(&forwarding);
+    let declaring_parses = track_parse_count(&declaring);
+    let other_parses = track_parse_count(&other);
+    let parses = || {
+        [
+            forwarding_parses.count(),
+            declaring_parses.count(),
+            other_parses.count(),
+        ]
+    };
+    let mut loader = OutlineLoader::default();
+
+    loader.prefetch(
+        &[
+            forwarding.clone(),
+            declaring.clone(),
+            other.clone(),
+            missing.clone(),
+        ],
+        "Wanted",
+    );
+
+    assert_eq!(parses(), [1, 1, 0]);
+    assert!(matches!(
+        loader.load(&forwarding, "Wanted"),
+        Outline::Read(_)
+    ));
+    assert!(matches!(
+        loader.load(&declaring, "Wanted"),
+        Outline::Read(_)
+    ));
+    assert!(matches!(loader.load(&other, "Wanted"), Outline::Skipped));
+    assert!(matches!(loader.load(&missing, "Wanted"), Outline::Missing));
+    assert_eq!(parses(), [1, 1, 0]);
+
+    Ok(())
+}
