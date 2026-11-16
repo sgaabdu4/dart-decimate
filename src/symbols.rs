@@ -428,7 +428,9 @@ fn should_check_member(
 }
 
 const CONTRACT_MEMBER_NAMES: &[&str] = &[
+    "build",
     "call",
+    "createState",
     "fromJson",
     "hashCode",
     "noSuchMethod",
