@@ -1407,11 +1407,7 @@ fn unlisted_package_resolves_its_own_name_and_path_dependencies()
                 "bbb/pubspec.yaml",
                 "name: bbb\npublish_to: none\n",
             )?;
-            write(
-                &fixture,
-                "bbb/lib/b.dart",
-                "abstract class Linked {\n  int hook();\n}\n",
-            )?;
+            write(&fixture, "bbb/lib/b.dart", "class Bee {}\n")?;
             (
                 "dependencies:\n  bbb:\n    path: ../bbb\n",
                 "package:bbb/b.dart".to_owned(),
@@ -1427,17 +1423,13 @@ fn unlisted_package_resolves_its_own_name_and_path_dependencies()
         write(
             &fixture,
             &format!("{name}/lib/other.dart"),
-            if with_path_dependency {
-                "class Other {}\n"
-            } else {
-                "class Other {}\n\nabstract class Linked {\n  int hook();\n}\n"
-            },
+            "class Other {}\n",
         )?;
         write(
             &fixture,
             &format!("{name}/lib/main.dart"),
             &format!(
-                "import '{import}';\nimport 'other.dart';\n\nclass AItem implements Comparable<AItem>, Linked {{\n  int compareTo(AItem other) => 0;\n\n  int hook() => 1;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(AItem().hook());\n  print(Other());\n}}\n"
+                "import '{import}';\nimport 'other.dart';\n\nclass AItem implements Comparable<AItem> {{\n  int compareTo(AItem other) => 0;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(AItem());\n  print(Other());\n}}\n"
             ),
         )?;
         write_package_config(&fixture, &toolchain, &packages, &[])?;
@@ -1585,6 +1577,53 @@ fn project_classes_reached_through_ignored_files_keep_their_own_hierarchy()
         let found = found_members(&json);
         assert!(found.contains(&"Model.modelSpare".to_owned()), "{found:?}");
         assert!(!found.contains(&protected.to_owned()), "{found:?}");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn missing_local_imports_name_the_file_in_the_next_step() -> Result<(), Box<dyn std::error::Error>>
+{
+    let cases = [
+        ("missing.g.dart", "dart run build_runner build"),
+        (
+            "missing.dart",
+            "create or fix the import of lib/missing.dart",
+        ),
+    ];
+    for (file, command) in cases {
+        let fixture = tempfile::tempdir()?;
+        let toolchain = tempfile::tempdir()?;
+        let packages = write_toolchain(&toolchain, "3.14.0")?;
+        write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+        write(
+            &fixture,
+            "lib/main.dart",
+            &format!(
+                "import '{file}';\n\nclass Item implements Comparable<Item> {{\n  int compareTo(Item other) => 0;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(Item());\n}}\n"
+            ),
+        )?;
+        write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert!(
+            json["summary"]["outside_types_unread"].as_u64() > Some(0),
+            "{file}"
+        );
+        let steps = json["next_steps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|step| step["command"].as_str().zip(step["reason"].as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(steps.len(), 1, "{file}: {steps:?}");
+        assert_eq!(steps[0].0, command, "{file}");
+        assert!(
+            steps[0].1.contains(&format!("lib/{file}")),
+            "{file}: {steps:?}"
+        );
     }
 
     Ok(())

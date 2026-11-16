@@ -112,9 +112,21 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
     else {
         return Vec::new();
     };
-    report
+    let mut steps = report
+        .outside_missing_imports
+        .iter()
+        .map(|(folder, file)| missing_import_step(folder, file))
+        .collect::<Vec<_>>();
+    steps.extend(
+        report
         .outside_unread_folders
         .iter()
+        .filter(|folder| {
+            !report
+                .outside_missing_imports
+                .iter()
+                .any(|(missing_folder, _)| missing_folder == *folder)
+        })
         .map(|folder| {
             let flutter = std::fs::read_to_string(root.join(folder).join("pubspec.yaml"))
                 .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
@@ -129,8 +141,47 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
                 reason: "Write the package config so SDK and package supertypes can be read, then class members that depend on them are checked"
                     .to_owned(),
             }
-        })
-        .collect()
+        }),
+    );
+    steps
+}
+
+fn missing_import_step(folder: &str, file: &str) -> NextStep {
+    let generated = [
+        ".g.dart",
+        ".freezed.dart",
+        ".gr.dart",
+        ".gen.dart",
+        ".mocks.dart",
+    ]
+    .iter()
+    .any(|suffix| file.ends_with(suffix));
+    let location = if folder.is_empty() {
+        file.to_owned()
+    } else {
+        format!("{folder}/{file}")
+    };
+    if generated {
+        NextStep {
+            id: "generate-missing-import".to_owned(),
+            command: if folder.is_empty() {
+                "dart run build_runner build".to_owned()
+            } else {
+                format!("cd {} && dart run build_runner build", shell_quote(folder))
+            },
+            reason: format!(
+                "{location} is imported but missing; generate it so the types it declares can be read"
+            ),
+        }
+    } else {
+        NextStep {
+            id: "fix-missing-import".to_owned(),
+            command: format!("create or fix the import of {file}"),
+            reason: format!(
+                "{location} is imported but missing, so supertypes cannot be read and class members stay unchecked"
+            ),
+        }
+    }
 }
 
 fn shell_quote(folder: &str) -> String {
