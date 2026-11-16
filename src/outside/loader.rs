@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,8 @@ pub(crate) enum Outline {
     Skipped,
     Read(Rc<DartFile>),
 }
+
+pub(crate) type SharedLoader = Rc<RefCell<OutlineLoader>>;
 
 #[derive(Default)]
 pub(crate) struct OutlineLoader {

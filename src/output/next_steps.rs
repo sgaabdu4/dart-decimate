@@ -124,11 +124,22 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
                 command: if folder.is_empty() {
                     tool.to_owned()
                 } else {
-                    format!("cd {folder} && {tool}")
+                    format!("cd {} && {tool}", shell_quote(folder))
                 },
                 reason: "Write the package config so SDK and package supertypes can be read, then class members that depend on them are checked"
                     .to_owned(),
             }
         })
         .collect()
+}
+
+fn shell_quote(folder: &str) -> String {
+    if folder
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "/._-".contains(character))
+    {
+        folder.to_owned()
+    } else {
+        format!("'{}'", folder.replace('\'', "'\\''"))
+    }
 }
