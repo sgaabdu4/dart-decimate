@@ -26,11 +26,7 @@ pub enum WorkspaceScopeError {
     },
 }
 
-/// Return root-normalized files belonging to selected local pub packages.
-///
-/// Selectors match package names and package roots relative to the scan root.
-/// Values may contain comma-separated patterns, and `!pattern` excludes matches.
-/// When only excludes are provided, every local package starts selected.
+/// Return root-normalized files of the local pub packages the selectors pick.
 ///
 /// # Errors
 ///
@@ -45,10 +41,7 @@ pub fn workspace_file_scope(
     Ok(file_scope_for_roots(project, packages, &selected_roots))
 }
 
-/// Return root-normalized files belonging to packages touched by changed paths.
-///
-/// Non-Dart files inside a package still select that package. If no changed
-/// paths belong to a local package, the returned scope is empty.
+/// Return root-normalized files of the packages that changed paths touch.
 #[must_use]
 pub fn changed_workspace_file_scope(
     project: &ScannedProject,

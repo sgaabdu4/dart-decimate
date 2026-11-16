@@ -97,8 +97,7 @@ pub struct DuplicateConfig {
     /// Minimum normalized tokens per clone window.
     #[serde(default, alias = "minTokens")]
     pub min_tokens: Option<usize>,
-    /// Minimum normalized lines per clone window; sparse windows may grow past
-    /// this to satisfy `min_tokens`.
+    /// Minimum normalized lines per clone window.
     #[serde(default, alias = "minLines")]
     pub min_lines: Option<usize>,
     /// Minimum clone instances per group.

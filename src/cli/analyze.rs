@@ -275,8 +275,7 @@ fn analyze_project_duplicates(
 ) -> Result<Option<crate::DuplicateCodeReport>, CliError> {
     match request.command {
         ReportCommand::Check | ReportCommand::Audit | ReportCommand::Dupes => {
-            // Suppression and threshold accounting need all groups. Apply the
-            // requested detail limit only after the report has reconciled them.
+            // Apply the detail limit only after suppression and threshold accounting saw all groups.
             let mut options = request.duplicate_options.clone();
             options.top = None;
             let mut report = detect_duplicates(project, &options)?;

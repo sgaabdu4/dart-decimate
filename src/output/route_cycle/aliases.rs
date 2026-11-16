@@ -571,8 +571,7 @@ fn scoped_header_binding_exists(
         return false;
     }
     if for_in_iterable(scope, path_child) {
-        // The iterable is evaluated in the enclosing scope, so even
-        // `for (final route in route.go(context))` reads the outer `route`.
+        // The iterable is evaluated in the enclosing scope, so it reads the outer name.
         return false;
     }
     if header_field_binding_exists(scope, path_child, usage_start, name, source) {

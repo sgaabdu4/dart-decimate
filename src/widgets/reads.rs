@@ -146,8 +146,7 @@ fn state_member_receiver(object: Node<'_>) -> Option<Node<'_>> {
     if object.kind() != "function_expression" {
         return None;
     }
-    // The Dart grammar attaches `().onSubmit` to the closure instead of its
-    // expression body for `() => widget.onSubmit?.call()`.
+    // The grammar attaches `().onSubmit` to the closure, not its expression body.
     let body = object.child_by_field_name("body")?;
     if body.kind() != "function_expression_body" || body.named_child_count() != 1 {
         return None;
@@ -423,8 +422,7 @@ pub(super) fn scoped_header_binding_exists(
         return false;
     }
     if for_in_iterable(scope, path_child) {
-        // The iterable is evaluated in the enclosing scope, so even
-        // `for (final widget in widget.items)` reads the outer `widget`.
+        // The iterable is evaluated in the enclosing scope, so it reads the outer name.
         return false;
     }
     if header_field_binding_exists(scope, path_child, usage_start, name, source) {
@@ -453,8 +451,7 @@ fn for_in_iterable(scope: Node<'_>, path_child: Node<'_>) -> bool {
 }
 
 fn header_child_binds_name(child: Node<'_>, name: &str, source: &str) -> bool {
-    // A classic `for` initializer binds only its declared names; its
-    // initializer expressions are reads.
+    // A classic `for` initializer binds only its declared names.
     if child.kind() == "local_variable_declaration" {
         return declaration_binds_name(child, name, source);
     }
@@ -563,8 +560,7 @@ fn header_binding_child(scope_kind: &str, child: Node<'_>) -> bool {
     {
         return true;
     }
-    // Loop iterables, conditions, updates, and element types are expressions,
-    // not bindings; only pattern-bearing header children can bind names.
+    // Only pattern-bearing header children can bind names.
     !is_body_statement_child(child.kind()) && node_can_contain_pattern_binding(child)
 }
 
