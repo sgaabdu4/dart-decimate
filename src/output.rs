@@ -473,6 +473,10 @@ fn apply_cleanup_summary(
     summary.private_type_leaks = kind_count(findings, FindingKind::PrivateTypeLeak);
     summary.unused_enum_members = kind_count(findings, FindingKind::UnusedEnumMember);
     summary.unused_class_members = kind_count(findings, FindingKind::UnusedClassMember);
+    summary.outside_types_unread = results
+        .symbols
+        .as_ref()
+        .map_or(0, |report| report.outside_types_unread);
     summary.duplicate_exports = kind_count(findings, FindingKind::DuplicateExport);
     summary.route_collisions = kind_count(findings, FindingKind::RouteCollision);
     summary.mixed_go_router_styles = kind_count(findings, FindingKind::MixedGoRouterStyle);

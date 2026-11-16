@@ -7,10 +7,19 @@ use crate::graph::{normalize_path, resolve_local_uri};
 use crate::package_map::{PackageMap, parse_yaml};
 
 mod loader;
+mod resolver;
+pub(crate) use resolver::OutsideTypes;
 #[cfg(test)]
 mod loader_tests;
 #[cfg(test)]
 mod tests;
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Target {
+    Outside(PathBuf),
+    Local,
+    Unknown,
+}
 
 pub(crate) struct OutsideSources {
     root: PathBuf,
@@ -53,18 +62,19 @@ impl OutsideSources {
         })
     }
 
-    pub(crate) fn resolve(
-        &self,
-        from: &Path,
-        specifier: &str,
-        from_outside: bool,
-    ) -> Option<PathBuf> {
+    pub(crate) fn resolve(&self, from: &Path, specifier: &str, from_outside: bool) -> Target {
         if let Some(library) = specifier.strip_prefix("dart:") {
             let name = library.split('/').next().unwrap_or(library);
-            return self.dart_libraries.get(name).cloned();
+            return self
+                .dart_libraries
+                .get(name)
+                .map_or(Target::Unknown, |path| Target::Outside(path.clone()));
         }
-        let target = resolve_local_uri(&self.root, &self.packages, from, specifier)?;
-        (from_outside || !target.local).then_some(target.path)
+        match resolve_local_uri(&self.root, &self.packages, from, specifier) {
+            None => Target::Unknown,
+            Some(target) if target.local && !from_outside => Target::Local,
+            Some(target) => Target::Outside(target.path),
+        }
     }
 }
 

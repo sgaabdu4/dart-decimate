@@ -63,11 +63,14 @@ fn layout(with_sky_engine: bool, sdk_version: &str) -> Result<Layout, Box<dyn st
 }
 
 fn library(sources: &OutsideSources, name: &str) -> Option<PathBuf> {
-    sources.resolve(
+    match sources.resolve(
         &PathBuf::from("/project/lib/main.dart"),
         &format!("dart:{name}"),
         false,
-    )
+    ) {
+        Target::Outside(path) => Some(path),
+        Target::Local | Target::Unknown => None,
+    }
 }
 
 #[test]
@@ -174,16 +177,21 @@ fn package_uris_resolve_outside_the_project_only() -> Result<(), Box<dyn std::er
 
     assert_eq!(
         sources.resolve(&from, "package:sky_engine/ui/ui.dart", false),
-        Some(sky.join("ui/ui.dart"))
+        Target::Outside(sky.join("ui/ui.dart"))
     );
     assert_eq!(
         sources.resolve(&from, "package:app/other.dart", false),
-        None
+        Target::Local
     );
-    assert_eq!(sources.resolve(&from, "other.dart", false), None);
+    assert_eq!(sources.resolve(&from, "other.dart", false), Target::Local);
+    assert_eq!(
+        sources.resolve(&from, "package:missing/x.dart", false),
+        Target::Unknown
+    );
+    assert_eq!(sources.resolve(&from, "dart:html", false), Target::Unknown);
     assert_eq!(
         sources.resolve(&sky.join("ui/ui.dart"), "painting.dart", true),
-        Some(sky.join("ui/painting.dart"))
+        Target::Outside(sky.join("ui/painting.dart"))
     );
 
     Ok(())

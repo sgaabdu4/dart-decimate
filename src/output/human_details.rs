@@ -174,6 +174,12 @@ fn cleanup_items(summary: &ReportSummary) -> Vec<String> {
     );
     push_count(
         &mut items,
+        summary.outside_types_unread,
+        "supertype name not read",
+        "supertype names not read",
+    );
+    push_count(
+        &mut items,
         summary.duplicate_exports,
         "duplicate export",
         "duplicate exports",
