@@ -551,18 +551,19 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             skips.whole_classes.extend(ancestors);
             continue;
         }
-        let names = reached
-            .iter()
-            .filter_map(|reached_class| member_names.get(reached_class))
-            .flatten()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        for ancestor in ancestors.difference(&reached) {
+        for ancestor in &ancestors {
+            let names = reached
+                .iter()
+                .filter(|reached_class| *reached_class != ancestor)
+                .filter_map(|reached_class| member_names.get(reached_class))
+                .flatten()
+                .cloned()
+                .collect::<BTreeSet<_>>();
             skips
                 .named_members
                 .entry(ancestor.clone())
                 .or_default()
-                .extend(names.iter().cloned());
+                .extend(names);
         }
     }
     skips

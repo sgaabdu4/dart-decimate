@@ -568,6 +568,18 @@ fn strict_check_protects_only_the_members_that_a_project_interface_declares()
             "Base.legacy",
             "Base.size",
         ),
+        (
+            "abstract class Iface {\n  void foo();\n}\n\nmixin class Mixed {\n  void foo() {}\n\n  void spare() {}\n}\n\nclass P with Mixed implements Iface {}\n",
+            "  print(P());\n",
+            "Mixed.spare",
+            "Mixed.foo",
+        ),
+        (
+            "abstract class Iface {\n  void foo();\n}\n\nclass Base {}\n\nmixin class Mixed {\n  void foo() {}\n\n  void spare() {}\n}\n\nclass P extends Base with Mixed implements Iface {}\n",
+            "  print(P());\n",
+            "Mixed.spare",
+            "Mixed.foo",
+        ),
     ];
     for (items, main_body, reported, kept) in cases {
         let fixture = tempfile::tempdir()?;
