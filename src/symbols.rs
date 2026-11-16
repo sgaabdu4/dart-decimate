@@ -44,6 +44,9 @@ pub struct SymbolReport {
     /// Supertype names that SDK or package sources could not resolve for class member checks.
     #[serde(default, skip_serializing)]
     pub outside_types_unread: usize,
+    /// Package folders, relative to the scan root, whose package config could not give those sources.
+    #[serde(default, skip_serializing)]
+    pub outside_unread_folders: Vec<String>,
 }
 
 /// Options for symbol-level dead-code analysis.
@@ -157,14 +160,14 @@ pub fn analyze_symbols_with_options(
     } else {
         Vec::new()
     };
-    let (unused_exports, (unused_members, outside_types_unread)) =
+    let (unused_exports, (unused_members, outside_types_unread, outside_unread_folders)) =
         if let Some(dead_code) = dead_code {
             (
                 unused_exports(project, dead_code, &index, options),
                 unused_members(project, dead_code, &index),
             )
         } else {
-            (Vec::new(), (Vec::new(), 0))
+            (Vec::new(), (Vec::new(), 0, Vec::new()))
         };
     let semantic = semantic_report(
         project,
@@ -182,6 +185,7 @@ pub fn analyze_symbols_with_options(
         duplicate_exports,
         semantic,
         outside_types_unread,
+        outside_unread_folders,
     }
 }
 
@@ -253,7 +257,7 @@ fn unused_members(
     project: &ScannedProject,
     dead_code: &DeadCodeReport,
     index: &SymbolIndex,
-) -> (Vec<UnusedMember>, usize) {
+) -> (Vec<UnusedMember>, usize, Vec<String>) {
     let reachable_files = dead_code
         .reachable_files
         .iter()
@@ -305,10 +309,19 @@ fn unused_members(
         ))
     });
 
-    (
-        unused_members,
-        public_members.interface_skips.unread_names.len(),
-    )
+    let skips = &public_members.interface_skips;
+    let folders = skips
+        .unread_packages
+        .iter()
+        .map(|package| {
+            package
+                .strip_prefix(&project.root)
+                .unwrap_or(package)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    (unused_members, skips.unread_names.len(), folders)
 }
 
 fn unused_export_from_declaration(
@@ -467,6 +480,40 @@ struct InterfaceSkips {
     whole_classes: BTreeSet<ClassKey>,
     named_members: BTreeMap<ClassKey, BTreeSet<String>>,
     unread_names: BTreeSet<String>,
+    unread_packages: BTreeSet<PathBuf>,
+}
+
+struct PackageRoots {
+    root: PathBuf,
+    folders: BTreeSet<PathBuf>,
+}
+
+impl PackageRoots {
+    fn new(project: &ScannedProject) -> Self {
+        let mut folders = BTreeSet::new();
+        let mut checked = BTreeSet::new();
+        for file in &project.files {
+            let path = normalize_against(&project.root, &file.path);
+            for folder in path.ancestors().skip(1) {
+                if !folder.starts_with(&project.root) || !checked.insert(folder.to_path_buf()) {
+                    break;
+                }
+                if folder.join("pubspec.yaml").is_file() {
+                    folders.insert(folder.to_path_buf());
+                }
+            }
+        }
+        Self {
+            root: project.root.clone(),
+            folders,
+        }
+    }
+
+    fn of(&self, path: &Path) -> PathBuf {
+        path.ancestors()
+            .find(|folder| self.folders.contains(*folder))
+            .map_or_else(|| self.root.clone(), Path::to_path_buf)
+    }
 }
 
 impl InterfaceSkips {
@@ -607,7 +654,8 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let mut outside = OutsideTypes::new(&project.root);
+    let roots = PackageRoots::new(project);
+    let mut outsides = BTreeMap::<PathBuf, OutsideTypes>::new();
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
     for file in &project.files {
@@ -627,7 +675,9 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
         let library = index.library_path(&path).to_path_buf();
         let mut links = LinkResolver {
             resolver: &resolver,
-            outside: &mut outside,
+            outside: outsides
+                .entry(roots.of(&path))
+                .or_insert_with_key(|folder| OutsideTypes::new(folder)),
             path: &path,
             library: &library,
             imports: imports_by_path.get(&library).copied().unwrap_or_default(),
@@ -643,7 +693,7 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
         }
     }
     let mut outside_keys = BTreeSet::new();
-    for (key, class) in outside.expand() {
+    for (key, class) in outsides.values_mut().flat_map(OutsideTypes::expand) {
         outside_keys.insert(key.clone());
         member_names.insert(
             key.clone(),
@@ -740,8 +790,9 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             name: indexed.member.owner.clone(),
         })
         .collect::<BTreeSet<_>>();
+    let roots = PackageRoots::new(project);
     let mut skips = InterfaceSkips::default();
-    for class in classes.values() {
+    for (class_key, class) in &classes {
         let (reached, open) = reached_interfaces(class, &classes);
         if reached.is_empty() && open.is_empty() {
             continue;
@@ -766,6 +817,7 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
                 .any(|ancestor| checkable.contains(ancestor))
             {
                 skips.unread_names.extend(open);
+                skips.unread_packages.insert(roots.of(&class_key.path));
             }
             skips.whole_classes.extend(ancestors);
             continue;
@@ -808,6 +860,7 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
         } else {
             if checkable.contains(key) {
                 skips.unread_names.extend(unread);
+                skips.unread_packages.insert(roots.of(&key.path));
             }
             skips.whole_classes.insert(key.clone());
         }
