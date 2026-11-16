@@ -13,6 +13,15 @@ pub(crate) fn is_library_source(root: &Path, path: &Path) -> bool {
     })
 }
 
+pub(super) fn is_bin_source(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok_and(|relative| {
+        relative
+            .components()
+            .next()
+            .is_some_and(|component| component.as_os_str() == "bin")
+    })
+}
+
 pub(super) fn is_public_library_entry(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root).is_ok_and(|relative| {
         let mut components = relative.components();

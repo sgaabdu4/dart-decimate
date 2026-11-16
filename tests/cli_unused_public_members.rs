@@ -77,7 +77,7 @@ fn strict_check_keeps_members_that_a_contract_or_another_file_uses()
     write(
         &fixture,
         "lib/src/shapes.dart",
-        "abstract class Shape {\n  double area();\n}\n\nclass Square extends Shape {\n  Square(this.side);\n\n  final double side;\n\n  @override\n  double area() => side * side;\n\n  double perimeter() => 4 * side;\n}\n",
+        "abstract class Shape {\n  double area();\n}\n\nclass Square extends Shape {\n  Square(this.side);\n\n  final double side;\n\n  @override\n  double area() => side * side;\n}\n",
     )?;
 
     let (code, json) = strict_check(&fixture)?;
@@ -963,9 +963,19 @@ fn write_package_config(
 }
 
 fn found_members(json: &Value) -> Vec<String> {
-    member_messages(json)
-        .iter()
-        .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
+    json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| {
+            matches!(
+                finding["rule_id"].as_str(),
+                Some("dart-decimate/unused-class-member" | "dart-decimate/unused-enum-member")
+            )
+        })
+        .filter_map(|finding| finding["message"].as_str())
+        .filter_map(|message| message.split_whitespace().find(|word| word.contains('.')))
+        .map(str::to_owned)
         .collect()
 }
 
@@ -1153,6 +1163,45 @@ fn unread_outside_types_keep_whole_class_skip() -> Result<(), Box<dyn std::error
             .collect::<Vec<_>>();
         assert_eq!(commands, ["dart pub get"], "{case}");
     }
+
+    Ok(())
+}
+
+#[test]
+fn bin_class_members_report() -> Result<(), Box<dyn std::error::Error>> {
+    let tool = "class Tool {\n  int used() => 1;\n\n  int spare() => 2;\n\n  int _hidden() => 3;\n}\n\nenum Mode { fast, slow }\n\nvoid main() {\n  print(Tool().used());\n  print(Mode.fast);\n}\n";
+    let cases = [
+        ("name: app\npublish_to: none\n", "lib/main.dart"),
+        ("name: pkg\nversion: 1.0.0\n", "lib/pkg.dart"),
+    ];
+    for (pubspec, library) in cases {
+        let fixture = tempfile::tempdir()?;
+        write(&fixture, "pubspec.yaml", pubspec)?;
+        write(&fixture, library, "void main() {}\n")?;
+        write(&fixture, "bin/tool.dart", tool)?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            found_members(&json),
+            ["Tool.spare", "Tool._hidden", "Mode.slow"],
+            "{pubspec}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn classes_with_supertypes_report_own_unused_members() -> Result<(), Box<dyn std::error::Error>> {
+    let main = "import 'package:flutter/widgets.dart';\nimport 'src/items.dart';\n\nvoid main() {\n  print(Home());\n  print(Page());\n  print(Child());\n  print(Marked());\n  print(Loose());\n  Base().hook();\n}\n";
+    let items = "import 'package:flutter/widgets.dart';\n\nclass Home extends StatelessWidget {\n  Widget build(BuildContext context) => throw UnimplementedError();\n\n  int spare() => 1;\n}\n\nclass Page extends State<StatefulWidget> {\n  void initState() {}\n\n  int spare() => 1;\n}\n\nclass Base {\n  void hook() {}\n}\n\nclass Child extends Base {\n  void hook() {}\n\n  int spare() => 1;\n}\n\n@Deprecated('x')\nclass Marked extends Base {\n  int spare() => 1;\n}\n\nclass Loose extends Missing {\n  int spare() => 1;\n}\n";
+    let (_, json) = strict_check_with_toolchain(items, main)?;
+
+    assert_eq!(
+        found_members(&json),
+        ["Home.spare", "Page.spare", "Child.spare"]
+    );
 
     Ok(())
 }
