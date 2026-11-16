@@ -24,11 +24,11 @@ Outside sources (read from real files, Flutter 3.50.0, Dart 3.14.0):
 - `dart:` libraries, otherwise: `<flutterRoot>/bin/cache/dart-sdk/lib/libraries.json` (`vm_common` and `vm`) when the config has `flutterRoot`. Else the SDK of the `dart` on PATH, only when its `version` file equals the config's `generatorVersion` (both 3.14.0 here).
 - No config, or no version-true SDK: no outside reading. An SDK of another version can declare other names and give a false finding.
 
-Chains: an outside class resolves its own `extends`, `with` and `implements` names in its own library, by the same rules. A typedef counts as its target. `Object` ends the chain (dropped at `src/symbols.rs:512`). A name that conditional import branches resolve to different classes is unknown.
+Chains: an outside class resolves its own `extends`, `with` and `implements` names in its own library, by the same rules. An outside mixin's `on` types count as links too, because they are part of its interface; `header_supertypes` drops them today, so the outline keeps them. A typedef counts as its target. `Object` ends the chain (dropped at `src/symbols.rs:512`). A name that conditional import branches resolve to different classes is unknown.
 
 Fallback: a link that is unresolved, ambiguous, missing on disk or fails the strict parse stays `outside_*`. That class keeps today's whole-class skip, so missing sources never add a finding. An outside parse error never fails the run. The user sees a summary count `outside_types_unread`, one human line and a next step `dart pub get` or `flutter pub get`. Verdict and exit code do not change.
 
-Reuse: the parser, directive extraction and `extract/members.rs` stay as they are. A new outline extract skips references, signatures and routes; it calls the existing `push_*` helpers. `DeclarationResolver` lookup extends to outside libraries. Outside keys join `classes` and `member_names`, so `reached_interfaces` and `interface_skips` keep their logic.
+Reuse: the parser, directive extraction and `extract/members.rs` stay as they are. A new outline extract skips references, signatures and routes; it calls the existing `push_*` helpers. `DeclarationResolver` lookup extends to outside libraries. Outside keys join `classes` and `member_names`, and `reached_interfaces` keeps its walk. One change in `interface_skips`: an outside type always protects all its declared names. The `without_body` branch (`src/symbols.rs:619`) is sound only when every caller is in the reference index. The framework calls outside hooks such as `initState`, and those calls are not in the index.
 
 Same cause: Earlier fixes of project-type skips helped: `7d1a7c4` (explicit `Object`), `2bc7153`, `eb423cc`, `552eea2`. Other places where unread outside sources cause a skip:
 
@@ -42,7 +42,7 @@ Single source: `is_library_source` has a copy at `src/boundaries.rs:307`; merge 
 
 Blockers: Two owner choices, each with a recommendation.
 
-1. Scope (owner). The narrow change still leaves `class X extends StatelessWidget { void unused() {} }` unchecked, and every class with a supertype clause or annotation. Options:
+1. Scope (owner). With option (a), `class X extends StatelessWidget { void unused() {} }` stays unchecked, as does every class with a supertype clause or annotation. Only plain project classes and mixins above such classes gain checks. Options:
    - (a) Recommended: the two stated limits only, now. It matches the request and needs one 45-copy judgment.
    - (b) Also check the own members of classes with supertypes, protecting names their supertypes declare, and replace the widget base name list. This is the biggest gain but adds findings in almost every widget class. Recommended as the next plan, reusing this outside reader.
    - (c) `bin/` of library packages too. Recommended yes: no package can import a `bin/` file, so nothing exports its classes. The request names application `bin/` only.
@@ -57,6 +57,7 @@ Authority: Autonomous after approval. The owner approved this work on 2026-11-16
 
 - [ ] Both limits have a failing test first, red on 0.0.76 → the two rows below, run before the fix.
 - [ ] A plain project mixin mixed into an outside `State` (fake Flutter SDK in the real layout) reports its member that `State` lacks and keeps one `State` declares → `tests/cli_unused_public_members.rs::outside_superclass_mixin_reports_names_the_outside_type_lacks`, 1 finding.
+- [ ] A plain project mixin on an outside `State` keeps its override of a hook that `State` declares with a body, with no project reference to that name → `tests/cli_unused_public_members.rs::outside_hook_with_body_stays_protected`, 0 findings for that name.
 - [ ] A plain base class whose subclass implements `Comparable` (fake SDK) reports a member that `Comparable` lacks and keeps `compareTo` → `tests/cli_unused_public_members.rs::outside_interface_base_reports_names_the_interface_lacks`, 1 finding.
 - [ ] An outside class that implements another outside class, reached through a typedef and a package `export` with `show`/`hide`, protects the names of every link → `tests/cli_unused_public_members.rs::outside_supertype_chain_protects_inherited_names`, 0 findings for those names.
 - [ ] No config, missing pub cache folder, outside parse error, other SDK version and an ambiguous name each keep the whole-class skip, raise `outside_types_unread` and keep the exit code → `tests/cli_unused_public_members.rs::unread_outside_types_keep_whole_class_skip`, one case each.
@@ -86,14 +87,15 @@ Measured cost, 0.0.76 release binary, 16-core Mac, two runs each:
 | P9, default threads | 40 s | 81 s | 1.1 GB |
 | `list` of Flutter `lib/` (694 files, 22 MB, full extraction) | 2.7 to 3.6 s | 33 s | 181 to 196 MB |
 
-Raw tree-sitter parse only, at 16, 2 and 1 threads. It has no strict passes and no extraction, so it is a lower bound. Memory not measured.
+Raw tree-sitter parse only, at 16, 2 and 1 threads. It has no strict passes and no extraction, so it is a lower bound. Memory not measured. The file sets are estimates from a text scan of import and export lines, not from the tool.
 
-| Outside file set | 16 | 2 | 1 |
+| Outside file set (estimate) | 16 | 2 | 1 |
 | --- | --- | --- | --- |
 | New app, whole export closure (844 files, 25 MB) | 0.22 s | 1.2 s | 1.7 s |
 | P5, whole export closure (1,915 files, 34 MB) | 0.27 s | 1.4 s | 2.2 s |
 | New app, text pre-filter (177 files, 7.6 MB) | 0.05 s | 0.29 s | 0.42 s |
-| Files that declare a needed type: new app 2, P5 47 | 22 ms (1) | | 87 ms (1) |
+| New app, files that declare a needed type (2) | not run | not run | 22 ms |
+| P5, files that declare a needed type (47) | not run | not run | 87 ms |
 
 Pre-filter: parse only files with a line that starts with `export '` or `part '`, or with `class|mixin|typedef <wanted name>`. A missed file leaves the name unknown, which is the safe side.
 
