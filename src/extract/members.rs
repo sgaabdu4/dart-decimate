@@ -39,7 +39,7 @@ pub(super) fn push_class_like_members(
         }
     }
     let extends_a_type = node.kind() != "extension_declaration";
-    if annotated || (extends_a_type && supertypes.has_clauses()) {
+    if extends_a_type && (annotated || supertypes.has_clauses()) {
         class_supertypes.push(supertypes);
     }
 }
