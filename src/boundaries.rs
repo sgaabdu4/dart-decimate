@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
+use crate::symbols::path_filters::is_library_source;
 use crate::{BoundaryRule, Location, ScannedProject};
 
 /// Built-in architecture boundary presets.
@@ -302,15 +303,6 @@ fn matches_pattern(pattern: &str, relative: &str) -> bool {
         return true;
     }
     glob::Pattern::new(normalized).is_ok_and(|pattern| pattern.matches(relative))
-}
-
-fn is_library_source(root: &Path, path: &Path) -> bool {
-    path.strip_prefix(root).is_ok_and(|relative| {
-        relative
-            .components()
-            .next()
-            .is_some_and(|component| component.as_os_str() == "lib")
-    })
 }
 
 #[cfg(test)]
