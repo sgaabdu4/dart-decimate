@@ -637,7 +637,12 @@ impl PublicMemberContext {
             class_owners: index
                 .declarations
                 .iter()
-                .filter(|indexed| indexed.declaration.kind == DeclarationKind::Class)
+                .filter(|indexed| {
+                    matches!(
+                        indexed.declaration.kind,
+                        DeclarationKind::Class | DeclarationKind::Mixin
+                    )
+                })
                 .map(|indexed| (indexed.path.clone(), indexed.declaration.name.clone()))
                 .collect(),
             generated_part_libraries: project

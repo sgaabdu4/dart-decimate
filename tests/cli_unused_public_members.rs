@@ -632,6 +632,42 @@ fn strict_check_protects_a_mixin_member_only_for_an_abstract_declaration()
 }
 
 #[test]
+fn strict_check_checks_the_members_of_a_mixin() -> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            "mixin M {\n  void used() {}\n\n  void spare() {}\n}\n\nclass P with M {}\n",
+            "  P().used();\n",
+            vec!["M.spare"],
+        ),
+        (
+            "class Base {}\n\nmixin M on Base {\n  void twice() {}\n}\n\nclass A extends Base with M {}\n",
+            "  A().twice();\n",
+            vec![],
+        ),
+        (
+            "mixin M {\n  void foo() {}\n\n  void spare() {}\n}\n\nabstract class I {\n  void foo();\n}\n\nclass P with M implements I {}\n",
+            "  print(P());\n",
+            vec!["I.foo", "M.spare"],
+        ),
+    ];
+    for (items, main_body, expected) in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, main_body)?;
+
+        let (_, json) = strict_check(&fixture)?;
+        let mut found = member_messages(&json)
+            .iter()
+            .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
+            .collect::<Vec<_>>();
+        found.sort();
+
+        assert_eq!(found, expected, "{items}");
+    }
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
