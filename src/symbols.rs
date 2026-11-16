@@ -314,15 +314,17 @@ fn unused_members(
     let folders = skips
         .unread_packages
         .iter()
-        .map(|package| {
-            package
-                .strip_prefix(&project.root)
-                .unwrap_or(package)
-                .to_string_lossy()
-                .into_owned()
-        })
+        .map(|package| package_folder(&project.root, package))
         .collect();
     (unused_members, skips.unread_names.len(), folders)
+}
+
+fn package_folder(root: &Path, package: &Path) -> String {
+    package
+        .strip_prefix(root)
+        .unwrap_or(package)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn unused_export_from_declaration(
@@ -675,12 +677,16 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             }
         }
         let library = index.library_path(&path).to_path_buf();
-        let package_root = roots.of(&path);
+        let config = find_package_config(&roots.of(&path));
+        let reader_root = config
+            .as_deref()
+            .and_then(|config| config.parent()?.parent())
+            .map_or_else(|| project.root.clone(), Path::to_path_buf);
         let mut links = LinkResolver {
             resolver: &resolver,
             outside: outsides
-                .entry(find_package_config(&package_root).unwrap_or_else(|| project.root.clone()))
-                .or_insert_with(|| OutsideTypes::with_loader(&package_root, loader.clone())),
+                .entry(config.clone().unwrap_or_else(|| project.root.clone()))
+                .or_insert_with(|| OutsideTypes::with_loader(&reader_root, loader.clone())),
             path: &path,
             library: &library,
             imports: imports_by_path.get(&library).copied().unwrap_or_default(),
