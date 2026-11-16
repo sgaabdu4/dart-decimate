@@ -215,7 +215,7 @@ pub struct TopLevelDeclaration {
     pub range: SourceRange,
 }
 
-/// The types a class-like declaration or `typedef Name = Type;` names after `extends`, `with` or `implements`.
+/// The types a class-like declaration or `typedef Name = Type;` names after `extends`, `with`, `implements` or `on`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassSupertypes {
     /// Declared name of the class-like declaration.
@@ -226,6 +226,8 @@ pub struct ClassSupertypes {
     pub mixins: Vec<String>,
     /// Names of the types after `implements`, written like `names`.
     pub implemented: Vec<String>,
+    /// Names of the types after `on` in a mixin declaration, written like `names`.
+    pub constraints: Vec<String>,
 }
 
 /// A class-like member declaration that can become a future symbol node.

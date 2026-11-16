@@ -83,6 +83,7 @@ pub(super) fn push_type_alias_target(
             names: vec![target],
             mixins: Vec::new(),
             implemented: Vec::new(),
+            constraints: Vec::new(),
         });
     }
 }
@@ -106,7 +107,7 @@ enum Clause {
     Extends,
     With,
     Implements,
-    Skipped,
+    On,
 }
 
 fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
@@ -116,6 +117,7 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
         names: Vec::new(),
         mixins: Vec::new(),
         implemented: Vec::new(),
+        constraints: Vec::new(),
     };
     let mut clause = None;
     for word in flat.split(|character: char| character.is_whitespace() || character == ',') {
@@ -123,7 +125,7 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
             "extends" => clause = Some(Clause::Extends),
             "with" => clause = Some(Clause::With),
             "implements" => clause = Some(Clause::Implements),
-            "on" => clause = Some(Clause::Skipped),
+            "on" => clause = Some(Clause::On),
             "" => {}
             _ => {
                 let name = word.trim_end_matches('?');
@@ -131,7 +133,8 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
                     Some(Clause::Extends) => &mut supertypes.names,
                     Some(Clause::With) => &mut supertypes.mixins,
                     Some(Clause::Implements) => &mut supertypes.implemented,
-                    Some(Clause::Skipped) | None => continue,
+                    Some(Clause::On) => &mut supertypes.constraints,
+                    None => continue,
                 };
                 if !name.is_empty() {
                     list.push(name.to_owned());
