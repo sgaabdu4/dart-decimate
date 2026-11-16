@@ -28,14 +28,18 @@ pub(super) fn push_class_like_members(
     };
     let start = members.len();
     collect_class_like_members(members, &owner, body, source);
-    if header_has_contract(node, body, source) {
+    let header = source
+        .get(node.start_byte()..body.start_byte())
+        .unwrap_or_default();
+    let supertypes = header_supertypes(owner, header);
+    let annotated = header_is_annotated(header);
+    if annotated {
         for member in &mut members[start..] {
             member.contract = true;
         }
-        let header = source
-            .get(node.start_byte()..body.start_byte())
-            .unwrap_or_default();
-        class_supertypes.push(header_supertypes(owner, header));
+    }
+    if annotated || supertypes.has_clauses() {
+        class_supertypes.push(supertypes);
     }
 }
 
@@ -145,14 +149,9 @@ fn header_supertypes(owner: String, header: &str) -> ClassSupertypes {
     supertypes
 }
 
-fn header_has_contract(node: Node<'_>, body: Node<'_>, source: &str) -> bool {
-    let header = source
-        .get(node.start_byte()..body.start_byte())
-        .unwrap_or_default();
+fn header_is_annotated(header: &str) -> bool {
     header.trim_start().starts_with('@')
-        || header.split_whitespace().any(|word| {
-            matches!(word, "extends" | "implements" | "with" | "on") || word.starts_with('@')
-        })
+        || header.split_whitespace().any(|word| word.starts_with('@'))
 }
 
 fn member_is_annotated(node: Node<'_>, source: &str) -> bool {
