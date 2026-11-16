@@ -167,9 +167,13 @@ fn no_package_config_or_other_sdk_version_means_no_outside_reading()
 #[test]
 fn package_uris_resolve_outside_the_project_only() -> Result<(), Box<dyn std::error::Error>> {
     let layout = layout(true, "3.14.0")?;
-    let sources = OutsideSources::discover_with_path(layout.project.path(), None)
-        .ok_or("no outside sources")?;
     let from = layout.project.path().join("lib/main.dart");
+    let sources = OutsideSources::discover_with_path(layout.project.path(), None)
+        .ok_or("no outside sources")?
+        .with_scanned(Rc::new(BTreeSet::from([layout
+            .project
+            .path()
+            .join("lib/other.dart")])));
     let sky = layout
         .toolchain
         .path()
@@ -184,6 +188,10 @@ fn package_uris_resolve_outside_the_project_only() -> Result<(), Box<dyn std::er
         Target::Local
     );
     assert_eq!(sources.resolve(&from, "other.dart", false), Target::Local);
+    assert_eq!(
+        sources.resolve(&from, "package:app/ignored.dart", false),
+        Target::Outside(layout.project.path().join("lib/ignored.dart"))
+    );
     assert_eq!(
         sources.resolve(&from, "package:missing/x.dart", false),
         Target::Unknown
@@ -223,7 +231,8 @@ fn readers_that_share_a_loader_parse_each_outside_file_once()
     let library = layout.project.path().join("lib/main.dart");
 
     for _ in 0..3 {
-        let mut types = OutsideTypes::with_loader(layout.project.path(), loader.clone());
+        let mut types =
+            OutsideTypes::with_loader(layout.project.path(), loader.clone(), &Default::default());
         assert!(types.link(&library, &imports, "Window", false).is_some());
     }
 

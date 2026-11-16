@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::widgets::resolution::{ClassKey, compact_reference, visible_through_combinators};
 use crate::{DartFile, DartImport, DeclarationKind, MemberKind};
@@ -54,10 +55,14 @@ impl Walk {
 }
 
 impl OutsideTypes {
-    pub(crate) fn with_loader(root: &Path, loader: SharedLoader) -> Self {
+    pub(crate) fn with_loader(
+        root: &Path,
+        loader: SharedLoader,
+        scanned: &Rc<BTreeSet<PathBuf>>,
+    ) -> Self {
         Self {
             reader: OutsideSources::discover(root).map(|sources| Reader {
-                sources,
+                sources: sources.with_scanned(Rc::clone(scanned)),
                 loader,
                 library_of: BTreeMap::new(),
                 exported: BTreeMap::new(),
