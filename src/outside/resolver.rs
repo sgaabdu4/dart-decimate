@@ -100,6 +100,12 @@ impl OutsideTypes {
         found
     }
 
+    pub(crate) fn has_package_config_gaps(&self) -> bool {
+        self.reader
+            .as_ref()
+            .is_some_and(|reader| reader.sources.gaps() > 0)
+    }
+
     pub(crate) fn missing_imports(&self) -> BTreeSet<PathBuf> {
         self.reader
             .as_ref()
@@ -212,6 +218,11 @@ fn declares(file: &DartFile, name: &str) -> bool {
 }
 
 impl Reader {
+    fn gap(&self) -> Walk {
+        self.sources.note_gap(None);
+        Walk::unread()
+    }
+
     fn load(&self, path: &Path, wanted: &str) -> Outline {
         self.loader.borrow_mut().load(path, wanted)
     }
@@ -324,7 +335,7 @@ impl Reader {
                     |import| match self.sources.resolve(library, &import.uri, from_outside) {
                         Target::Outside(path) => self.exported(&path, name),
                         Target::Local => Walk::empty(),
-                        Target::Unknown => Walk::unread(),
+                        Target::Unknown => self.gap(),
                     },
                 )
                 .collect::<Vec<_>>();
@@ -393,7 +404,7 @@ impl Reader {
                     match self.sources.resolve(library, &export.uri, true) {
                         Target::Outside(path) => self.export_walk(&path, name, visited),
                         Target::Local => Walk::empty(),
-                        Target::Unknown => Walk::unread(),
+                        Target::Unknown => self.gap(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -408,7 +419,10 @@ impl Reader {
         let file = match self.load(library, name) {
             Outline::Read(file) => file,
             Outline::Skipped => return Walk::empty(),
-            Outline::Missing | Outline::Unparsed => return Walk::unread(),
+            Outline::Missing | Outline::Unparsed => {
+                self.sources.note_gap(Some(library));
+                return Walk::unread();
+            }
         };
         self.library_of
             .insert(library.to_path_buf(), library.to_path_buf());
@@ -432,6 +446,7 @@ impl Reader {
         self.prefetch(&parts, name);
         for part in &file.parts {
             let Target::Outside(path) = self.sources.resolve(library, &part.uri, true) else {
+                self.sources.note_gap(None);
                 walk.complete = false;
                 continue;
             };
@@ -447,7 +462,10 @@ impl Reader {
                 }
                 Outline::Skipped => {}
                 Outline::Missing if self.sources.is_sdk_source(&path) => {}
-                Outline::Missing | Outline::Unparsed => walk.complete = false,
+                Outline::Missing | Outline::Unparsed => {
+                    self.sources.note_gap(Some(&path));
+                    walk.complete = false;
+                }
             }
         }
         walk
