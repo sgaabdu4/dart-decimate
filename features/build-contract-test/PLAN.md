@@ -4,7 +4,7 @@ Status: Ready
 
 ## Outcome + scope
 
-A `build` method of a class in an application's `lib/main.dart` stays unreported, and a test proves it again. Commit 416d6bb removed the only case that checked `build` in `CONTRACT_MEMBER_NAMES`. Since 2d1b8a5, classes in an application's `lib/main.dart` are checked, so a Flutter `MyApp.build` there depends on that name. Non-goals: other contract names, rule changes, a release.
+A `build` method of a class in an application's `lib/main.dart` stays unreported, and a test proves it again. Commit 416d6bb removed the only case that checked `build` in `CONTRACT_MEMBER_NAMES`. Since 2d1b8a5, classes in an application's `lib/main.dart` are checked, so a Flutter `MyApp.build` there depends on that name. Release as 0.0.77, because the version gates need a version above main. Non-goals: other contract names, rule changes.
 
 ## Repository context
 
