@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
@@ -31,6 +31,7 @@ pub(crate) struct OutsideSources {
     sdk_lib: PathBuf,
     scanned: Rc<BTreeSet<PathBuf>>,
     missing: RefCell<BTreeSet<PathBuf>>,
+    gaps: Cell<usize>,
 }
 
 impl OutsideSources {
@@ -74,7 +75,18 @@ impl OutsideSources {
             sdk_lib,
             scanned: Rc::default(),
             missing: RefCell::default(),
+            gaps: Cell::new(0),
         })
+    }
+
+    pub(crate) fn gaps(&self) -> usize {
+        self.gaps.get()
+    }
+
+    pub(crate) fn note_gap(&self, path: Option<&Path>) {
+        if path.is_none_or(|path| !self.missing.borrow().contains(path)) {
+            self.gaps.set(self.gaps.get() + 1);
+        }
     }
 
     pub(crate) fn missing_imports(&self) -> BTreeSet<PathBuf> {
@@ -108,7 +120,7 @@ impl OutsideSources {
                 Target::Local
             }
             Some(target) => {
-                if target.local && !from_outside && !target.path.is_file() {
+                if target.local && target.path.starts_with(&self.root) && !target.path.is_file() {
                     self.missing.borrow_mut().insert(target.path.clone());
                 }
                 Target::Outside(target.path)

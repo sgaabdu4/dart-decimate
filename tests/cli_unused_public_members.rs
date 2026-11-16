@@ -1629,6 +1629,108 @@ fn missing_local_imports_name_the_file_in_the_next_step() -> Result<(), Box<dyn 
     Ok(())
 }
 
+fn next_step_commands(json: &Value) -> Vec<String> {
+    let mut commands = json["next_steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|step| {
+            matches!(
+                step["id"].as_str(),
+                Some("read-outside-types" | "generate-missing-import" | "fix-missing-import")
+            )
+        })
+        .filter_map(|step| step["command"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    commands.sort();
+    commands
+}
+
+fn missing_import_fixture(
+    files: &[(&str, &str)],
+) -> Result<(i32, Value), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        &fixture,
+        ".dart-decimaterc",
+        "{\"ignorePatterns\": [\"**/generated/**\"]}\n",
+    )?;
+    for (path, source) in files {
+        write(&fixture, path, source)?;
+    }
+    write_package_config(&fixture, &toolchain, &packages, &[])?;
+    strict_check(&fixture)
+}
+
+#[test]
+fn missing_generated_part_files_name_the_generator_step() -> Result<(), Box<dyn std::error::Error>>
+{
+    let cases = [
+        "part 'main.freezed.dart';\n\nclass Item with _$Item {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Item());\n}\n",
+        "part 'main.g.dart';\n\nclass Item extends GenBase {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Item());\n}\n",
+    ];
+    for main in cases {
+        let (_, json) = missing_import_fixture(&[("lib/main.dart", main)])?;
+
+        assert!(
+            json["summary"]["outside_types_unread"].as_u64() > Some(0),
+            "{main}"
+        );
+        assert_eq!(
+            next_step_commands(&json),
+            ["dart run build_runner build"],
+            "{main}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn missing_imports_of_followed_ignored_files_name_the_generator_step()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_, json) = missing_import_fixture(&[
+        (
+            "lib/generated/gen.dart",
+            "import 'gen.g.dart';\n\nclass GenModel extends GenBase {}\n",
+        ),
+        (
+            "lib/main.dart",
+            "import 'generated/gen.dart';\n\nclass Impl extends GenModel {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n}\n",
+        ),
+    ])?;
+
+    assert!(json["summary"]["outside_types_unread"].as_u64() > Some(0));
+    assert_eq!(next_step_commands(&json), ["dart run build_runner build"]);
+
+    Ok(())
+}
+
+#[test]
+fn missing_files_and_unlisted_packages_keep_both_steps() -> Result<(), Box<dyn std::error::Error>> {
+    let (_, json) = missing_import_fixture(&[
+        (
+            "lib/a.dart",
+            "import 'missing.g.dart';\n\nclass A implements Comparable<A> {\n  int compareTo(A other) => 0;\n\n  int spare() => 1;\n}\n",
+        ),
+        (
+            "lib/main.dart",
+            "import 'a.dart';\nimport 'package:nope/x.dart';\n\nclass Item implements Thing {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(A());\n  print(Item());\n}\n",
+        ),
+    ])?;
+
+    assert_eq!(json["summary"]["outside_types_unread"], 2);
+    assert_eq!(
+        next_step_commands(&json),
+        ["dart pub get", "dart run build_runner build"]
+    );
+
+    Ok(())
+}
+
 #[test]
 fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

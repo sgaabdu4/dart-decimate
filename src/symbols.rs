@@ -315,12 +315,20 @@ fn unused_members(
     });
 
     let skips = &public_members.interface_skips;
+    let roots = PackageRoots::new(project);
     let folders = skips
         .unread_packages
         .iter()
+        .filter(|package| {
+            let has_missing = skips
+                .missing_imports
+                .iter()
+                .any(|file| roots.of(file) == **package);
+            let config = find_package_config(package);
+            !has_missing || config.is_none_or(|config| skips.config_gaps.contains(&config))
+        })
         .map(|package| package_folder(&project.root, package))
         .collect();
-    let roots = PackageRoots::new(project);
     let missing = skips
         .missing_imports
         .iter()
@@ -516,6 +524,7 @@ struct InterfaceSkips {
     unread_names: BTreeSet<String>,
     unread_packages: BTreeSet<PathBuf>,
     missing_imports: BTreeSet<PathBuf>,
+    config_gaps: BTreeSet<PathBuf>,
 }
 
 struct PackageRoots {
@@ -566,6 +575,7 @@ struct Hierarchy {
     member_names: BTreeMap<ClassKey, DeclaredNames>,
     outside: BTreeSet<ClassKey>,
     missing_imports: BTreeSet<PathBuf>,
+    config_gaps: BTreeSet<PathBuf>,
 }
 
 struct LinkResolver<'a> {
@@ -769,15 +779,39 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             },
         );
     }
+    let (missing_imports, config_gaps) = outside_causes(project, &outsides);
     Hierarchy {
         classes,
         member_names,
         outside: outside_keys,
-        missing_imports: outsides
-            .values()
-            .flat_map(OutsideTypes::missing_imports)
-            .collect(),
+        missing_imports,
+        config_gaps,
     }
+}
+
+fn outside_causes(
+    project: &ScannedProject,
+    outsides: &BTreeMap<PathBuf, OutsideTypes>,
+) -> (BTreeSet<PathBuf>, BTreeSet<PathBuf>) {
+    let mut missing = outsides
+        .values()
+        .flat_map(OutsideTypes::missing_imports)
+        .collect::<BTreeSet<_>>();
+    for file in &project.files {
+        let base = normalize_against(&project.root, &file.path);
+        for part in file.parts.iter().filter(|part| !part.uri.contains(':')) {
+            let path = crate::graph::normalize_path(&base.with_file_name(&part.uri));
+            if path.starts_with(&project.root) && !path.is_file() {
+                missing.insert(path);
+            }
+        }
+    }
+    let gaps = outsides
+        .iter()
+        .filter(|(_, outside)| outside.has_package_config_gaps())
+        .map(|(config, _)| config.clone())
+        .collect();
+    (missing, gaps)
 }
 
 fn reached_interfaces(
@@ -830,14 +864,8 @@ fn reached_interfaces(
     (reached, open)
 }
 
-fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSkips {
-    let Hierarchy {
-        classes,
-        member_names,
-        outside,
-        missing_imports,
-    } = class_hierarchy(project, index);
-    let checkable = index
+fn checkable_classes(index: &SymbolIndex) -> BTreeSet<ClassKey> {
+    index
         .members
         .iter()
         .filter(|indexed| {
@@ -850,10 +878,22 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             path: indexed.path.clone(),
             name: indexed.member.owner.clone(),
         })
-        .collect::<BTreeSet<_>>();
+        .collect()
+}
+
+fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSkips {
+    let Hierarchy {
+        classes,
+        member_names,
+        outside,
+        missing_imports,
+        config_gaps,
+    } = class_hierarchy(project, index);
+    let checkable = checkable_classes(index);
     let roots = PackageRoots::new(project);
     let mut skips = InterfaceSkips {
         missing_imports,
+        config_gaps,
         ..InterfaceSkips::default()
     };
     for (class_key, class) in &classes {
