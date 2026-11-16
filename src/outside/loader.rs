@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use rayon::prelude::*;
+
 use crate::DartFile;
 use crate::extract::extract_dart_outline;
 
@@ -29,23 +31,31 @@ struct Scanned {
     parsed: Option<Result<Rc<DartFile>, ()>>,
 }
 
+struct Built {
+    forwards: bool,
+    type_names: BTreeSet<String>,
+    parsed: Option<Result<DartFile, ()>>,
+}
+
 impl OutlineLoader {
+    pub(crate) fn prefetch(&mut self, paths: &[PathBuf], wanted: &str) {
+        let missing = paths
+            .iter()
+            .filter(|path| !self.entries.contains_key(*path))
+            .collect::<Vec<_>>();
+        let built = missing
+            .par_iter()
+            .map(|path| (*path, build(path, wanted)))
+            .collect::<Vec<_>>();
+        for (path, built) in built {
+            self.entries.insert(path.clone(), entry_from(built));
+        }
+    }
+
     pub(crate) fn load(&mut self, path: &Path, wanted: &str) -> Outline {
-        let mut text = None;
         if !self.entries.contains_key(path) {
-            let entry = match fs::read_to_string(path) {
-                Ok(source) => {
-                    let scanned = Scanned {
-                        forwards: forwards_libraries(&source),
-                        type_names: declared_type_names(&source),
-                        parsed: None,
-                    };
-                    text = Some(source);
-                    Entry::Scanned(scanned)
-                }
-                Err(_) => Entry::Missing,
-            };
-            self.entries.insert(path.to_path_buf(), entry);
+            self.entries
+                .insert(path.to_path_buf(), entry_from(build(path, wanted)));
         }
         let Some(Entry::Scanned(scanned)) = self.entries.get_mut(path) else {
             return Outline::Missing;
@@ -54,20 +64,42 @@ impl OutlineLoader {
             if !scanned.forwards && !scanned.type_names.contains(wanted) {
                 return Outline::Skipped;
             }
-            let Some(source) = text.or_else(|| fs::read_to_string(path).ok()) else {
+            let Ok(source) = fs::read_to_string(path) else {
                 return Outline::Missing;
             };
-            scanned.parsed = Some(
-                extract_dart_outline(path, &source)
-                    .map(Rc::new)
-                    .map_err(|_| ()),
-            );
+            scanned.parsed = Some(parse(path, &source).map(Rc::new));
         }
         match &scanned.parsed {
             Some(Ok(file)) => Outline::Read(Rc::clone(file)),
             _ => Outline::Unparsed,
         }
     }
+}
+
+fn build(path: &Path, wanted: &str) -> Option<Built> {
+    let source = fs::read_to_string(path).ok()?;
+    let forwards = forwards_libraries(&source);
+    let type_names = declared_type_names(&source);
+    let parsed = (forwards || type_names.contains(wanted)).then(|| parse(path, &source));
+    Some(Built {
+        forwards,
+        type_names,
+        parsed,
+    })
+}
+
+fn entry_from(built: Option<Built>) -> Entry {
+    built.map_or(Entry::Missing, |built| {
+        Entry::Scanned(Scanned {
+            forwards: built.forwards,
+            type_names: built.type_names,
+            parsed: built.parsed.map(|parsed| parsed.map(Rc::new)),
+        })
+    })
+}
+
+fn parse(path: &Path, source: &str) -> Result<DartFile, ()> {
+    extract_dart_outline(path, source).map_err(|_| ())
 }
 
 fn forwards_libraries(source: &str) -> bool {
