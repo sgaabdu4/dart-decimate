@@ -427,6 +427,7 @@ impl Reader {
                     }
                 }
                 Outline::Skipped => {}
+                Outline::Missing if self.sources.is_sdk_source(&path) => {}
                 Outline::Missing | Outline::Unparsed => walk.complete = false,
             }
         }
