@@ -152,9 +152,47 @@ fn normalize_modern_dart_compatibility(source: &str) -> Option<String> {
     let mut output = normalized.take().unwrap_or_else(|| source.to_owned());
     let mut changed = output != source;
     changed |= normalize_concise_constructors(&mut output);
+    changed |= normalize_extension_type_representations(&mut output);
     changed |= normalize_dot_shorthands(&mut output);
     changed |= normalize_null_aware_collection_elements(&mut output);
     changed.then_some(output)
+}
+
+fn normalize_extension_type_representations(source: &mut String) -> bool {
+    let mut replacements = Vec::new();
+    let mut cursor = 0;
+
+    while let Some((keyword_start, keyword)) = find_next_class_like_header(source, cursor) {
+        cursor = keyword_start + keyword.len();
+        if keyword == "type"
+            && let Some(comma) = representation_trailing_comma(source, cursor)
+        {
+            replacements.push((comma, comma + 1, " ".to_owned()));
+        }
+    }
+
+    apply_text_replacements(source, replacements)
+}
+
+fn representation_trailing_comma(source: &str, after_keyword: usize) -> Option<usize> {
+    let mut cursor = skip_whitespace(source, after_keyword)?;
+    if starts_keyword(source, cursor, "const") {
+        cursor = skip_whitespace(source, cursor + "const".len())?;
+    }
+    cursor = skip_whitespace(source, identifier_end(source, cursor)?)?;
+    if source.as_bytes().get(cursor).copied() == Some(b'<') {
+        cursor = skip_whitespace(source, matching_delimiter(source, cursor, b'<', b'>')? + 1)?;
+    }
+    if source.as_bytes().get(cursor).copied() == Some(b'.') {
+        cursor = skip_whitespace(source, cursor + 1)?;
+        cursor = skip_whitespace(source, identifier_end(source, cursor)?)?;
+    }
+    if source.as_bytes().get(cursor).copied() != Some(b'(') {
+        return None;
+    }
+    let close = matching_delimiter(source, cursor, b'(', b')')?;
+    let before_close = source[..close].trim_end();
+    before_close.ends_with(',').then(|| before_close.len() - 1)
 }
 
 fn normalize_concise_constructors(source: &mut String) -> bool {
@@ -713,7 +751,7 @@ fn normalize_dot_shorthands(source: &mut String) -> bool {
 }
 
 pub(crate) fn is_dot_shorthand_start(bytes: &[u8], cursor: usize) -> bool {
-    if cursor > 0 && bytes[cursor - 1] == b'?' {
+    if cursor > 0 && matches!(bytes[cursor - 1], b'?' | b'>') {
         return false;
     }
     let Some(next) = bytes.get(cursor + 1).copied() else {
@@ -728,6 +766,9 @@ pub(crate) fn is_dot_shorthand_start(bytes: &[u8], cursor: usize) -> bool {
     let Some(previous) = previous_non_whitespace_byte(bytes, cursor) else {
         return true;
     };
+    if previous == b'!' && is_postfix_null_assertion(bytes, cursor) {
+        return false;
+    }
     matches!(
         previous,
         b'=' | b'(' | b'[' | b'{' | b',' | b':' | b'?' | b'!' | b'>' | b'|'
@@ -814,6 +855,18 @@ fn find_header_terminator(source: &str, start: usize) -> Option<(usize, u8)> {
         cursor += 1;
     }
     None
+}
+
+fn is_postfix_null_assertion(bytes: &[u8], cursor: usize) -> bool {
+    let Some(bang) = bytes
+        .get(..cursor)
+        .and_then(|head| head.iter().rposition(|byte| !byte.is_ascii_whitespace()))
+    else {
+        return false;
+    };
+    previous_non_whitespace_byte(bytes, bang).is_some_and(|byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b')' | b']')
+    })
 }
 
 fn previous_non_whitespace_byte(bytes: &[u8], cursor: usize) -> Option<u8> {
@@ -1093,6 +1146,50 @@ enum const Tone(final String label) {
         assert!(parsed.source().contains("ConstPoint"));
         assert!(parsed.source().contains("extends Shape"));
         assert!(parsed.source().contains("Tone"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn strict_parse_accepts_the_outside_file_forms() -> Result<(), DartParseError> {
+        let source = "\
+extension type Pair._(
+  (int first, int second) _info,
+) {
+  int get first => _info.$1;
+}
+
+@Marker('x')
+extension type Callback<T extends Function>._(
+  RawCallback _raw,
+) implements Base<T>, RawCallback {}
+
+extension type Wrapped(
+  prefix.Raw _raw,
+) implements Base {}
+
+extension type const Plain(int value) {}
+
+class Holder {
+  Holder? _next;
+  int _count = 0;
+
+  void run(Holder? other) {
+    _next!._poke();
+    other?._next?._next!._poke();
+    _next!._count = 1;
+  }
+
+  void _poke() {}
+}
+";
+
+        let parsed = parse_dart_source_strict(Path::new("lib/types.dart"), source)?;
+
+        assert!(!parsed.tree().root_node().has_error());
+        for name in ["Pair", "Callback", "Wrapped", "Plain", "_next!._poke()"] {
+            assert!(parsed.source().contains(name), "{name}");
+        }
 
         Ok(())
     }
