@@ -232,7 +232,7 @@ fn readers_that_share_a_loader_parse_each_outside_file_once()
 
     for _ in 0..3 {
         let mut types =
-            OutsideTypes::with_loader(layout.project.path(), loader.clone(), &Default::default());
+            OutsideTypes::with_loader(layout.project.path(), loader.clone(), &Rc::default());
         assert!(types.link(&library, &imports, "Window", false).is_some());
     }
 

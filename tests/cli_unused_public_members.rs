@@ -1499,7 +1499,7 @@ fn supertypes_declared_in_ignored_project_files_are_read_from_those_files()
             write(
                 &fixture,
                 "pubspec.yaml",
-                &format!("name: app\npublish_to: none\ndependencies:\n  bbb:\n    path: bbb\n"),
+                "name: app\npublish_to: none\ndependencies:\n  bbb:\n    path: bbb\n",
             )?;
         } else {
             write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
@@ -1511,19 +1511,14 @@ fn supertypes_declared_in_ignored_project_files_are_read_from_those_files()
             )?;
         }
         if let Some(name) = dependency {
-            let root = if folder.is_empty() {
-                name.to_owned()
-            } else {
-                name.to_owned()
-            };
             write(
                 &fixture,
-                &format!("{root}/pubspec.yaml"),
+                &format!("{name}/pubspec.yaml"),
                 &format!("name: {name}\npublish_to: none\n"),
             )?;
             write(
                 &fixture,
-                &format!("{root}/lib/generated/cmp.dart"),
+                &format!("{name}/lib/generated/cmp.dart"),
                 supertype,
             )?;
         } else {
