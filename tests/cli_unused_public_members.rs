@@ -1306,6 +1306,56 @@ fn annotated_extension_on_types_are_not_unread_outside_types()
 }
 
 #[test]
+fn monorepo_root_reads_each_packages_own_config() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    write(
+        &fixture,
+        "apps/app/pubspec.yaml",
+        "name: app\npublish_to: none\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    )?;
+    write(
+        &fixture,
+        "apps/app/lib/main.dart",
+        "import 'package:flutter/widgets.dart';\n\nclass Item extends StatelessWidget {\n  Widget build(BuildContext context) => this;\n\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Item());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "apps/app/.dart_tool/package_config.json",
+        &format!(
+            "{{\"configVersion\":2,\"generatorVersion\":\"3.14.0\",\"flutterRoot\":\"file://{}/flutter\",\"packages\":[{packages},{{\"name\":\"app\",\"rootUri\":\"../\",\"packageUri\":\"lib/\"}}]}}",
+            toolchain.path().display()
+        ),
+    )?;
+    write(
+        &fixture,
+        "apps/pure/pubspec.yaml",
+        "name: pure\npublish_to: none\n",
+    )?;
+    write(
+        &fixture,
+        "apps/pure/lib/main.dart",
+        "class Other extends Missing {\n  int used() => 1;\n}\n\nvoid main() {\n  print(Other().used());\n}\n",
+    )?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(found_members(&json), ["Item.spare"]);
+    assert_eq!(json["summary"]["outside_types_unread"], 1);
+    let commands = json["next_steps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|step| step["id"] == "read-outside-types")
+        .filter_map(|step| step["command"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(commands, ["cd apps/pure && dart pub get"]);
+
+    Ok(())
+}
+
+#[test]
 fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(

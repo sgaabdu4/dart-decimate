@@ -57,7 +57,7 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
         });
     }
 
-    steps.extend(read_outside_types_step(root, results));
+    steps.extend(read_outside_types_steps(root, results));
 
     if let Some(clone) = results
         .duplicates
@@ -104,17 +104,31 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
     steps
 }
 
-fn read_outside_types_step(root: &Path, results: &AnalysisResults) -> Option<NextStep> {
-    results
+fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep> {
+    let Some(report) = results
         .symbols
         .as_ref()
-        .filter(|report| report.outside_types_unread > 0)?;
-    let flutter = std::fs::read_to_string(root.join("pubspec.yaml"))
-        .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
-    Some(NextStep {
-        id: "read-outside-types".to_owned(),
-        command: if flutter { "flutter pub get" } else { "dart pub get" }.to_owned(),
-        reason: "Write the package config so SDK and package supertypes can be read, then class members that depend on them are checked"
-            .to_owned(),
-    })
+        .filter(|report| report.outside_types_unread > 0)
+    else {
+        return Vec::new();
+    };
+    report
+        .outside_unread_folders
+        .iter()
+        .map(|folder| {
+            let flutter = std::fs::read_to_string(root.join(folder).join("pubspec.yaml"))
+                .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
+            let tool = if flutter { "flutter pub get" } else { "dart pub get" };
+            NextStep {
+                id: "read-outside-types".to_owned(),
+                command: if folder.is_empty() {
+                    tool.to_owned()
+                } else {
+                    format!("cd {folder} && {tool}")
+                },
+                reason: "Write the package config so SDK and package supertypes can be read, then class members that depend on them are checked"
+                    .to_owned(),
+            }
+        })
+        .collect()
 }
