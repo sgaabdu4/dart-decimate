@@ -72,28 +72,38 @@ function releaseAssetPath() {
   return assetPath;
 }
 
-/** @param {string | undefined} gitUrl @param {unknown[]} references */
-function assertGitSource(gitUrl, references) {
+/** @param {string | undefined} gitUrl @param {unknown[]} references @returns {string} */
+function requireGitSource(gitUrl, references) {
   if (!gitUrl || references.length !== 1) {
     throw new Error(
       "DART_DECIMATE_CARGO_GIT_URL and exactly one of DART_DECIMATE_CARGO_TAG or DART_DECIMATE_CARGO_REV must be set together",
     );
   }
+  return gitUrl;
 }
 
 /** @param {string} cargoRoot */
 function cargoSourceArgs(cargoRoot) {
   const gitUrl = process.env.DART_DECIMATE_CARGO_GIT_URL;
-  const references = [
+  /** @type {[string, string | undefined][]} */
+  const candidates = [
     ["--tag", process.env.DART_DECIMATE_CARGO_TAG],
     ["--rev", process.env.DART_DECIMATE_CARGO_REV],
-  ].filter(([, value]) => value);
+  ];
+  const references = candidates.flatMap(([flag, value]) =>
+    value ? [[flag, value]] : [],
+  );
   const args = ["install", "--locked", "--force", "--root", cargoRoot];
   if (!gitUrl && references.length === 0) {
     return [...args, "--path", root];
   }
-  assertGitSource(gitUrl, references);
-  return [...args, "--git", gitUrl, ...references[0], "dart-decimate"];
+  return [
+    ...args,
+    "--git",
+    requireGitSource(gitUrl, references),
+    ...references[0],
+    "dart-decimate",
+  ];
 }
 
 function installWithCargo() {
