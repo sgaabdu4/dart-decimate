@@ -124,6 +124,8 @@ fn unused_class_member_explanation_states_its_limits() -> Result<(), Box<dyn std
     assert!(text.contains("reads the SDK and package sources"), "{text}");
     assert!(text.contains("outside_types_unread"), "{text}");
     assert!(text.contains("pub get"), "{text}");
+    assert!(text.contains("dart run build_runner build"), "{text}");
+    assert!(text.contains("create or fix the import"), "{text}");
     assert!(
         !text.contains("does not read SDK or package sources"),
         "{text}"
