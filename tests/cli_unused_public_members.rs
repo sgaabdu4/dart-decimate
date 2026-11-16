@@ -1545,6 +1545,52 @@ fn supertypes_declared_in_ignored_project_files_are_read_from_those_files()
 }
 
 #[test]
+fn project_classes_reached_through_ignored_files_keep_their_own_hierarchy()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            "class Model implements Comparable<Model> {\n  int compareTo(Model other) => 0;\n\n  int modelSpare() => 1;\n}\n",
+            "Model.compareTo",
+        ),
+        (
+            "abstract class Base {\n  int hook();\n}\n\nclass Model extends Base {\n  int hook() => 0;\n\n  int modelSpare() => 1;\n}\n",
+            "Model.hook",
+        ),
+    ];
+    for (model, protected) in cases {
+        let fixture = tempfile::tempdir()?;
+        let toolchain = tempfile::tempdir()?;
+        let packages = write_toolchain(&toolchain, "3.14.0")?;
+        write(
+            &fixture,
+            ".dart-decimaterc",
+            "{\"ignorePatterns\": [\"**/generated/**\"]}\n",
+        )?;
+        write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+        write(&fixture, "lib/model.dart", model)?;
+        write(
+            &fixture,
+            "lib/generated/gen.dart",
+            "import '../model.dart';\n\nclass GenModel extends Model {}\n",
+        )?;
+        write(
+            &fixture,
+            "lib/main.dart",
+            "import 'generated/gen.dart';\nimport 'model.dart';\n\nclass Impl extends GenModel {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n  print(Model());\n}\n",
+        )?;
+        write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        let found = found_members(&json);
+        assert!(found.contains(&"Model.modelSpare".to_owned()), "{found:?}");
+        assert!(!found.contains(&protected.to_owned()), "{found:?}");
+    }
+
+    Ok(())
+}
+
+#[test]
 fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(

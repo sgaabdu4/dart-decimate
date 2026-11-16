@@ -721,6 +721,9 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     }
     let mut outside_keys = BTreeSet::new();
     for (key, class) in outsides.values_mut().flat_map(OutsideTypes::expand) {
+        if scanned.contains(&key.path) {
+            continue;
+        }
         outside_keys.insert(key.clone());
         member_names.insert(
             key.clone(),
