@@ -47,7 +47,7 @@ pub struct SymbolReport {
     pub outside_types_unread: usize,
     /// Package folders, relative to the scan root, whose package config could not give those sources.
     #[serde(default, skip_serializing)]
-    pub outside_unread_folders: Vec<String>,
+    pub outside_unread_folders: Vec<(String, bool)>,
     /// Local imports whose file is missing, as package folder and file relative to that folder.
     #[serde(default, skip_serializing)]
     pub outside_missing_imports: Vec<MissingFile>,
@@ -326,6 +326,7 @@ fn unused_members(
     });
 
     let skips = &public_members.interface_skips;
+    let base = nearest_package(&project.root.join("pubspec.yaml"), &project.root);
     let folders = skips
         .unread_packages
         .iter()
@@ -337,7 +338,11 @@ fn unused_members(
             let config = find_package_config(package);
             !has_missing || config.is_none_or(|config| skips.config_gaps.contains(&config))
         })
-        .map(|package| package_folder(&project.root, package))
+        .map(|package| {
+            let flutter = std::fs::read_to_string(package.join("pubspec.yaml"))
+                .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
+            (package_folder(&base, package), flutter)
+        })
         .collect();
     let missing = skips
         .missing_imports
@@ -345,7 +350,7 @@ fn unused_members(
         .map(|(file, part)| {
             let folder = nearest_package(file, &project.root);
             MissingFile {
-                folder: package_folder(&project.root, &folder),
+                folder: package_folder(&base, &folder),
                 file: package_folder(&folder, file),
                 part: *part,
             }
@@ -360,13 +365,66 @@ fn unused_members(
 
 #[derive(Default)]
 struct UnreadOutside {
-    folders: Vec<String>,
+    folders: Vec<(String, bool)>,
     missing: Vec<MissingFile>,
+}
+
+fn reachable_missing_files(
+    project: &ScannedProject,
+    unread_libraries: &BTreeSet<PathBuf>,
+) -> BTreeMap<PathBuf, bool> {
+    let scanned = project
+        .files
+        .iter()
+        .map(|file| (normalize_against(&project.root, &file.path), file))
+        .collect::<BTreeMap<_, _>>();
+    let mut missing = BTreeMap::new();
+    let mut visited = BTreeSet::new();
+    let mut pending = unread_libraries.iter().cloned().collect::<Vec<_>>();
+    while let Some(path) = pending.pop() {
+        if !visited.insert(path.clone()) {
+            continue;
+        }
+        let parsed;
+        let file = if let Some(file) = scanned.get(&path) {
+            *file
+        } else if let Some(file) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|source| crate::extract::extract_dart_outline(&path, &source).ok())
+        {
+            parsed = file;
+            &parsed
+        } else {
+            continue;
+        };
+        let directives = file
+            .imports
+            .iter()
+            .map(|import| (&import.uri, false))
+            .chain(file.exports.iter().map(|export| (&export.uri, false)))
+            .chain(file.parts.iter().map(|part| (&part.uri, true)));
+        for (uri, part) in directives {
+            if uri.starts_with("dart:") {
+                continue;
+            }
+            let Some((target, local)) = project.graph.resolve_specifier(&path, uri) else {
+                continue;
+            };
+            if !local {
+                continue;
+            }
+            if target.is_file() {
+                pending.push(target);
+            } else {
+                missing.insert(target, part);
+            }
+        }
+    }
+    missing
 }
 
 fn nearest_package(file: &Path, fallback: &Path) -> PathBuf {
     file.ancestors()
-        .skip(1)
         .find(|folder| folder.join("pubspec.yaml").is_file())
         .map_or_else(|| fallback.to_path_buf(), Path::to_path_buf)
 }
@@ -547,34 +605,17 @@ struct InterfaceSkips {
 
 struct PackageRoots {
     root: PathBuf,
-    folders: BTreeSet<PathBuf>,
 }
 
 impl PackageRoots {
     fn new(project: &ScannedProject) -> Self {
-        let mut folders = BTreeSet::new();
-        let mut checked = BTreeSet::new();
-        for file in &project.files {
-            let path = normalize_against(&project.root, &file.path);
-            for folder in path.ancestors().skip(1) {
-                if !folder.starts_with(&project.root) || !checked.insert(folder.to_path_buf()) {
-                    break;
-                }
-                if folder.join("pubspec.yaml").is_file() {
-                    folders.insert(folder.to_path_buf());
-                }
-            }
-        }
         Self {
             root: project.root.clone(),
-            folders,
         }
     }
 
     fn of(&self, path: &Path) -> PathBuf {
-        path.ancestors()
-            .find(|folder| self.folders.contains(*folder))
-            .map_or_else(|| self.root.clone(), Path::to_path_buf)
+        nearest_package(path, &self.root)
     }
 }
 
@@ -592,7 +633,6 @@ struct Hierarchy {
     classes: BTreeMap<ClassKey, HierarchyClass>,
     member_names: BTreeMap<ClassKey, DeclaredNames>,
     outside: BTreeSet<ClassKey>,
-    missing_imports: BTreeMap<PathBuf, bool>,
     config_gaps: BTreeSet<PathBuf>,
 }
 
@@ -732,7 +772,6 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let scanned = scanned_files(project);
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
-    let mut unread_libraries = BTreeSet::<PathBuf>::new();
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
         for member in &file.members {
@@ -771,11 +810,7 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
                 path: path.clone(),
                 name: class.owner.clone(),
             };
-            let linked = links.hierarchy_class(class);
-            if !linked.unread_extended.is_empty() || !linked.unread_interface.is_empty() {
-                unread_libraries.insert(library.clone());
-            }
-            classes.insert(key, linked);
+            classes.insert(key, links.hierarchy_class(class));
         }
     }
     let mut outside_keys = BTreeSet::new();
@@ -802,44 +837,21 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             },
         );
     }
-    let (missing_imports, config_gaps) = outside_causes(project, &outsides, &unread_libraries);
+    let config_gaps = config_gaps(&outsides);
     Hierarchy {
         classes,
         member_names,
         outside: outside_keys,
-        missing_imports,
         config_gaps,
     }
 }
 
-fn outside_causes(
-    project: &ScannedProject,
-    outsides: &BTreeMap<PathBuf, OutsideTypes>,
-    unread_libraries: &BTreeSet<PathBuf>,
-) -> (BTreeMap<PathBuf, bool>, BTreeSet<PathBuf>) {
-    let mut missing = outsides
-        .values()
-        .flat_map(OutsideTypes::missing_imports)
-        .map(|path| (path, false))
-        .collect::<BTreeMap<_, _>>();
-    for file in &project.files {
-        let base = normalize_against(&project.root, &file.path);
-        if !unread_libraries.contains(&base) {
-            continue;
-        }
-        for part in file.parts.iter().filter(|part| !part.uri.contains(':')) {
-            let path = crate::graph::normalize_path(&base.with_file_name(&part.uri));
-            if !path.is_file() {
-                missing.insert(path, true);
-            }
-        }
-    }
-    let gaps = outsides
+fn config_gaps(outsides: &BTreeMap<PathBuf, OutsideTypes>) -> BTreeSet<PathBuf> {
+    outsides
         .iter()
         .filter(|(_, outside)| outside.has_package_config_gaps())
         .map(|(config, _)| config.clone())
-        .collect();
-    (missing, gaps)
+        .collect()
 }
 
 fn reached_interfaces(
@@ -914,13 +926,12 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
         classes,
         member_names,
         outside,
-        missing_imports,
         config_gaps,
     } = class_hierarchy(project, index);
     let checkable = checkable_classes(index);
     let roots = PackageRoots::new(project);
+    let mut unread_libraries = BTreeSet::<PathBuf>::new();
     let mut skips = InterfaceSkips {
-        missing_imports,
         config_gaps,
         ..InterfaceSkips::default()
     };
@@ -950,6 +961,7 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             {
                 skips.unread_names.extend(open);
                 skips.unread_packages.insert(roots.of(&class_key.path));
+                unread_libraries.insert(index.library_path(&class_key.path).to_path_buf());
             }
             skips.whole_classes.extend(ancestors);
             continue;
@@ -993,10 +1005,12 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             if checkable.contains(key) {
                 skips.unread_names.extend(unread);
                 skips.unread_packages.insert(roots.of(&key.path));
+                unread_libraries.insert(index.library_path(&key.path).to_path_buf());
             }
             skips.whole_classes.insert(key.clone());
         }
     }
+    skips.missing_imports = reachable_missing_files(project, &unread_libraries);
     skips
 }
 

@@ -57,7 +57,7 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
         });
     }
 
-    steps.extend(read_outside_types_steps(root, results));
+    steps.extend(read_outside_types_steps(results));
 
     if let Some(clone) = results
         .duplicates
@@ -104,7 +104,7 @@ pub(super) fn next_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep
     steps
 }
 
-fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextStep> {
+fn read_outside_types_steps(results: &AnalysisResults) -> Vec<NextStep> {
     let Some(report) = results
         .symbols
         .as_ref()
@@ -117,10 +117,8 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
         report
         .outside_unread_folders
         .iter()
-        .map(|folder| {
-            let flutter = std::fs::read_to_string(root.join(folder).join("pubspec.yaml"))
-                .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
-            let tool = if flutter { "flutter pub get" } else { "dart pub get" };
+        .map(|(folder, flutter)| {
+            let tool = if *flutter { "flutter pub get" } else { "dart pub get" };
             NextStep {
                 id: "read-outside-types".to_owned(),
                 command: if folder.is_empty() {
@@ -180,9 +178,11 @@ fn missing_import_steps(missing: &[crate::MissingFile]) -> Vec<NextStep> {
                     } else {
                         format!("cd {} && dart run build_runner build", shell_quote(folder))
                     },
-                    reason: format!(
-                        "{reasons}; generate them so the types they declare can be read"
-                    ),
+                    reason: if files.len() == 1 {
+                        format!("{reasons}; generate it so the types it declares can be read")
+                    } else {
+                        format!("{reasons}; generate them so the types they declare can be read")
+                    },
                 }
             } else {
                 let names = files

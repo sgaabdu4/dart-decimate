@@ -106,12 +106,6 @@ impl OutsideTypes {
             .is_some_and(|reader| reader.sources.gaps() > 0)
     }
 
-    pub(crate) fn missing_imports(&self) -> BTreeSet<PathBuf> {
-        self.reader
-            .as_ref()
-            .map_or_else(BTreeSet::new, |reader| reader.sources.missing_imports())
-    }
-
     pub(crate) fn expand(&mut self) -> BTreeMap<ClassKey, OutsideClass> {
         let mut classes = BTreeMap::new();
         while let Some(key) = self.pending.pop() {
