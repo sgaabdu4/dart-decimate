@@ -1306,6 +1306,41 @@ fn annotated_extension_on_types_are_not_unread_outside_types()
 }
 
 #[test]
+fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\npublish_to: none\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "class Other extends Missing {\n  int used() => 1;\n}\n\nvoid main() {\n  print(Other().used());\n}\n",
+    )?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "human",
+        ],
+        &mut output,
+    )?;
+
+    let text = String::from_utf8(output)?;
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("No findings"), "{text}");
+    assert!(text.contains("Next Steps"), "{text}");
+    assert!(text.contains("flutter pub get"), "{text}");
+
+    Ok(())
+}
+
+#[test]
 fn bin_class_members_report() -> Result<(), Box<dyn std::error::Error>> {
     let tool = "class Tool {\n  int used() => 1;\n\n  int spare() => 2;\n\n  int _hidden() => 3;\n}\n\nenum Mode { fast, slow }\n\nvoid main() {\n  print(Tool().used());\n  print(Mode.fast);\n}\n";
     let cases = [

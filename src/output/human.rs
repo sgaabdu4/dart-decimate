@@ -114,6 +114,7 @@ fn render_human_report_with_style(report: &JsonReport, style: Style) -> String {
             };
             let _ = writeln!(rendered, "\n{message}");
         }
+        render_next_steps(&mut rendered, report, style);
         return rendered;
     }
 
@@ -122,6 +123,12 @@ fn render_human_report_with_style(report: &JsonReport, style: Style) -> String {
         render_finding(&mut rendered, index + 1, finding, style);
     }
 
+    render_next_steps(&mut rendered, report, style);
+
+    rendered
+}
+
+fn render_next_steps(rendered: &mut String, report: &JsonReport, style: Style) {
     if !report.next_steps.is_empty() {
         let _ = writeln!(rendered, "\n{}", style.bold("Next Steps"));
         for (index, step) in report.next_steps.iter().enumerate() {
@@ -136,8 +143,6 @@ fn render_human_report_with_style(report: &JsonReport, style: Style) -> String {
             let _ = writeln!(rendered, "     Why: {reason}");
         }
     }
-
-    rendered
 }
 
 fn render_semantic_evidence(rendered: &mut String, report: &JsonReport, style: Style) {
