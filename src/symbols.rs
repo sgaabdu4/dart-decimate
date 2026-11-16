@@ -48,6 +48,9 @@ pub struct SymbolReport {
     /// Package folders, relative to the scan root, whose package config could not give those sources.
     #[serde(default, skip_serializing)]
     pub outside_unread_folders: Vec<String>,
+    /// Local imports whose file is missing, as package folder and file relative to that folder.
+    #[serde(default, skip_serializing)]
+    pub outside_missing_imports: Vec<(String, String)>,
 }
 
 /// Options for symbol-level dead-code analysis.
@@ -161,14 +164,14 @@ pub fn analyze_symbols_with_options(
     } else {
         Vec::new()
     };
-    let (unused_exports, (unused_members, outside_types_unread, outside_unread_folders)) =
+    let (unused_exports, (unused_members, outside_types_unread, outside_unread)) =
         if let Some(dead_code) = dead_code {
             (
                 unused_exports(project, dead_code, &index, options),
                 unused_members(project, dead_code, &index),
             )
         } else {
-            (Vec::new(), (Vec::new(), 0, Vec::new()))
+            (Vec::new(), (Vec::new(), 0, UnreadOutside::default()))
         };
     let semantic = semantic_report(
         project,
@@ -186,7 +189,8 @@ pub fn analyze_symbols_with_options(
         duplicate_exports,
         semantic,
         outside_types_unread,
-        outside_unread_folders,
+        outside_unread_folders: outside_unread.folders,
+        outside_missing_imports: outside_unread.missing,
     }
 }
 
@@ -258,7 +262,7 @@ fn unused_members(
     project: &ScannedProject,
     dead_code: &DeadCodeReport,
     index: &SymbolIndex,
-) -> (Vec<UnusedMember>, usize, Vec<String>) {
+) -> (Vec<UnusedMember>, usize, UnreadOutside) {
     let reachable_files = dead_code
         .reachable_files
         .iter()
@@ -316,7 +320,29 @@ fn unused_members(
         .iter()
         .map(|package| package_folder(&project.root, package))
         .collect();
-    (unused_members, skips.unread_names.len(), folders)
+    let roots = PackageRoots::new(project);
+    let missing = skips
+        .missing_imports
+        .iter()
+        .map(|file| {
+            let folder = roots.of(file);
+            (
+                package_folder(&project.root, &folder),
+                package_folder(&folder, file),
+            )
+        })
+        .collect();
+    (
+        unused_members,
+        skips.unread_names.len(),
+        UnreadOutside { folders, missing },
+    )
+}
+
+#[derive(Default)]
+struct UnreadOutside {
+    folders: Vec<String>,
+    missing: Vec<(String, String)>,
 }
 
 fn package_folder(root: &Path, package: &Path) -> String {
@@ -489,6 +515,7 @@ struct InterfaceSkips {
     named_members: BTreeMap<ClassKey, BTreeSet<String>>,
     unread_names: BTreeSet<String>,
     unread_packages: BTreeSet<PathBuf>,
+    missing_imports: BTreeSet<PathBuf>,
 }
 
 struct PackageRoots {
@@ -538,6 +565,7 @@ struct Hierarchy {
     classes: BTreeMap<ClassKey, HierarchyClass>,
     member_names: BTreeMap<ClassKey, DeclaredNames>,
     outside: BTreeSet<ClassKey>,
+    missing_imports: BTreeSet<PathBuf>,
 }
 
 struct LinkResolver<'a> {
@@ -644,6 +672,22 @@ fn scanned_files(project: &ScannedProject) -> std::rc::Rc<BTreeSet<PathBuf>> {
     )
 }
 
+fn directives_by_path<T>(
+    project: &ScannedProject,
+    directives: impl Fn(&crate::DartFile) -> &[T],
+) -> BTreeMap<PathBuf, &[T]> {
+    project
+        .files
+        .iter()
+        .map(|file| {
+            (
+                normalize_against(&project.root, &file.path),
+                directives(file),
+            )
+        })
+        .collect()
+}
+
 fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let resolver = DeclarationResolver::new(
         project,
@@ -652,26 +696,8 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             name: indexed.declaration.name.clone(),
         }),
     );
-    let imports_by_path = project
-        .files
-        .iter()
-        .map(|file| {
-            (
-                normalize_against(&project.root, &file.path),
-                file.imports.as_slice(),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    let exports_by_path = project
-        .files
-        .iter()
-        .map(|file| {
-            (
-                normalize_against(&project.root, &file.path),
-                file.exports.as_slice(),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    let imports_by_path = directives_by_path(project, |file| file.imports.as_slice());
+    let exports_by_path = directives_by_path(project, |file| file.exports.as_slice());
     let roots = PackageRoots::new(project);
     let mut outsides = BTreeMap::<PathBuf, OutsideTypes>::new();
     let loader = SharedLoader::default();
@@ -747,6 +773,10 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
         classes,
         member_names,
         outside: outside_keys,
+        missing_imports: outsides
+            .values()
+            .flat_map(OutsideTypes::missing_imports)
+            .collect(),
     }
 }
 
@@ -805,6 +835,7 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
         classes,
         member_names,
         outside,
+        missing_imports,
     } = class_hierarchy(project, index);
     let checkable = index
         .members
@@ -821,7 +852,10 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
         })
         .collect::<BTreeSet<_>>();
     let roots = PackageRoots::new(project);
-    let mut skips = InterfaceSkips::default();
+    let mut skips = InterfaceSkips {
+        missing_imports,
+        ..InterfaceSkips::default()
+    };
     for (class_key, class) in &classes {
         let (reached, open) = reached_interfaces(class, &classes);
         if reached.is_empty() && open.is_empty() {
