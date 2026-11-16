@@ -319,7 +319,7 @@ Current implemented parity:
   methods, operators, and enum constants
 - conservative `dart-decimate/unused-enum-member` and
   `dart-decimate/unused-class-member` findings for reachable Dart libraries,
-  including unused public members of plain classes in `lib/` of each package,
+  including unused public members of plain classes and mixins in `lib/` of each package,
   also from a workspace root (annotated members, classes with supertypes,
   generated-part libraries, members of classes that a class extends or mixes
   in when it has an `implements` or `with` clause (if every type it implements
