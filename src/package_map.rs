@@ -13,6 +13,13 @@ pub(crate) struct PackageMap {
     by_name: BTreeMap<String, Vec<PackageRoot>>,
     by_owner_dependency: BTreeMap<PathBuf, BTreeMap<String, PackageRoot>>,
     uses_package_config: bool,
+    toolchain: Option<Toolchain>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Toolchain {
+    pub(crate) generator_version: Option<String>,
+    pub(crate) flutter_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +52,18 @@ impl PackageMap {
         packages.discover_pubspec(root, &mut visited)?;
         packages.discover_nested_pubspecs(root, &mut visited)?;
         Ok(packages)
+    }
+
+    pub(crate) fn toolchain(&self) -> Option<&Toolchain> {
+        self.toolchain.as_ref()
+    }
+
+    pub(crate) fn package_path(&self, name: &str) -> Option<&Path> {
+        self.by_name
+            .get(name)?
+            .iter()
+            .find(|root| root.from_package_config)
+            .map(|root| root.package_path.as_path())
     }
 
     pub(crate) fn names(&self) -> Vec<&str> {
@@ -148,6 +167,13 @@ impl PackageMap {
             by_name,
             by_owner_dependency: BTreeMap::new(),
             uses_package_config: true,
+            toolchain: Some(Toolchain {
+                generator_version: config.generator_version.clone(),
+                flutter_root: config
+                    .flutter_root
+                    .as_deref()
+                    .and_then(|uri| resolve_config_uri(config_dir, uri)),
+            }),
         }
     }
 
@@ -274,9 +300,12 @@ fn is_optional_pubspec_error(error: &GraphError) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PackageConfig {
     #[serde(default)]
     packages: Vec<PackageConfigPackage>,
+    generator_version: Option<String>,
+    flutter_root: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
