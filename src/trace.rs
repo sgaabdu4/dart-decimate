@@ -338,7 +338,7 @@ pub fn trace_dependency(
     project: &ScannedProject,
     dependency: &str,
 ) -> Result<DependencyTraceReport, DependencyHygieneError> {
-    let packages = local_pub_packages(&project.root)?;
+    let packages = local_pub_packages(&project.root, &project.ignore_patterns)?;
     let mut importing_files = dependency_directives(project, &packages, dependency);
     importing_files.sort_by(|left, right| {
         (
@@ -357,10 +357,11 @@ pub fn trace_dependency(
             ))
     });
 
-    let declared_in = declared_package_dependencies(&project.root, dependency)?
-        .iter()
-        .map(|declaration| trace_pubspec_dependency(&project.root, declaration))
-        .collect::<Vec<_>>();
+    let declared_in =
+        declared_package_dependencies(&project.root, &project.ignore_patterns, dependency)?
+            .iter()
+            .map(|declaration| trace_pubspec_dependency(&project.root, declaration))
+            .collect::<Vec<_>>();
     let declared = !declared_in.is_empty();
     let total_import_count = importing_files.len();
     let used_in_scripts = packages.iter().any(|package| {

@@ -95,7 +95,7 @@ fn run_list_with_options<W: Write>(
         conditional_environment: conditional_environment(subcommand),
     };
     let project = scan_project_with_options(&root, &scan_options)?;
-    let mut packages = local_pub_packages(&project.root)?;
+    let mut packages = local_pub_packages(&project.root, &config.ignore_patterns)?;
     let project = scoped_project(subcommand, project, &mut packages, production)?;
     let entries = entry_points_for_check(
         &project,
@@ -224,6 +224,7 @@ fn scoped_project(
             .filter(|file| scope.contains(&file.path))
             .collect(),
         graph: project.graph,
+        ignore_patterns: project.ignore_patterns,
     })
 }
 
