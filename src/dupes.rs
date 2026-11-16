@@ -102,8 +102,6 @@ impl DuplicationThreshold {
     /// Default threshold: any duplicated lines fail the duplication gate.
     pub const ZERO: Self = Self(0);
 
-    /// Build a threshold from a human percentage in the inclusive range `0..=100`.
-    ///
     /// # Errors
     ///
     /// Returns an error when the value is not finite or is outside `0..=100`.
@@ -333,8 +331,6 @@ struct CloneWindow {
     token_count: usize,
 }
 
-/// Detect duplicated Dart code blocks that meet `min_lines` and `min_tokens`.
-///
 /// # Errors
 ///
 /// Returns [`DuplicateCodeError`] if a scanned Dart file cannot be read.

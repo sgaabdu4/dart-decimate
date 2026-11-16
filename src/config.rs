@@ -211,12 +211,9 @@ pub enum ConfigError {
     Rule(#[from] RuleError),
 }
 
-/// Load Dart Decimate config discovered from `root`, or from an explicit config path.
-///
 /// # Errors
 ///
-/// Returns [`ConfigError`] when an explicit config is missing, unreadable,
-/// malformed, or contains an invalid boundary rule.
+/// Returns [`ConfigError`] when an explicit config is missing, unreadable, malformed, or has an invalid boundary rule.
 pub fn load_dart_decimate_config(
     root: impl AsRef<Path>,
     explicit: Option<&Path>,

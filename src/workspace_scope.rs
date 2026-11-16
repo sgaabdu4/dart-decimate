@@ -26,8 +26,6 @@ pub enum WorkspaceScopeError {
     },
 }
 
-/// Return root-normalized files of the local pub packages the selectors pick.
-///
 /// # Errors
 ///
 /// Returns [`WorkspaceScopeError`] for invalid glob syntax or empty selection.
