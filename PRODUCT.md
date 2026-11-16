@@ -329,7 +329,11 @@ Current implemented parity:
   version. A class whose supertype cannot be read keeps the whole-class skip:
   the name is unresolved or ambiguous, the source is missing, or the file does
   not parse. The summary then counts `outside_types_unread` and suggests
-  `dart pub get` or `flutter pub get`; the verdict and exit code do not change;
+  `dart pub get` or `flutter pub get` in the folder of the package that owns the
+  file. A missing local import or part file gets its own step: `dart run
+  build_runner build` for a generated suffix, otherwise "create or fix the
+  import". Both steps show when both causes exist. The verdict and exit code do
+  not change;
   a `typedef Name = Type;` counts as its target type. An application exports no
   public API, so its `lib/` classes are checked too. An application has
   `publish_to: none` with `lib/main.dart` or a `bin/` script, or a Flutter
