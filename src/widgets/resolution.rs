@@ -19,6 +19,13 @@ pub(crate) enum Resolution {
 }
 
 #[derive(Debug)]
+pub(crate) struct ExportReach {
+    pub(crate) prefix: Option<String>,
+    pub(crate) combinators: Vec<DartCombinator>,
+    pub(crate) file: PathBuf,
+}
+
+#[derive(Debug)]
 pub(crate) struct DeclarationResolver {
     declarations: BTreeMap<PathBuf, BTreeSet<String>>,
     imports: BTreeMap<PathBuf, Vec<ResolvedDependency>>,
@@ -144,6 +151,34 @@ impl DeclarationResolver {
                 .filter(|dependency| visible(first, &dependency.visibility)),
             first,
         )
+    }
+
+    pub(crate) fn export_reach(&self, from: &Path) -> Vec<ExportReach> {
+        let library = self.library_path(from);
+        let mut reach = Vec::new();
+        for import in self.imports.get(&library).into_iter().flatten() {
+            let mut visited = BTreeSet::new();
+            let mut pending = vec![(
+                self.library_path(&import.to_path),
+                import.visibility.combinators.clone(),
+            )];
+            while let Some((file, combinators)) = pending.pop() {
+                if !visited.insert(file.clone()) {
+                    continue;
+                }
+                for export in self.exports.get(&file).into_iter().flatten() {
+                    let mut hop = combinators.clone();
+                    hop.extend(export.visibility.combinators.iter().cloned());
+                    pending.push((self.library_path(&export.to_path), hop));
+                }
+                reach.push(ExportReach {
+                    prefix: import.visibility.prefix.clone(),
+                    combinators,
+                    file,
+                });
+            }
+        }
+        reach
     }
 
     fn imported_classes<'a>(

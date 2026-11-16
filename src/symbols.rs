@@ -491,9 +491,47 @@ struct LinkResolver<'a> {
     path: &'a Path,
     library: &'a Path,
     imports: &'a [crate::DartImport],
+    exports: &'a BTreeMap<PathBuf, &'a [crate::DartExport]>,
+    reached: Option<Vec<crate::DartImport>>,
 }
 
 impl LinkResolver<'_> {
+    fn imports_with_project_exports(&mut self) -> &[crate::DartImport] {
+        self.reached.get_or_insert_with(|| {
+            let mut directives = BTreeMap::<(PathBuf, usize, usize), usize>::new();
+            let mut all = self.imports.to_vec();
+            for reach in self.resolver.export_reach(self.path) {
+                for export in self.exports.get(&reach.file).copied().into_iter().flatten() {
+                    if !(export.uri.starts_with("package:") || export.uri.starts_with("dart:")) {
+                        continue;
+                    }
+                    let next = directives.len();
+                    let serial = *directives
+                        .entry((
+                            reach.file.clone(),
+                            export.location.line,
+                            export.location.column,
+                        ))
+                        .or_insert(next);
+                    let mut combinators = reach.combinators.clone();
+                    combinators.extend(export.combinators.iter().cloned());
+                    all.push(crate::DartImport {
+                        uri: export.uri.clone(),
+                        condition: export.condition.clone(),
+                        prefix: reach.prefix.clone(),
+                        deferred: false,
+                        combinators,
+                        location: crate::Location {
+                            line: usize::MAX - serial,
+                            column: 0,
+                        },
+                    });
+                }
+            }
+            all
+        })
+    }
+
     fn resolve_all(&mut self, names: &[String]) -> (BTreeSet<ClassKey>, BTreeSet<String>) {
         let mut found = BTreeSet::new();
         let mut unread = BTreeSet::new();
@@ -501,7 +539,8 @@ impl LinkResolver<'_> {
             match self.resolver.resolve_detailed(self.path, name) {
                 Resolution::Found(classes) if !classes.is_empty() => found.extend(classes),
                 Resolution::Absent => {
-                    match self.outside.link(self.library, self.imports, name, false) {
+                    let imports = self.imports_with_project_exports().to_vec();
+                    match self.outside.link(self.library, &imports, name, false) {
                         Some(class) => {
                             found.insert(class);
                         }
@@ -558,6 +597,16 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             )
         })
         .collect::<BTreeMap<_, _>>();
+    let exports_by_path = project
+        .files
+        .iter()
+        .map(|file| {
+            (
+                normalize_against(&project.root, &file.path),
+                file.exports.as_slice(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut outside = OutsideTypes::new(&project.root);
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
@@ -582,6 +631,8 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             path: &path,
             library: &library,
             imports: imports_by_path.get(&library).copied().unwrap_or_default(),
+            exports: &exports_by_path,
+            reached: None,
         };
         for class in &file.class_supertypes {
             let key = ClassKey {
