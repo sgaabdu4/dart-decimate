@@ -738,14 +738,16 @@ fn strict_check_checks_the_members_of_classes_declared_in_entry_files()
     let app = "name: app\npublish_to: none\n";
     let package = "name: pkg\nversion: 1.0.0\nenvironment:\n  sdk: ^3.8.0\n";
     let plain = "class Plain {\n  void used() {}\n\n  void spare() {}\n}\n\nvoid main() {\n  Plain().used();\n}\n";
+    let widget = "class MyApp {\n  void build() {}\n}\n\nvoid main() {\n  print(MyApp());\n}\n";
     let cases = [
-        (app, "lib/main.dart", vec!["Plain.spare"]),
-        (package, "lib/src/runner.dart", vec![]),
+        (app, "lib/main.dart", plain, vec!["Plain.spare"]),
+        (app, "lib/main.dart", widget, vec![]),
+        (package, "lib/src/runner.dart", plain, vec![]),
     ];
-    for (pubspec, path, expected) in cases {
+    for (pubspec, path, source, expected) in cases {
         let fixture = tempfile::tempdir()?;
         write(&fixture, "pubspec.yaml", pubspec)?;
-        write(&fixture, path, plain)?;
+        write(&fixture, path, source)?;
 
         let (_, json) = strict_check_with(&fixture, &["--entry", path])?;
         let found = member_messages(&json)
@@ -753,7 +755,7 @@ fn strict_check_checks_the_members_of_classes_declared_in_entry_files()
             .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
             .collect::<Vec<_>>();
 
-        assert_eq!(found, expected, "{path}");
+        assert_eq!(found, expected, "{path}: {source}");
     }
 
     Ok(())
