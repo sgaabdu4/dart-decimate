@@ -1,10 +1,10 @@
 # Read outside supertypes for unused class members, and check application bin/ classes
 
-Status: Draft
+Status: Ready
 
 ## Outcome + scope
 
-`unused-class-member` reads the members that SDK and package supertypes declare and protects only those names, and checks application `bin/` classes like `lib/` classes. Non-goals: the own members of classes with supertype clauses (Blocker 1), the widget rules, semantic type analysis.
+`unused-class-member` reads the members that SDK and package supertypes declare and protects only those names. Classes with `extends`, `implements`, `with` or `on` clauses get their own members checked, with the names their supertypes declare protected. `bin/` classes of every package are checked like application `lib/` classes. The `flutter` SDK dependency of a Flutter application counts as runtime. Non-goals: the widget rules' base name list (`is_flutter_framework_base`), semantic type analysis.
 
 ## Repository context
 
@@ -32,44 +32,41 @@ Reuse: the parser, directive extraction and `extract/members.rs` stay as they ar
 
 Same cause: Earlier fixes of project-type skips helped: `7d1a7c4` (explicit `Object`), `2bc7153`, `eb423cc`, `552eea2`. Other places where unread outside sources cause a skip:
 
-- `header_has_contract`, whole-class contract for classes with supertypes: Blocker 1.
-- `is_flutter_framework_base`, a name list in `src/widgets/inheritance.rs:90` for the widget rules: Blocker 1.
+- `header_has_contract`, whole-class contract for classes with supertypes: removed for supertype clauses in slice 3; annotations keep it.
+- `is_flutter_framework_base`, a name list in `src/widgets/inheritance.rs:90` for the widget rules: other rules, out of scope.
 - `build` and `createState` in `CONTRACT_MEMBER_NAMES`: a step below removes them if the 45-copy run shows no new false finding.
 
 Single source: `is_library_source` has a copy at `src/boundaries.rs:307`; merge it into `src/symbols/path_filters.rs` in its own commit. The application flag has one owner, `PackageScope.application`. `PackageMap` stays the one owner of `package:` URIs. Searched `src/` for `is_library_source`, `package_config` and `flutterRoot`.
 
 ## Decisions + authorization
 
-Blockers: Two owner choices, each with a recommendation.
-
-1. Scope (owner). With option (a), `class X extends StatelessWidget { void unused() {} }` stays unchecked, as does every class with a supertype clause or annotation. Only plain project classes and mixins above such classes gain checks. Options:
-   - (a) Recommended: the two stated limits only, now. It matches the request and needs one 45-copy judgment.
-   - (b) Also check the own members of classes with supertypes, protecting names their supertypes declare, and replace the widget base name list. This is the biggest gain but adds findings in almost every widget class. Recommended as the next plan, reusing this outside reader.
-   - (c) `bin/` of library packages too. Recommended yes: no package can import a `bin/` file, so nothing exports its classes. The request names application `bin/` only.
-2. New Flutter app at 0 findings (owner). 0.0.76 on a new `flutter create` app (Flutter 3.50.0) gives 1 finding: `test-only-dependency` for `flutter`. The template's `lib/main.dart` imports only `package:material_ui`. With `flutter` moved to `dev_dependencies`, `pub get`, `analyze`, `test` and `build bundle` all pass. Options:
-   - (a) Recommended: treat it as false. The `flutter` SDK dependency of a Flutter application counts as runtime, because every new app fails `--strict` today. Fix it first, in its own commit, with a failing test.
-   - (b) Treat it as real. The acceptance row becomes "0 `unused-class-member` findings".
+Blockers: None
+Decided by the coordinator under the owner's standing rule (2026-11-15: strict by default, no "skip for now", red projects get fix PRs):
+1. Scope: the own members of classes with supertype clauses are checked in this plan (slice 3), with the names their supertypes declare protected. A class whose chain has an unread link keeps the whole-class skip. `bin/` of library packages is checked too: no package can import a `bin/` file.
+2. New Flutter app: the `test-only-dependency` finding for `flutter` is false. A Flutter application needs the `flutter` SDK dependency at run time. Fix it first, in its own commit, with a failing test.
 
 Handoff: Approval
-Authority: Autonomous after approval. The owner approved this work on 2026-11-16 at 05:32 UTC. This step is plan only: no production code, push or PR. Build waits for answers to Blockers 1 and 2.
+Authority: Autonomous. The owner approved this work on 2026-11-16 at 05:32 UTC and approved PRs in this repository for the strict rollout (2026-11-15). Build, PR, merge and the 0.0.77 release follow the repository's method.
 
 ## Acceptance + steps
 
-- [ ] Both limits have a failing test first, red on 0.0.76 → the two rows below, run before the fix.
+- [ ] Each limit has a failing test first, red on 0.0.76 → N/A — an order of work; the named tests below are each run before their fix, and Verification records the red run.
 - [ ] A plain project mixin mixed into an outside `State` (fake Flutter SDK in the real layout) reports its member that `State` lacks and keeps one `State` declares → `tests/cli_unused_public_members.rs::outside_superclass_mixin_reports_names_the_outside_type_lacks`, 1 finding.
 - [ ] A plain project mixin on an outside `State` keeps its override of a hook that `State` declares with a body, with no project reference to that name → `tests/cli_unused_public_members.rs::outside_hook_with_body_stays_protected`, 0 findings for that name.
 - [ ] A plain base class whose subclass implements `Comparable` (fake SDK) reports a member that `Comparable` lacks and keeps `compareTo` → `tests/cli_unused_public_members.rs::outside_interface_base_reports_names_the_interface_lacks`, 1 finding.
 - [ ] An outside class that implements another outside class, reached through a typedef and a package `export` with `show`/`hide`, protects the names of every link → `tests/cli_unused_public_members.rs::outside_supertype_chain_protects_inherited_names`, 0 findings for those names.
 - [ ] No config, missing pub cache folder, outside parse error, other SDK version and an ambiguous name each keep the whole-class skip, raise `outside_types_unread` and keep the exit code → `tests/cli_unused_public_members.rs::unread_outside_types_keep_whole_class_skip`, one case each.
-- [ ] Application `bin/` classes report unused public, private and enum members; library `bin/` follows Blocker 1(c) → `tests/cli_unused_public_members.rs::application_bin_class_members_report`, 3 findings.
-- [ ] Strict parse errors in 3 of 1,045 outside files (Flutter `widgets/overlay.dart`, `sky_engine` `js_interop.dart` and `_js_types/js_types.dart`) are a base parser fault → own commit with a failing `src/dart_parser.rs` test, or the limit is stated in the docs with the cause.
-- [ ] `build` and `createState` leave `CONTRACT_MEMBER_NAMES` only if the 45-copy run shows no new false finding → run evidence recorded.
-- [ ] `PRODUCT.md` and the explain text drop both limits and state the rest (unread sources, unparsed outside files) → `cargo test --test cli_explain` passes.
-- [ ] `is_library_source` has one definition → `cargo test --all-targets` passes.
-- [ ] Cost stays within the limit under Baseline on the new Flutter app, P5 and P9, at default and 2 threads, two runs each → recorded table.
-- [ ] 45 sealed copies: the comparison run against `r9` (276 unused-member findings). Every new or lost finding is read and judged real or false: 0 false. Scratch copies of the other sets also get `flutter pub get --offline`, with the same judgment; copies that do not resolve are listed as not checked.
-- [ ] A new `flutter create` app has 0 findings (per Blocker 2) → E2E below.
-- [ ] Full gate → `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` passes.
+- [ ] Application and library `bin/` classes report unused public, private and enum members → `tests/cli_unused_public_members.rs::bin_class_members_report`, 3 findings in each package kind.
+- [ ] A project class that extends an outside `StatelessWidget` (fake Flutter SDK) reports its own unused member and keeps `build`, which the outside type declares; a class that extends a project base reports its own unused member and keeps the base's names; an annotated class keeps the whole-class skip; a class with an unread link keeps the whole-class skip → `tests/cli_unused_public_members.rs::classes_with_supertypes_report_own_unused_members`, one case each.
+- [ ] A new Flutter application whose `lib/` imports no `package:flutter` file keeps `flutter` as a runtime dependency → `tests/cli_dependencies.rs::flutter_sdk_dependency_of_an_application_is_runtime`, red on 0.0.76.
+- [ ] Strict parse errors in 3 of 1,045 outside files (Flutter `widgets/overlay.dart`, `sky_engine` `js_interop.dart` and `_js_types/js_types.dart`) are a base parser fault → `src/dart_parser.rs::strict_parse_accepts_the_outside_file_forms`, red first; or, if the grammar cannot take a form, the limit and its cause go in PRODUCT.md and this row records why.
+- [ ] `build` and `createState` leave `CONTRACT_MEMBER_NAMES` only if the 45-copy run shows no new false finding → N/A — a run result, not a test; Verification records the run.
+- [ ] `PRODUCT.md` and the explain text drop both limits and state the rest (unread sources, unparsed outside files) → `tests/cli_explain.rs::unused_class_member_explanation_states_its_limits`.
+- [ ] `is_library_source` has one definition → N/A — a code merge with no behavior change; `cargo test --all-targets` passes.
+- [ ] Cost stays within the limit under Baseline on the new Flutter app, P5 and P9, at default and 2 threads, two runs each → N/A — a measurement; Verification records the table.
+- [ ] 45 sealed copies: the comparison run against `r9` (276 unused-member findings). Every new or lost finding is read and judged real or false: 0 false. Scratch copies of the other sets also get `flutter pub get --offline`, with the same judgment; copies that do not resolve are listed as not checked → N/A — a run on private copies; Verification records the counts and judgments.
+- [ ] A new `flutter create` app has 0 findings → N/A — a run of the built CLI; E2E below records it.
+- [ ] Full gate passes → N/A — a gate run is no product behavior; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` is the proof.
 
 ## Baseline + execution
 
@@ -103,10 +100,11 @@ Limit: added wall time at most 1.0 s on the new Flutter app, and at most 5% on P
 
 Execution: one Sonnet builder, then a fresh Opus reviewer before the final gate.
 
+0. Slice 0: the `flutter` runtime dependency fix, test first.
 1. Slice 1: source discovery, outline loader and pre-filter, timed on the new app and P5 against the limit. Over the limit → add an outline cache under the existing `cache` config, keyed by path, size and change time, and measure again.
 2. Slice 2: hierarchy join, chains and fallback, with the tests above.
-3. Slice 3: `bin/` scope and the `is_library_source` merge.
-4. Slice 4: parser fault, contract names, docs, 45-copy run, E2E, gate, version 0.0.77.
+3. Slice 3: own members of classes with supertype clauses, then `bin/` scope for every package and the `is_library_source` merge. A 45-copy run after this slice; every new finding read and judged before slice 4.
+4. Slice 4: parser fault, contract names, docs, final 45-copy run, E2E, gate, version 0.0.77.
 
 ## Risks + recovery
 
