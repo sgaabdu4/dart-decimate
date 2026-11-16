@@ -905,7 +905,15 @@ fn write_toolchain(
         ),
         (
             sky.join("_embedder.yaml"),
-            "embedded_libs:\n  \"dart:core\": \"core/core.dart\"\n",
+            "embedded_libs:\n  \"dart:core\": \"core/core.dart\"\n  \"dart:io\": \"io/io.dart\"\n",
+        ),
+        (
+            sky.join("io/io.dart"),
+            "library dart.io;\n\npart \"file.dart\";\npart \"embedder_config.dart\";\n\nclass File {}\n",
+        ),
+        (
+            sky.join("io/file.dart"),
+            "part of dart.io;\n\nclass Stdin {}\n",
         ),
         (
             sky.join("core/core.dart"),
@@ -1022,7 +1030,7 @@ fn outside_hook_with_body_stays_protected() -> Result<(), Box<dyn std::error::Er
 fn outside_interface_base_reports_names_the_interface_lacks()
 -> Result<(), Box<dyn std::error::Error>> {
     let (_, json) = strict_check_with_toolchain(
-        "class Base {\n  int compareTo(Object other) => 0;\n\n  int spare() => 1;\n}\n\nclass Item extends Base implements Comparable<Item> {}\n",
+        "import 'dart:io';\n\nclass Base {\n  int compareTo(Object other) => 0;\n\n  int spare() => 1;\n}\n\nclass Item extends Base implements Comparable<Item> {}\n",
         "import 'src/items.dart';\n\nvoid main() {\n  print(Item());\n}\n",
     )?;
 
@@ -1107,6 +1115,7 @@ fn unread_outside_types_keep_whole_class_skip() -> Result<(), Box<dyn std::error
         "parse error",
         "other version",
         "ambiguous name",
+        "missing part",
     ];
     for case in cases {
         let fixture = tempfile::tempdir()?;
@@ -1121,6 +1130,8 @@ fn unread_outside_types_keep_whole_class_skip() -> Result<(), Box<dyn std::error
         for (path, source) in sources {
             let source = if case == "parse error" && path.ends_with("remote.dart") {
                 "abstract class Remote {{{\n"
+            } else if case == "missing part" && path.ends_with("remote.dart") {
+                "part 'gone.dart';\n"
             } else if case == "ambiguous name" || !path.ends_with("other.dart") {
                 source
             } else {
