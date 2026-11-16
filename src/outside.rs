@@ -25,6 +25,7 @@ pub(crate) struct OutsideSources {
     root: PathBuf,
     packages: PackageMap,
     dart_libraries: BTreeMap<String, PathBuf>,
+    sdk_lib: PathBuf,
 }
 
 impl OutsideSources {
@@ -40,26 +41,32 @@ impl OutsideSources {
             .as_ref()
             .map(|flutter| flutter.join("bin/cache/dart-sdk"));
         let version = toolchain.generator_version.as_deref();
-        let dart_libraries = if let Some(sky_engine) = packages.package_path("sky_engine") {
-            if flutter_sdk
-                .as_ref()
-                .is_some_and(|sdk| !sdk_matches(sdk, version))
-            {
-                return None;
-            }
-            embedder_libraries(sky_engine)?
-        } else {
-            let sdk = flutter_sdk.or_else(|| sdk_on_path(path_var))?;
-            if !sdk_matches(&sdk, version) {
-                return None;
-            }
-            sdk_libraries(&sdk)?
-        };
+        let (dart_libraries, sdk_lib) =
+            if let Some(sky_engine) = packages.package_path("sky_engine") {
+                if flutter_sdk
+                    .as_ref()
+                    .is_some_and(|sdk| !sdk_matches(sdk, version))
+                {
+                    return None;
+                }
+                (embedder_libraries(sky_engine)?, sky_engine.to_path_buf())
+            } else {
+                let sdk = flutter_sdk.or_else(|| sdk_on_path(path_var))?;
+                if !sdk_matches(&sdk, version) {
+                    return None;
+                }
+                (sdk_libraries(&sdk)?, sdk.join("lib"))
+            };
         Some(Self {
             root: root.to_path_buf(),
             packages,
             dart_libraries,
+            sdk_lib,
         })
+    }
+
+    pub(crate) fn is_sdk_source(&self, path: &Path) -> bool {
+        path.starts_with(&self.sdk_lib)
     }
 
     pub(crate) fn resolve(&self, from: &Path, specifier: &str, from_outside: bool) -> Target {
