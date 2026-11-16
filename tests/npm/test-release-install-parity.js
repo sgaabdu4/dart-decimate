@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 
-const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
-const http = require("node:http");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const {
+  assertSucceeded,
+  executableName,
+  property,
+  readVersion,
+  releaseAssetName,
+  root,
+  spawnResult,
+  withAssetServer,
+} = require("./support.js");
 
-const root = path.resolve(__dirname, "../..");
 const fixture = path.join(root, "tests", "fixtures", "install-parity");
 const packageVersion = readVersion(path.join(root, "package.json"));
 const tempRoot = fs.mkdtempSync(
@@ -20,16 +28,7 @@ main().catch((error) => {
 
 async function main() {
   try {
-    const assetDir = path.resolve(
-      process.env.DART_DECIMATE_RELEASE_ASSET_DIR ||
-        path.join(root, "dist-assets"),
-    );
-    const assetName = releaseAssetName();
-    const assetPath = path.join(assetDir, assetName);
-    if (!isFile(assetPath)) {
-      throw new Error(`missing release asset ${assetPath}`);
-    }
-
+    const assetPath = releaseAssetPath();
     const cargoBinary = installWithCargo();
     const tarball = packNpmPackage();
     const projectDir = path.join(tempRoot, "npm-project");
@@ -39,51 +38,20 @@ async function main() {
       JSON.stringify({ name: "release-parity-probe", private: true }, null, 2),
     );
 
-    const server = http.createServer((request, response) => {
-      if (request.url !== `/v${packageVersion}/${assetName}`) {
-        response.writeHead(404);
-        response.end("not found");
-        return;
-      }
-      response.writeHead(200, { "content-type": "application/gzip" });
-      fs.createReadStream(assetPath).pipe(response);
-    });
-    await new Promise((resolve) =>
-      server.listen(0, "127.0.0.1", () => resolve(undefined)),
+    await withAssetServer(assetPath, packageVersion, (baseUrl) =>
+      installNpmTarball(tarball, projectDir, baseUrl),
     );
 
-    try {
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        throw new Error("test server is not listening on a TCP port");
-      }
-      await installNpmTarball(tarball, projectDir, address.port);
-    } finally {
-      await new Promise((resolve) => server.close(resolve));
-    }
-
+    assertInstalledPackageVersion(projectDir);
+    assertVersion(cargoBinary, "Cargo");
     const npmBinary = path.join(
       projectDir,
       "node_modules",
       ".bin",
       process.platform === "win32" ? "dart-decimate.cmd" : "dart-decimate",
     );
-    assertInstalledPackageVersion(projectDir);
-    assertVersion(cargoBinary, "Cargo");
     assertVersion(npmBinary, "npm");
-
-    const cargoReport = runReport(cargoBinary, "Cargo");
-    const npmReport = runReport(npmBinary, "npm");
-    if (cargoReport !== npmReport) {
-      throw new Error(
-        "Cargo and npm installations emitted different JSON reports",
-      );
-    }
-
-    if (!isPassingReport(JSON.parse(cargoReport))) {
-      throw new Error(`unexpected parity report: ${cargoReport}`);
-    }
-
+    assertIdenticalPassingReports(cargoBinary, npmBinary);
     console.log(
       `release install parity ok: Cargo source and npm ${packageVersion} emitted identical reports`,
     );
@@ -92,44 +60,46 @@ async function main() {
   }
 }
 
-/** @param {string} filePath */
-function isFile(filePath) {
-  try {
-    return fs.statSync(filePath).isFile();
-  } catch {
-    return false;
+function releaseAssetPath() {
+  const assetDir = path.resolve(
+    process.env.DART_DECIMATE_RELEASE_ASSET_DIR ||
+      path.join(root, "dist-assets"),
+  );
+  const assetPath = path.join(assetDir, releaseAssetName());
+  if (!fs.statSync(assetPath, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`missing release asset ${assetPath}`);
   }
+  return assetPath;
+}
+
+/** @param {string | undefined} gitUrl @param {unknown[]} references */
+function assertGitSource(gitUrl, references) {
+  if (!gitUrl || references.length !== 1) {
+    throw new Error(
+      "DART_DECIMATE_CARGO_GIT_URL and exactly one of DART_DECIMATE_CARGO_TAG or DART_DECIMATE_CARGO_REV must be set together",
+    );
+  }
+}
+
+/** @param {string} cargoRoot */
+function cargoSourceArgs(cargoRoot) {
+  const gitUrl = process.env.DART_DECIMATE_CARGO_GIT_URL;
+  const references = [
+    ["--tag", process.env.DART_DECIMATE_CARGO_TAG],
+    ["--rev", process.env.DART_DECIMATE_CARGO_REV],
+  ].filter(([, value]) => value);
+  const args = ["install", "--locked", "--force", "--root", cargoRoot];
+  if (!gitUrl && references.length === 0) {
+    return [...args, "--path", root];
+  }
+  assertGitSource(gitUrl, references);
+  return [...args, "--git", gitUrl, ...references[0], "dart-decimate"];
 }
 
 function installWithCargo() {
   const cargoRoot = path.join(tempRoot, "cargo-root");
-  const gitUrl = process.env.DART_DECIMATE_CARGO_GIT_URL;
-  const tag = process.env.DART_DECIMATE_CARGO_TAG;
-  const revision = process.env.DART_DECIMATE_CARGO_REV;
-  const args = ["install", "--locked", "--force", "--root", cargoRoot];
-  const reference =
-    tag && !revision
-      ? ["--tag", tag]
-      : revision && !tag
-        ? ["--rev", revision]
-        : undefined;
-  if (gitUrl || tag || revision) {
-    if (!gitUrl || !reference) {
-      throw new Error(
-        "DART_DECIMATE_CARGO_GIT_URL and exactly one of DART_DECIMATE_CARGO_TAG or DART_DECIMATE_CARGO_REV must be set together",
-      );
-    }
-    args.push("--git", gitUrl, ...reference);
-    args.push("dart-decimate");
-  } else {
-    args.push("--path", root);
-  }
-  run("cargo", args, root, "Cargo install");
-  return path.join(
-    cargoRoot,
-    "bin",
-    process.platform === "win32" ? "dart-decimate.exe" : "dart-decimate",
-  );
+  run("cargo", cargoSourceArgs(cargoRoot), root, "Cargo install");
+  return path.join(cargoRoot, "bin", executableName("dart-decimate"));
 }
 
 function packNpmPackage() {
@@ -146,8 +116,8 @@ function packNpmPackage() {
   return path.resolve(tempRoot, filename);
 }
 
-/** @param {string} tarball @param {string} projectDir @param {number} port */
-async function installNpmTarball(tarball, projectDir, port) {
+/** @param {string} tarball @param {string} projectDir @param {string} baseUrl */
+async function installNpmTarball(tarball, projectDir, baseUrl) {
   const result = await spawnResult(
     "npm",
     ["install", "--no-audit", "--no-fund", tarball],
@@ -156,18 +126,12 @@ async function installNpmTarball(tarball, projectDir, port) {
       env: {
         ...process.env,
         CARGO: path.join(tempRoot, "missing-cargo"),
-        DART_DECIMATE_RELEASE_BASE_URL: `http://127.0.0.1:${port}/v${packageVersion}`,
+        DART_DECIMATE_RELEASE_BASE_URL: baseUrl,
         npm_config_cache: path.join(tempRoot, "npm-cache"),
       },
     },
   );
-  if (result.status !== 0 || result.error) {
-    throw new Error(
-      result.error?.message ||
-        result.stderr ||
-        `npm install exited ${result.status}`,
-    );
-  }
+  assertSucceeded(result, "npm install");
 }
 
 /** @param {string} projectDir */
@@ -203,91 +167,46 @@ function runReport(binary, label) {
   ).stdout;
 }
 
-function releaseAssetName() {
-  const platform = process.platform === "win32" ? "windows" : process.platform;
-  const arch = process.arch === "x64" ? "x64" : process.arch;
-  return `dart-decimate-${platform}-${arch}.tar.gz`;
+/** @param {string} cargoBinary @param {string} npmBinary */
+function assertIdenticalPassingReports(cargoBinary, npmBinary) {
+  const cargoReport = runReport(cargoBinary, "Cargo");
+  if (cargoReport !== runReport(npmBinary, "npm")) {
+    throw new Error(
+      "Cargo and npm installations emitted different JSON reports",
+    );
+  }
+  if (!isPassingReport(JSON.parse(cargoReport))) {
+    throw new Error(`unexpected parity report: ${cargoReport}`);
+  }
 }
 
 /** @param {string} command @param {string[]} args @param {string} cwd @param {string} label */
 function run(command, args, cwd, label) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8" });
-  if (result.status !== 0 || result.error) {
-    throw new Error(
-      result.error?.message ||
-        result.stderr ||
-        `${label} exited ${result.status}`,
-    );
-  }
+  assertSucceeded(result, label);
   return result;
-}
-
-/** @typedef {{ error?: Error, status: number | null, stderr: string, stdout: string }} ChildResult */
-
-/** @param {string} command @param {string[]} args @param {import("node:child_process").SpawnOptionsWithoutStdio} options @returns {Promise<ChildResult>} */
-function spawnResult(command, args, options) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, options);
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => {
-      resolve({ error, status: null, stderr, stdout });
-    });
-    child.on("close", (status) => {
-      resolve({ status, stderr, stdout });
-    });
-  });
-}
-
-/** @param {string} file */
-function readVersion(file) {
-  const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-  if (
-    typeof manifest === "object" &&
-    manifest !== null &&
-    "version" in manifest &&
-    typeof manifest.version === "string"
-  ) {
-    return manifest.version;
-  }
-  throw new Error(`${file} has no version`);
 }
 
 /** @param {unknown} report */
 function isPassingReport(report) {
-  return (
-    typeof report === "object" &&
-    report !== null &&
-    "schema_version" in report &&
-    report.schema_version === "dart-decimate.report.v1" &&
-    "tool" in report &&
-    report.tool === `dart-decimate ${packageVersion}` &&
-    "verdict" in report &&
-    report.verdict === "pass" &&
-    "summary" in report &&
-    isCleanSummary(report.summary) &&
-    "findings" in report &&
-    Array.isArray(report.findings) &&
-    report.findings.length === 0
-  );
-}
-
-/** @param {unknown} summary */
-function isCleanSummary(summary) {
-  return (
-    typeof summary === "object" &&
-    summary !== null &&
-    "code_duplications" in summary &&
-    summary.code_duplications === 0 &&
-    "unrendered_widgets" in summary &&
-    summary.unrendered_widgets === 0 &&
-    "findings" in summary &&
-    summary.findings === 0
-  );
+  const summary = property(report, "summary");
+  const actual = [
+    property(report, "schema_version"),
+    property(report, "tool"),
+    property(report, "verdict"),
+    property(summary, "code_duplications"),
+    property(summary, "unrendered_widgets"),
+    property(summary, "findings"),
+    property(report, "findings"),
+  ];
+  const expected = [
+    "dart-decimate.report.v1",
+    `dart-decimate ${packageVersion}`,
+    "pass",
+    0,
+    0,
+    0,
+    [],
+  ];
+  return JSON.stringify(actual) === JSON.stringify(expected);
 }

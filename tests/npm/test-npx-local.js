@@ -4,8 +4,8 @@ const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { packWithNpm, packedFilename, property } = require("./support.js");
 
-const root = join(__dirname, "..", "..");
 const tempDir = mkdtempSync(join(tmpdir(), "dart-decimate-npx-"));
 process.once("exit", () => rmSync(tempDir, { recursive: true, force: true }));
 const npmEnv = {
@@ -13,11 +13,7 @@ const npmEnv = {
   npm_config_cache: join(tempDir, "npm-cache"),
 };
 
-const pack = spawnSync(
-  "npm",
-  ["pack", "--json", "--pack-destination", tempDir],
-  { cwd: root, encoding: "utf8", env: npmEnv },
-);
+const pack = packWithNpm(tempDir, npmEnv);
 if (pack.error) {
   process.stderr.write(`failed to execute npm: ${pack.error.message}\n`);
   process.exit("code" in pack.error && pack.error.code === "ENOENT" ? 127 : 1);
@@ -77,35 +73,9 @@ if (!cliOutput.includes("Usage: dart-decimate")) {
 }
 process.stdout.write(cliOutput);
 
-/** @param {string} stdout */
-function packedFilename(stdout) {
-  const packed = JSON.parse(stdout);
-  const metadata = Array.isArray(packed) ? packed[0] : undefined;
-  if (
-    typeof metadata === "object" &&
-    metadata !== null &&
-    "filename" in metadata &&
-    typeof metadata.filename === "string"
-  ) {
-    return metadata.filename;
-  }
-  throw new Error("npm pack did not report a tarball filename");
-}
-
 /** @param {unknown} response */
 function negotiatedProtocol(response) {
-  if (
-    typeof response !== "object" ||
-    response === null ||
-    !("result" in response)
-  ) {
-    return false;
-  }
-  const { result } = response;
   return (
-    typeof result === "object" &&
-    result !== null &&
-    "protocolVersion" in result &&
-    result.protocolVersion === "2025-11-25"
+    property(property(response, "result"), "protocolVersion") === "2025-11-25"
   );
 }
