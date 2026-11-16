@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
@@ -29,6 +30,7 @@ pub(crate) struct OutsideSources {
     dart_libraries: BTreeMap<String, PathBuf>,
     sdk_lib: PathBuf,
     scanned: Rc<BTreeSet<PathBuf>>,
+    missing: RefCell<BTreeSet<PathBuf>>,
 }
 
 impl OutsideSources {
@@ -71,7 +73,12 @@ impl OutsideSources {
             dart_libraries,
             sdk_lib,
             scanned: Rc::default(),
+            missing: RefCell::default(),
         })
+    }
+
+    pub(crate) fn missing_imports(&self) -> BTreeSet<PathBuf> {
+        self.missing.borrow().clone()
     }
 
     pub(crate) fn is_sdk_source(&self, path: &Path) -> bool {
@@ -100,7 +107,12 @@ impl OutsideSources {
             {
                 Target::Local
             }
-            Some(target) => Target::Outside(target.path),
+            Some(target) => {
+                if target.local && !from_outside && !target.path.is_file() {
+                    self.missing.borrow_mut().insert(target.path.clone());
+                }
+                Target::Outside(target.path)
+            }
         }
     }
 }
