@@ -112,11 +112,7 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
     else {
         return Vec::new();
     };
-    let mut steps = report
-        .outside_missing_imports
-        .iter()
-        .map(|(folder, file)| missing_import_step(folder, file))
-        .collect::<Vec<_>>();
+    let mut steps = missing_import_steps(&report.outside_missing_imports);
     steps.extend(
         report
         .outside_unread_folders
@@ -140,8 +136,8 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
     steps
 }
 
-fn missing_import_step(folder: &str, file: &str) -> NextStep {
-    let generated = [
+fn is_generated_file(file: &str) -> bool {
+    [
         ".g.dart",
         ".freezed.dart",
         ".gr.dart",
@@ -149,33 +145,61 @@ fn missing_import_step(folder: &str, file: &str) -> NextStep {
         ".mocks.dart",
     ]
     .iter()
-    .any(|suffix| file.ends_with(suffix));
-    let location = if folder.is_empty() {
-        file.to_owned()
-    } else {
-        format!("{folder}/{file}")
-    };
-    if generated {
-        NextStep {
-            id: "generate-missing-import".to_owned(),
-            command: if folder.is_empty() {
-                "dart run build_runner build".to_owned()
-            } else {
-                format!("cd {} && dart run build_runner build", shell_quote(folder))
-            },
-            reason: format!(
-                "{location} is imported but missing; generate it so the types it declares can be read"
-            ),
-        }
-    } else {
-        NextStep {
-            id: "fix-missing-import".to_owned(),
-            command: format!("create or fix the import of {file}"),
-            reason: format!(
-                "{location} is imported but missing, so supertypes cannot be read and class members stay unchecked"
-            ),
-        }
+    .any(|suffix| file.ends_with(suffix))
+}
+
+fn missing_import_steps(missing: &[crate::MissingFile]) -> Vec<NextStep> {
+    let mut groups = std::collections::BTreeMap::<(&str, bool), Vec<&crate::MissingFile>>::new();
+    for file in missing {
+        groups
+            .entry((file.folder.as_str(), is_generated_file(&file.file)))
+            .or_default()
+            .push(file);
     }
+    groups
+        .into_iter()
+        .map(|((folder, generated), files)| {
+            let reasons = files
+                .iter()
+                .map(|file| {
+                    let location = if folder.is_empty() {
+                        file.file.clone()
+                    } else {
+                        format!("{folder}/{}", file.file)
+                    };
+                    let role = if file.part { "a part" } else { "imported" };
+                    format!("{location} is {role} but missing")
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            if generated {
+                NextStep {
+                    id: "generate-missing-import".to_owned(),
+                    command: if folder.is_empty() {
+                        "dart run build_runner build".to_owned()
+                    } else {
+                        format!("cd {} && dart run build_runner build", shell_quote(folder))
+                    },
+                    reason: format!(
+                        "{reasons}; generate them so the types they declare can be read"
+                    ),
+                }
+            } else {
+                let names = files
+                    .iter()
+                    .map(|file| file.file.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                NextStep {
+                    id: "fix-missing-import".to_owned(),
+                    command: format!("create or fix the import of {names}"),
+                    reason: format!(
+                        "{reasons}, so supertypes cannot be read and class members stay unchecked"
+                    ),
+                }
+            }
+        })
+        .collect()
 }
 
 fn shell_quote(folder: &str) -> String {

@@ -79,6 +79,15 @@ impl OutsideSources {
         })
     }
 
+    fn in_local_package(&self, path: &Path) -> bool {
+        path.starts_with(&self.root)
+            || self
+                .packages
+                .local_roots()
+                .iter()
+                .any(|root| path.starts_with(root))
+    }
+
     pub(crate) fn gaps(&self) -> usize {
         self.gaps.get()
     }
@@ -120,7 +129,7 @@ impl OutsideSources {
                 Target::Local
             }
             Some(target) => {
-                if target.local && target.path.starts_with(&self.root) && !target.path.is_file() {
+                if target.local && !target.path.is_file() && self.in_local_package(&target.path) {
                     self.missing.borrow_mut().insert(target.path.clone());
                 }
                 Target::Outside(target.path)
