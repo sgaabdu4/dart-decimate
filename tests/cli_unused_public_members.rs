@@ -1407,7 +1407,11 @@ fn unlisted_package_resolves_its_own_name_and_path_dependencies()
                 "bbb/pubspec.yaml",
                 "name: bbb\npublish_to: none\n",
             )?;
-            write(&fixture, "bbb/lib/b.dart", "class Bee {}\n")?;
+            write(
+                &fixture,
+                "bbb/lib/b.dart",
+                "abstract class Linked {\n  int hook();\n}\n",
+            )?;
             (
                 "dependencies:\n  bbb:\n    path: ../bbb\n",
                 "package:bbb/b.dart".to_owned(),
@@ -1423,13 +1427,17 @@ fn unlisted_package_resolves_its_own_name_and_path_dependencies()
         write(
             &fixture,
             &format!("{name}/lib/other.dart"),
-            "class Other {}\n",
+            if with_path_dependency {
+                "class Other {}\n"
+            } else {
+                "class Other {}\n\nabstract class Linked {\n  int hook();\n}\n"
+            },
         )?;
         write(
             &fixture,
             &format!("{name}/lib/main.dart"),
             &format!(
-                "import '{import}';\nimport 'other.dart';\n\nclass AItem implements Comparable<AItem> {{\n  int compareTo(AItem other) => 0;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(AItem());\n  print(Other());\n}}\n"
+                "import '{import}';\nimport 'other.dart';\n\nclass AItem implements Comparable<AItem>, Linked {{\n  int compareTo(AItem other) => 0;\n\n  int hook() => 1;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(AItem().hook());\n  print(Other());\n}}\n"
             ),
         )?;
         write_package_config(&fixture, &toolchain, &packages, &[])?;
@@ -1445,6 +1453,97 @@ fn unlisted_package_resolves_its_own_name_and_path_dependencies()
             json["summary"]["outside_types_unread"], 0,
             "{name} {with_path_dependency}"
         );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn supertypes_declared_in_ignored_project_files_are_read_from_those_files()
+-> Result<(), Box<dyn std::error::Error>> {
+    let supertype = "abstract class Comparable<T> {\n  int used();\n}\n";
+    let item = |import: &str| {
+        format!(
+            "import '{import}';\n\nclass AItem implements Comparable<AItem> {{\n  int compareTo(AItem other) => 0;\n\n  int used() => 1;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(AItem());\n}}\n"
+        )
+    };
+    let cases = [
+        ("unlisted package, ignored own file", "aaa", None),
+        (
+            "unlisted package, ignored path dependency",
+            "aaa",
+            Some("bbb"),
+        ),
+        ("listed app, ignored path dependency", "", Some("bbb")),
+    ];
+    for (case, folder, dependency) in cases {
+        let fixture = tempfile::tempdir()?;
+        let toolchain = tempfile::tempdir()?;
+        let packages = write_toolchain(&toolchain, "3.14.0")?;
+        write(
+            &fixture,
+            ".dart-decimaterc",
+            "{\"ignorePatterns\": [\"**/generated/**\"]}\n",
+        )?;
+        let prefix = if folder.is_empty() {
+            String::new()
+        } else {
+            format!("{folder}/")
+        };
+        let owner = dependency.unwrap_or(if folder.is_empty() { "app" } else { folder });
+        let import = format!("package:{owner}/generated/cmp.dart");
+        let dependencies = dependency.map_or(String::new(), |name| {
+            format!("dependencies:\n  {name}:\n    path: ../{name}\n")
+        });
+        if folder.is_empty() {
+            write(
+                &fixture,
+                "pubspec.yaml",
+                &format!("name: app\npublish_to: none\ndependencies:\n  bbb:\n    path: bbb\n"),
+            )?;
+        } else {
+            write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+            write(&fixture, "lib/main.dart", "void main() {}\n")?;
+            write(
+                &fixture,
+                &format!("{prefix}pubspec.yaml"),
+                &format!("name: {folder}\npublish_to: none\n{dependencies}"),
+            )?;
+        }
+        if let Some(name) = dependency {
+            let root = if folder.is_empty() {
+                name.to_owned()
+            } else {
+                name.to_owned()
+            };
+            write(
+                &fixture,
+                &format!("{root}/pubspec.yaml"),
+                &format!("name: {name}\npublish_to: none\n"),
+            )?;
+            write(
+                &fixture,
+                &format!("{root}/lib/generated/cmp.dart"),
+                supertype,
+            )?;
+        } else {
+            write(
+                &fixture,
+                &format!("{prefix}lib/generated/cmp.dart"),
+                supertype,
+            )?;
+        }
+        write(&fixture, &format!("{prefix}lib/main.dart"), &item(&import))?;
+        write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            found_members(&json),
+            ["AItem.compareTo", "AItem.spare"],
+            "{case}"
+        );
+        assert_eq!(json["summary"]["outside_types_unread"], 0, "{case}");
     }
 
     Ok(())
