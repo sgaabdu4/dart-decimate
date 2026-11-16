@@ -81,8 +81,7 @@ impl DeclarationFileContext {
     }
 }
 
-// Class-member declaration nodes exclude concrete method bodies. Classify the
-// entire source before looking at clone windows, which may end mid-signature.
+// Classify the whole source first, because clone windows may end mid-signature.
 fn bodyless_member_lines(path: &Path, source: &str) -> BTreeSet<usize> {
     let mut lines = BTreeSet::new();
     let Ok(parsed) = crate::dart_parser::parse_dart_source_strict(path, source) else {

@@ -105,8 +105,7 @@ fn wrapper_call_name_nodes(function: Node<'_>) -> Option<(Node<'_>, Option<Node<
         let method = function.child_by_field_name("property")?;
         return (method.kind() == "identifier").then_some((method, Some(receiver)));
     }
-    // Dart Tree-Sitter represents `() => navigate(...)` as a call whose
-    // function is the closure and whose body is the callee identifier.
+    // Tree-Sitter models `() => navigate(...)` as a call whose function is the closure.
     callback_body_identifier(function).map(|name| (name, None))
 }
 

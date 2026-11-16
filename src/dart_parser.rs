@@ -9,10 +9,7 @@ mod test_support;
 #[cfg(test)]
 pub(crate) use test_support::track_parse_count;
 
-/// Parsed Dart source and the source buffer used for the parse.
-///
-/// Tree-Sitter node byte ranges are relative to this buffer, which may be a
-/// normalized compatibility copy when the upstream grammar lags new Dart syntax.
+/// Parsed Dart source; node byte ranges refer to `source`, which may be a normalized copy.
 pub(crate) struct ParsedDart<'source> {
     tree: Tree,
     source: Cow<'source, str>,
@@ -92,10 +89,7 @@ pub(crate) fn parse_dart_source_strict<'source>(
     })
 }
 
-/// Parse Dart source, preferring a syntax-clean compatibility parse when possible.
-///
-/// Some analyzers historically tolerated partial Tree-Sitter trees. This keeps
-/// that behavior while still letting them benefit from compatibility rewrites.
+/// Parse Dart source, preferring a syntax-clean compatibility parse and tolerating partial trees.
 pub(crate) fn parse_dart_source_lossy<'source>(
     path: &Path,
     source: &'source str,
