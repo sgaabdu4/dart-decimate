@@ -889,3 +889,40 @@ mixin Plain {}
 
     Ok(())
 }
+
+#[test]
+fn outline_keeps_declarations_and_leaves_out_references() -> Result<(), ExtractError> {
+    let source = "\
+import 'package:other/other.dart' show Base;
+export 'src/more.dart' hide Hidden;
+part 'src/part.dart';
+
+class Item extends Base {
+  int size = 0;
+  int measure() => size + helper();
+}
+";
+
+    let outline = extract_dart_outline("lib/items.dart", source)?;
+    let full = extract_dart_source("lib/items.dart", source)?;
+
+    assert_ne!(full.references.len(), 0);
+    assert_eq!(outline.references.len(), 0);
+    assert_eq!(outline.signature_references.len(), 0);
+    assert_eq!(outline.routes.len(), 0);
+    assert_eq!(outline.imports, full.imports);
+    assert_eq!(outline.exports, full.exports);
+    assert_eq!(outline.parts, full.parts);
+    assert_eq!(outline.declarations, full.declarations);
+    assert_eq!(outline.members, full.members);
+    assert_eq!(outline.class_supertypes, full.class_supertypes);
+
+    Ok(())
+}
+
+#[test]
+fn outline_rejects_syntax_errors_like_the_full_extract() {
+    let outline = extract_dart_outline("lib/broken.dart", "class {{{");
+
+    assert!(matches!(outline, Err(ExtractError::Syntax { .. })));
+}
