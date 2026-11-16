@@ -1,6 +1,6 @@
 # Keep a test for the build contract name in an entry file
 
-Status: Ready
+Status: Complete
 
 ## Outcome + scope
 
@@ -39,9 +39,9 @@ N/A — this changes a test, not a rendered interface.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending
-Retro: Pending
+Result: Passed
+Evidence: `cargo test --test cli_unused_public_members`: 27 passed. With `build` renamed in `CONTRACT_MEMBER_NAMES`, the test fails with `left: ["MyApp.build"]`, `right: []`. `python3 .hooks/hard-eng.py check --plan-stage Ready`: all 30 gates PASS. A fresh review of 416d6bb found the lost case.
+Retro: the removed case was the only guard of a contract name → `tests/cli_unused_public_members.rs::strict_check_checks_the_members_of_classes_declared_in_entry_files`; before removing a test case, its guard was not checked by mutation → None — the review caught it, and the same review step runs on every final head.
 E2E: N/A — the change adds one test case; the CLI behavior does not change.
 
 Delivery target: Merge
