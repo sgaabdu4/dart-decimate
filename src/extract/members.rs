@@ -75,6 +75,12 @@ pub(super) fn push_type_alias_target(
         .find(|child| child.kind() == "type")
         .and_then(|child| child.utf8_text(source.as_bytes()).ok())
         .map(without_type_arguments)
+        .filter(|text| {
+            !text.trim_start().starts_with('(')
+                && !text
+                    .split_whitespace()
+                    .any(|word| word.starts_with("Function"))
+        })
         .and_then(|text| {
             text.split_whitespace()
                 .next()

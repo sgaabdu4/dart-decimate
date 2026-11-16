@@ -926,3 +926,26 @@ fn outline_rejects_syntax_errors_like_the_full_extract() {
 
     assert!(matches!(outline, Err(ExtractError::Syntax { .. })));
 }
+
+#[test]
+fn typedef_of_a_record_or_function_type_names_no_supertype() -> Result<(), ExtractError> {
+    let source = "\
+typedef Pair = ({String id, int count});
+typedef Callback = void Function(int);
+typedef Loader = Future<void> Function();
+typedef Items = List<int>;
+";
+
+    let extracted = extract_dart_source("lib/types.dart", source)?;
+
+    assert_eq!(
+        extracted
+            .class_supertypes
+            .iter()
+            .map(|clause| (clause.owner.as_str(), clause.names.clone()))
+            .collect::<Vec<_>>(),
+        vec![("Items", vec!["List".to_owned()])]
+    );
+
+    Ok(())
+}
