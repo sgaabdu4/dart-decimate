@@ -113,8 +113,7 @@ fn code_duplication_finding(root: &Path, clone: &crate::CodeClone) -> Finding {
     }
 }
 
-// Findings and clone inventories share suppression semantics. Reconcile all
-// groups before limiting details so --top cannot weaken the duplication gate.
+// Reconcile all groups before limiting details so --top cannot weaken the gate.
 pub(super) fn reconcile_clone_visibility(
     report: &mut super::JsonReport,
     results: &super::AnalysisResults,

@@ -56,8 +56,7 @@ pub struct DuplicateOptions {
     pub mode: DuplicateMode,
     /// Minimum normalized token count per clone window.
     pub min_tokens: usize,
-    /// Minimum normalized line count per clone window; sparse windows may grow
-    /// past this to satisfy `min_tokens`.
+    /// Minimum normalized line count per clone window.
     pub min_lines: usize,
     /// Minimum occurrences before a clone group is reported.
     pub min_occurrences: usize,
@@ -334,11 +333,7 @@ struct CloneWindow {
     token_count: usize,
 }
 
-/// Detect duplicated Dart code blocks.
-///
-/// Clone windows satisfy both `min_lines` and `min_tokens`; sparse duplicated
-/// blocks can therefore span more than `min_lines`. Declaration-only abstract
-/// contracts and copied local Pub package mirrors are filtered conservatively.
+/// Detect duplicated Dart code blocks that meet `min_lines` and `min_tokens`.
 ///
 /// # Errors
 ///
