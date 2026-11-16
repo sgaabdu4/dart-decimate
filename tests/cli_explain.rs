@@ -104,6 +104,36 @@ fn explain_command_emits_unused_type_contract() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+fn unused_class_member_explanation_states_its_limits() -> Result<(), Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "explain",
+            "unused-class-member",
+            "--format",
+            "json",
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    let text = json.to_string();
+    assert_eq!(code, 0);
+    assert!(text.contains("reads the SDK and package sources"), "{text}");
+    assert!(text.contains("outside_types_unread"), "{text}");
+    assert!(text.contains("pub get"), "{text}");
+    assert!(
+        !text.contains("does not read SDK or package sources"),
+        "{text}"
+    );
+    assert!(!text.contains("protected as a whole everywhere"), "{text}");
+
+    Ok(())
+}
+
+#[test]
 fn explain_command_emits_unused_widget_param_contract() -> Result<(), Box<dyn std::error::Error>> {
     let mut output = Vec::new();
 

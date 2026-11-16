@@ -319,24 +319,22 @@ Current implemented parity:
   methods, operators, and enum constants
 - conservative `dart-decimate/unused-enum-member` and
   `dart-decimate/unused-class-member` findings for reachable Dart libraries,
-  including unused public members of plain classes and mixins in `lib/` of each package,
-  also from a workspace root (annotated members, classes with supertypes,
-  generated-part libraries, members of classes that a class extends or mixes
-  in when it has an `implements` or `with` clause (if every type it implements
-  or mixes in, and, with a `with` clause, its superclass, with their
-  supertypes, is project code, only the members those types declare are
-  skipped; if any is outside the project, the whole class is skipped, because
-  the tool does not read SDK or package sources, so member names of outside
-  types are unknown. A project mixin that any class mixes into an outside
-  superclass (for example a Flutter `State` or `StatelessWidget`) is protected
-  as a whole everywhere, because the tool does not read SDK or package
-  sources; a `typedef Name = Type;` counts as its target type), entry files
-  of a package that is not an application and publicly exported classes
-  are skipped; an application exports no public API, so its `lib/` classes are
-  checked too. An application has `publish_to: none` with `lib/main.dart` or a
-  `bin/` script, or a Flutter dependency with `lib/main.dart`. A package with
-  `lib/<package name>.dart`, or with no entry point, is a library and keeps its
-  API),
+  including unused public members of classes and mixins in `lib/` and `bin/` of each package,
+  also from a workspace root (annotated classes and members, generated-part
+  libraries, entry files of a package that is not an application and publicly
+  exported classes are skipped; classes with `extends`, `implements`, `with` or
+  `on` clauses are checked, and every name that a supertype declares is kept.
+  The tool reads SDK and package supertypes from the sources that
+  `.dart_tool/package_config.json` names, when the SDK matches its generator
+  version. A class whose supertype cannot be read keeps the whole-class skip:
+  the name is unresolved or ambiguous, the source is missing, or the file does
+  not parse. The summary then counts `outside_types_unread` and suggests
+  `dart pub get` or `flutter pub get`; the verdict and exit code do not change;
+  a `typedef Name = Type;` counts as its target type. An application exports no
+  public API, so its `lib/` classes are checked too. An application has
+  `publish_to: none` with `lib/main.dart` or a `bin/` script, or a Flutter
+  dependency with `lib/main.dart`. A package with `lib/<package name>.dart`, or
+  with no entry point, is a library and keeps its API),
   including same-library `part` reference handling, suppressions, rule config,
   baselines, and JSON schema coverage
 - syntactic reference extraction for identifiers and type identifiers,
