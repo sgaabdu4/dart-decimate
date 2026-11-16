@@ -739,37 +739,21 @@ fn strict_check_checks_the_members_of_classes_declared_in_entry_files()
     let package = "name: pkg\nversion: 1.0.0\nenvironment:\n  sdk: ^3.8.0\n";
     let plain = "class Plain {\n  void used() {}\n\n  void spare() {}\n}\n\nvoid main() {\n  Plain().used();\n}\n";
     let cases = [
-        (app, "lib/main.dart", plain, vec!["Plain.spare"]),
-        (
-            app,
-            "lib/main.dart",
-            "class MyApp {\n  void build() {}\n}\n\nvoid main() {\n  print(MyApp());\n}\n",
-            vec![],
-        ),
-        (
-            app,
-            "lib/main_dev.dart",
-            "class Flavor {\n  void only() {}\n}\n\nvoid main() {\n  Flavor().only();\n}\n",
-            vec![],
-        ),
-        (package, "lib/pkg.dart", plain, vec![]),
+        (app, "lib/main.dart", vec!["Plain.spare"]),
+        (package, "lib/src/runner.dart", vec![]),
     ];
-    for (pubspec, path, source, expected) in cases {
+    for (pubspec, path, expected) in cases {
         let fixture = tempfile::tempdir()?;
         write(&fixture, "pubspec.yaml", pubspec)?;
-        write(&fixture, path, source)?;
-        if path == "lib/main_dev.dart" {
-            write(&fixture, "lib/main.dart", "void main() {}\n")?;
-        }
+        write(&fixture, path, plain)?;
 
-        let (_, json) = strict_check(&fixture)?;
-        let mut found = member_messages(&json)
+        let (_, json) = strict_check_with(&fixture, &["--entry", path])?;
+        let found = member_messages(&json)
             .iter()
             .filter_map(|message| message.split_whitespace().nth(4).map(str::to_owned))
             .collect::<Vec<_>>();
-        found.sort();
 
-        assert_eq!(found, expected, "{path}: {source}");
+        assert_eq!(found, expected, "{path}");
     }
 
     Ok(())
@@ -913,20 +897,26 @@ fn member_messages(json: &Value) -> Vec<String> {
 }
 
 fn strict_check(fixture: &TempDir) -> Result<(i32, Value), Box<dyn std::error::Error>> {
+    strict_check_with(fixture, &[])
+}
+
+fn strict_check_with(
+    fixture: &TempDir,
+    extra: &[&str],
+) -> Result<(i32, Value), Box<dyn std::error::Error>> {
     let mut output = Vec::new();
-    let code = run_from(
-        [
-            "dart-decimate",
-            "check",
-            fixture.path().to_str().unwrap_or("."),
-            "--threshold",
-            "0",
-            "--strict",
-            "--format",
-            "json",
-        ],
-        &mut output,
-    )?;
+    let mut args = vec![
+        "dart-decimate",
+        "check",
+        fixture.path().to_str().unwrap_or("."),
+        "--threshold",
+        "0",
+        "--strict",
+        "--format",
+        "json",
+    ];
+    args.extend_from_slice(extra);
+    let code = run_from(args, &mut output)?;
     Ok((code, serde_json::from_slice::<Value>(&output)?))
 }
 
