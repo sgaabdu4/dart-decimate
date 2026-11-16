@@ -96,6 +96,7 @@ fn assert_summary_schema(json: &Value) {
         "unused_widget_params",
         "unrendered_widgets",
         "missing_context_mounted_after_await",
+        "outside_types_unread",
         "duplication_analyzed_lines",
         "duplicated_lines",
         "duplication_percentage_basis_points",

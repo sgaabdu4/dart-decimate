@@ -230,6 +230,8 @@ pub struct ReportSummary {
     pub unused_enum_members: usize,
     /// Unused class-like members.
     pub unused_class_members: usize,
+    /// Supertype names whose SDK or package source could not be read, so their classes keep the whole-class member skip.
+    pub outside_types_unread: usize,
     /// Public API symbols exported from multiple declarations.
     pub duplicate_exports: usize,
     /// Typed `GoRouter` route path or name collisions.

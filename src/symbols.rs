@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::dependencies::{PackageScope, package_scopes};
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
-use crate::widgets::resolution::{ClassKey, DeclarationResolver};
+use crate::outside::OutsideTypes;
+use crate::widgets::resolution::{ClassKey, DeclarationResolver, Resolution};
 use crate::{
     DartCombinatorKind, DeadCodeReport, DeclarationKind, DependencyKind, Location,
     MemberDeclaration, MemberKind, ScannedProject, TopLevelDeclaration,
@@ -40,6 +41,9 @@ pub struct SymbolReport {
     pub duplicate_exports: Vec<DuplicateExport>,
     /// Conservative Rust-native semantic evidence for retained candidates and type edges.
     pub semantic: crate::SemanticReport,
+    /// Supertype names that SDK or package sources could not resolve for class member checks.
+    #[serde(default, skip_serializing)]
+    pub outside_types_unread: usize,
 }
 
 /// Options for symbol-level dead-code analysis.
@@ -153,14 +157,15 @@ pub fn analyze_symbols_with_options(
     } else {
         Vec::new()
     };
-    let (unused_exports, unused_members) = if let Some(dead_code) = dead_code {
-        (
-            unused_exports(project, dead_code, &index, options),
-            unused_members(project, dead_code, &index),
-        )
-    } else {
-        (Vec::new(), Vec::new())
-    };
+    let (unused_exports, (unused_members, outside_types_unread)) =
+        if let Some(dead_code) = dead_code {
+            (
+                unused_exports(project, dead_code, &index, options),
+                unused_members(project, dead_code, &index),
+            )
+        } else {
+            (Vec::new(), (Vec::new(), 0))
+        };
     let semantic = semantic_report(
         project,
         &index,
@@ -176,6 +181,7 @@ pub fn analyze_symbols_with_options(
         private_type_leaks,
         duplicate_exports,
         semantic,
+        outside_types_unread,
     }
 }
 
@@ -247,7 +253,7 @@ fn unused_members(
     project: &ScannedProject,
     dead_code: &DeadCodeReport,
     index: &SymbolIndex,
-) -> Vec<UnusedMember> {
+) -> (Vec<UnusedMember>, usize) {
     let reachable_files = dead_code
         .reachable_files
         .iter()
@@ -299,7 +305,10 @@ fn unused_members(
         ))
     });
 
-    unused_members
+    (
+        unused_members,
+        public_members.interface_skips.unread_names.len(),
+    )
 }
 
 fn unused_export_from_declaration(
@@ -442,8 +451,8 @@ struct HierarchyClass {
     extended: BTreeSet<ClassKey>,
     mixed: BTreeSet<ClassKey>,
     implemented: BTreeSet<ClassKey>,
-    outside_extended: bool,
-    outside_interface: bool,
+    unread_extended: BTreeSet<String>,
+    unread_interface: BTreeSet<String>,
 }
 
 #[derive(Default)]
@@ -456,6 +465,7 @@ struct DeclaredNames {
 struct InterfaceSkips {
     whole_classes: BTreeSet<ClassKey>,
     named_members: BTreeMap<ClassKey, BTreeSet<String>>,
+    unread_names: BTreeSet<String>,
 }
 
 impl InterfaceSkips {
@@ -468,10 +478,66 @@ impl InterfaceSkips {
     }
 }
 
-type Hierarchy = (
-    BTreeMap<ClassKey, HierarchyClass>,
-    BTreeMap<ClassKey, DeclaredNames>,
-);
+struct Hierarchy {
+    classes: BTreeMap<ClassKey, HierarchyClass>,
+    member_names: BTreeMap<ClassKey, DeclaredNames>,
+    outside: BTreeSet<ClassKey>,
+}
+
+struct LinkResolver<'a> {
+    resolver: &'a DeclarationResolver,
+    outside: &'a mut OutsideTypes,
+    path: &'a Path,
+    library: &'a Path,
+    imports: &'a [crate::DartImport],
+}
+
+impl LinkResolver<'_> {
+    fn resolve_all(&mut self, names: &[String]) -> (BTreeSet<ClassKey>, BTreeSet<String>) {
+        let mut found = BTreeSet::new();
+        let mut unread = BTreeSet::new();
+        for name in names {
+            match self.resolver.resolve_detailed(self.path, name) {
+                Resolution::Found(classes) if !classes.is_empty() => found.extend(classes),
+                Resolution::Absent => {
+                    match self.outside.link(self.library, self.imports, name, false) {
+                        Some(class) => {
+                            found.insert(class);
+                        }
+                        None => {
+                            unread.insert(name.clone());
+                        }
+                    }
+                }
+                Resolution::Found(_) | Resolution::Unknown => {
+                    unread.insert(name.clone());
+                }
+            }
+        }
+        (found, unread)
+    }
+
+    fn hierarchy_class(&mut self, class: &crate::ClassSupertypes) -> HierarchyClass {
+        let superclasses = class
+            .names
+            .iter()
+            .chain(&class.constraints)
+            .filter(|name| !matches!(name.as_str(), "Object" | "core.Object"))
+            .cloned()
+            .collect::<Vec<_>>();
+        let (extended, unread_extended) = self.resolve_all(&superclasses);
+        let (mixed, mut unread_interface) = self.resolve_all(&class.mixins);
+        let (implemented, unread_implemented) = self.resolve_all(&class.implemented);
+        unread_interface.extend(unread_implemented);
+        HierarchyClass {
+            extended,
+            mixed,
+            implemented,
+            unread_extended,
+            unread_interface,
+        }
+    }
+}
 
 fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let resolver = DeclarationResolver::new(
@@ -481,6 +547,17 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             name: indexed.declaration.name.clone(),
         }),
     );
+    let imports_by_path = project
+        .files
+        .iter()
+        .map(|file| {
+            (
+                normalize_against(&project.root, &file.path),
+                file.imports.as_slice(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut outside = OutsideTypes::new(&project.root);
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
     for file in &project.files {
@@ -497,49 +574,56 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
                 declared.without_body.insert(member.name.clone());
             }
         }
+        let library = index.library_path(&path).to_path_buf();
+        let mut links = LinkResolver {
+            resolver: &resolver,
+            outside: &mut outside,
+            path: &path,
+            library: &library,
+            imports: imports_by_path.get(&library).copied().unwrap_or_default(),
+        };
         for class in &file.class_supertypes {
-            let resolve_all = |names: &[String]| {
-                let sets = names
-                    .iter()
-                    .map(|name| resolver.resolve(&path, name))
-                    .collect::<Vec<_>>();
-                let outside = sets.iter().any(BTreeSet::is_empty);
-                (sets.into_iter().flatten().collect::<BTreeSet<_>>(), outside)
-            };
-            let superclasses = class
-                .names
-                .iter()
-                .filter(|name| !matches!(name.as_str(), "Object" | "core.Object"))
-                .cloned()
-                .collect::<Vec<_>>();
-            let (extended, outside_extended) = resolve_all(&superclasses);
-            let (mixed, outside_mixed) = resolve_all(&class.mixins);
-            let (implemented, outside_implemented) = resolve_all(&class.implemented);
             let key = ClassKey {
                 path: path.clone(),
                 name: class.owner.clone(),
             };
-            classes.insert(
-                key,
-                HierarchyClass {
-                    extended,
-                    mixed,
-                    implemented,
-                    outside_extended,
-                    outside_interface: outside_mixed || outside_implemented,
-                },
-            );
+            classes.insert(key, links.hierarchy_class(class));
         }
     }
-    (classes, member_names)
+    let mut outside_keys = BTreeSet::new();
+    for (key, class) in outside.expand() {
+        outside_keys.insert(key.clone());
+        member_names.insert(
+            key.clone(),
+            DeclaredNames {
+                all: class.names,
+                without_body: BTreeSet::new(),
+            },
+        );
+        classes.insert(
+            key,
+            HierarchyClass {
+                extended: class.extended,
+                mixed: class.mixed,
+                implemented: class.implemented,
+                unread_extended: class.unread_extended,
+                unread_interface: class.unread_interface,
+            },
+        );
+    }
+    Hierarchy {
+        classes,
+        member_names,
+        outside: outside_keys,
+    }
 }
 
 fn reached_interfaces(
     class: &HierarchyClass,
     classes: &BTreeMap<ClassKey, HierarchyClass>,
-) -> (BTreeMap<ClassKey, bool>, bool) {
+) -> (BTreeMap<ClassKey, bool>, BTreeSet<String>) {
     let mut reached = BTreeMap::<ClassKey, bool>::new();
-    let mut open = class.outside_interface;
+    let mut open = class.unread_interface.clone();
     let mut pending = class
         .mixed
         .iter()
@@ -552,7 +636,7 @@ fn reached_interfaces(
         )
         .collect::<Vec<_>>();
     if !class.mixed.is_empty() {
-        open |= class.outside_extended;
+        open.extend(class.unread_extended.iter().cloned());
         pending.extend(class.extended.iter().map(|parent| (parent.clone(), false)));
     }
     while let Some((reached_class, duty)) = pending.pop() {
@@ -564,7 +648,8 @@ fn reached_interfaces(
         }
         reached.insert(reached_class.clone(), duty);
         if let Some(parent) = classes.get(&reached_class) {
-            open |= parent.outside_extended || parent.outside_interface;
+            open.extend(parent.unread_extended.iter().cloned());
+            open.extend(parent.unread_interface.iter().cloned());
             pending.extend(
                 parent
                     .extended
@@ -584,11 +669,29 @@ fn reached_interfaces(
 }
 
 fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSkips {
-    let (classes, member_names) = class_hierarchy(project, index);
+    let Hierarchy {
+        classes,
+        member_names,
+        outside,
+    } = class_hierarchy(project, index);
+    let checkable = index
+        .members
+        .iter()
+        .filter(|indexed| {
+            matches!(
+                indexed.member.kind,
+                MemberKind::Field | MemberKind::Getter | MemberKind::Setter | MemberKind::Method
+            )
+        })
+        .map(|indexed| ClassKey {
+            path: indexed.path.clone(),
+            name: indexed.member.owner.clone(),
+        })
+        .collect::<BTreeSet<_>>();
     let mut skips = InterfaceSkips::default();
     for class in classes.values() {
         let (reached, open) = reached_interfaces(class, &classes);
-        if reached.is_empty() && !open {
+        if reached.is_empty() && open.is_empty() {
             continue;
         }
         let mut ancestors = BTreeSet::new();
@@ -605,7 +708,13 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
                 pending.extend(parent.extended.iter().chain(&parent.mixed).cloned());
             }
         }
-        if open {
+        if !open.is_empty() {
+            if ancestors
+                .iter()
+                .any(|ancestor| checkable.contains(ancestor))
+            {
+                skips.unread_names.extend(open);
+            }
             skips.whole_classes.extend(ancestors);
             continue;
         }
@@ -616,7 +725,7 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
                 .filter(|(reached_class, _)| *reached_class != ancestor)
                 .filter_map(|(reached_class, duty)| {
                     member_names.get(reached_class).map(|declared| {
-                        if *duty || !ancestor_is_reached {
+                        if *duty || !ancestor_is_reached || outside.contains(reached_class) {
                             &declared.all
                         } else {
                             &declared.without_body

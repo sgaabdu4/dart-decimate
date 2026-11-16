@@ -11,6 +11,13 @@ pub(crate) struct ClassKey {
     pub(crate) name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Resolution {
+    Found(BTreeSet<ClassKey>),
+    Absent,
+    Unknown,
+}
+
 #[derive(Debug)]
 pub(crate) struct DeclarationResolver {
     declarations: BTreeMap<PathBuf, BTreeSet<String>>,
@@ -88,10 +95,17 @@ impl DeclarationResolver {
     }
 
     pub(crate) fn resolve(&self, from: &Path, reference: &str) -> BTreeSet<ClassKey> {
+        match self.resolve_detailed(from, reference) {
+            Resolution::Found(classes) => classes,
+            Resolution::Absent | Resolution::Unknown => BTreeSet::new(),
+        }
+    }
+
+    pub(crate) fn resolve_detailed(&self, from: &Path, reference: &str) -> Resolution {
         let reference = compact_reference(reference);
         let segments = reference.split('.').collect::<Vec<_>>();
         let Some(first) = segments.first().copied() else {
-            return BTreeSet::new();
+            return Resolution::Absent;
         };
         let library = self.library_path(from);
         let imports = self.imports.get(&library).map_or(&[][..], Vec::as_slice);
@@ -102,7 +116,7 @@ impl DeclarationResolver {
                 .any(|dependency| dependency.visibility.prefix.as_deref() == Some(first));
             if has_prefixed_import {
                 if name.starts_with('_') {
-                    return BTreeSet::new();
+                    return Resolution::Unknown;
                 }
                 return self.imported_classes(
                     imports
@@ -116,10 +130,12 @@ impl DeclarationResolver {
 
         let local = self.library_classes(&library, first);
         if !local.is_empty() {
-            return exactly_one(local).into_iter().collect();
+            return exactly_one(local).map_or(Resolution::Unknown, |class| {
+                Resolution::Found(BTreeSet::from([class]))
+            });
         }
         if first.starts_with('_') {
-            return BTreeSet::new();
+            return Resolution::Unknown;
         }
         self.imported_classes(
             imports
@@ -134,7 +150,7 @@ impl DeclarationResolver {
         &self,
         imports: impl IntoIterator<Item = &'a ResolvedDependency>,
         name: &str,
-    ) -> BTreeSet<ClassKey> {
+    ) -> Resolution {
         let mut candidates_by_directive = BTreeMap::<(usize, usize), BTreeSet<ClassKey>>::new();
         for dependency in imports {
             candidates_by_directive
@@ -151,10 +167,12 @@ impl DeclarationResolver {
             matching_directives += 1;
             resolved.extend(candidates);
         }
-        if matching_directives <= 1 || resolved.len() <= 1 {
-            resolved
+        if matching_directives == 0 {
+            Resolution::Absent
+        } else if matching_directives == 1 || resolved.len() <= 1 {
+            Resolution::Found(resolved)
         } else {
-            BTreeSet::new()
+            Resolution::Unknown
         }
     }
 
@@ -211,7 +229,7 @@ impl DeclarationResolver {
     }
 }
 
-fn compact_reference(reference: &str) -> String {
+pub(crate) fn compact_reference(reference: &str) -> String {
     reference
         .trim()
         .trim_end_matches('?')
@@ -233,7 +251,7 @@ fn visible(name: &str, visibility: &DependencyVisibility) -> bool {
     visible_through_combinators(name, &visibility.combinators)
 }
 
-fn visible_through_combinators(name: &str, combinators: &[DartCombinator]) -> bool {
+pub(crate) fn visible_through_combinators(name: &str, combinators: &[DartCombinator]) -> bool {
     let mut is_visible = true;
     for combinator in combinators {
         match combinator.kind {

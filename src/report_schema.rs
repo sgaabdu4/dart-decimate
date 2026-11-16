@@ -150,6 +150,7 @@ const SUMMARY_INTEGER_FIELDS: &[&str] = &[
     "private_type_leaks",
     "unused_enum_members",
     "unused_class_members",
+    "outside_types_unread",
     "duplicate_exports",
     "route_collisions",
     "mixed_go_router_styles",
