@@ -728,8 +728,15 @@ fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Err
 
 #[test]
 fn package_folder_text_uses_forward_slashes() {
+    let package = Path::new("/r").join("apps").join("pure");
     assert_eq!(
-        super::package_folder(Path::new("/r"), Path::new("/r/apps\\pure")),
+        super::package_folder(Path::new("/r"), &package),
         "apps/pure"
     );
+    if std::path::MAIN_SEPARATOR == '/' {
+        assert_eq!(
+            super::package_folder(Path::new("/r"), Path::new("/r/a\\b")),
+            "a\\b"
+        );
+    }
 }

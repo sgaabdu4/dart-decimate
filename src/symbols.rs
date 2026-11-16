@@ -320,11 +320,16 @@ fn unused_members(
 }
 
 fn package_folder(root: &Path, package: &Path) -> String {
-    package
+    let folder = package
         .strip_prefix(root)
         .unwrap_or(package)
         .to_string_lossy()
-        .replace('\\', "/")
+        .into_owned();
+    if std::path::MAIN_SEPARATOR == '\\' {
+        folder.replace('\\', "/")
+    } else {
+        folder
+    }
 }
 
 fn unused_export_from_declaration(
