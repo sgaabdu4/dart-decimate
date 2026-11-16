@@ -860,3 +860,32 @@ mixin Runner on Base {}
 
     Ok(())
 }
+
+#[test]
+fn lists_the_types_a_mixin_requires_after_on() -> Result<(), ExtractError> {
+    let source = "\
+mixin Runner<T> on Base<T>, ui.Shared implements Other {}
+mixin Plain {}
+";
+
+    let extracted = extract_dart_source("lib/items.dart", source)?;
+
+    assert_eq!(
+        extracted
+            .class_supertypes
+            .iter()
+            .map(|clause| (
+                clause.owner.as_str(),
+                clause.constraints.clone(),
+                clause.implemented.clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![(
+            "Runner",
+            vec!["Base".to_owned(), "ui.Shared".to_owned()],
+            vec!["Other".to_owned()]
+        )]
+    );
+
+    Ok(())
+}
