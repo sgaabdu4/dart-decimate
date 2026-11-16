@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::dependencies::{PackageScope, package_scopes};
 use crate::generated::is_generated_dart_path;
 use crate::graph::normalize_against;
-use crate::outside::OutsideTypes;
+use crate::outside::{OutsideTypes, SharedLoader};
+use crate::package_map::find_package_config;
 use crate::widgets::resolution::{ClassKey, DeclarationResolver, Resolution};
 use crate::{
     DartCombinatorKind, DeadCodeReport, DeclarationKind, DependencyKind, Location,
@@ -656,6 +657,7 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
         .collect::<BTreeMap<_, _>>();
     let roots = PackageRoots::new(project);
     let mut outsides = BTreeMap::<PathBuf, OutsideTypes>::new();
+    let loader = SharedLoader::default();
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
     for file in &project.files {
@@ -673,11 +675,12 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             }
         }
         let library = index.library_path(&path).to_path_buf();
+        let package_root = roots.of(&path);
         let mut links = LinkResolver {
             resolver: &resolver,
             outside: outsides
-                .entry(roots.of(&path))
-                .or_insert_with_key(|folder| OutsideTypes::new(folder)),
+                .entry(find_package_config(&package_root).unwrap_or_else(|| project.root.clone()))
+                .or_insert_with(|| OutsideTypes::with_loader(&package_root, loader.clone())),
             path: &path,
             library: &library,
             imports: imports_by_path.get(&library).copied().unwrap_or_default(),

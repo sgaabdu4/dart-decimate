@@ -1330,12 +1330,12 @@ fn monorepo_root_reads_each_packages_own_config() -> Result<(), Box<dyn std::err
     )?;
     write(
         &fixture,
-        "apps/pure/pubspec.yaml",
+        "apps/pure app/pubspec.yaml",
         "name: pure\npublish_to: none\n",
     )?;
     write(
         &fixture,
-        "apps/pure/lib/main.dart",
+        "apps/pure app/lib/main.dart",
         "class Other extends Missing {\n  int used() => 1;\n}\n\nvoid main() {\n  print(Other().used());\n}\n",
     )?;
 
@@ -1350,7 +1350,7 @@ fn monorepo_root_reads_each_packages_own_config() -> Result<(), Box<dyn std::err
         .filter(|step| step["id"] == "read-outside-types")
         .filter_map(|step| step["command"].as_str())
         .collect::<Vec<_>>();
-    assert_eq!(commands, ["cd apps/pure && dart pub get"]);
+    assert_eq!(commands, ["cd 'apps/pure app' && dart pub get"]);
 
     Ok(())
 }

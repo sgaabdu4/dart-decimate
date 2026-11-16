@@ -8,6 +8,7 @@ use crate::package_map::{PackageMap, parse_yaml};
 
 mod loader;
 mod resolver;
+pub(crate) use loader::SharedLoader;
 pub(crate) use resolver::OutsideTypes;
 #[cfg(test)]
 mod loader_tests;

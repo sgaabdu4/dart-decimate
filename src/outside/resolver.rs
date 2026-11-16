@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::widgets::resolution::{ClassKey, compact_reference, visible_through_combinators};
 use crate::{DartFile, DartImport, DeclarationKind, MemberKind};
 
-use super::loader::{Outline, OutlineLoader};
+use super::loader::{Outline, SharedLoader};
 use super::{OutsideSources, Target};
 
 pub(crate) struct OutsideTypes {
@@ -26,7 +26,7 @@ pub(crate) struct OutsideClass {
 
 struct Reader {
     sources: OutsideSources,
-    loader: OutlineLoader,
+    loader: SharedLoader,
     library_of: BTreeMap<PathBuf, PathBuf>,
     exported: BTreeMap<(PathBuf, String), Walk>,
 }
@@ -54,11 +54,11 @@ impl Walk {
 }
 
 impl OutsideTypes {
-    pub(crate) fn new(root: &Path) -> Self {
+    pub(crate) fn with_loader(root: &Path, loader: SharedLoader) -> Self {
         Self {
             reader: OutsideSources::discover(root).map(|sources| Reader {
                 sources,
-                loader: OutlineLoader::default(),
+                loader,
                 library_of: BTreeMap::new(),
                 exported: BTreeMap::new(),
             }),
@@ -114,8 +114,8 @@ impl OutsideTypes {
             .cloned()
             .unwrap_or_else(|| key.path.clone());
         let (Outline::Read(file), Outline::Read(library_file)) = (
-            reader.loader.load(&key.path, &key.name),
-            reader.loader.load(&library, &key.name),
+            reader.load(&key.path, &key.name),
+            reader.load(&library, &key.name),
         ) else {
             return OutsideClass {
                 unread_extended: BTreeSet::from([key.name.clone()]),
@@ -201,6 +201,14 @@ fn declares(file: &DartFile, name: &str) -> bool {
 }
 
 impl Reader {
+    fn load(&self, path: &Path, wanted: &str) -> Outline {
+        self.loader.borrow_mut().load(path, wanted)
+    }
+
+    fn prefetch(&self, paths: &[PathBuf], wanted: &str) {
+        self.loader.borrow_mut().prefetch(paths, wanted);
+    }
+
     fn lookup(
         &mut self,
         library: &Path,
@@ -294,7 +302,7 @@ impl Reader {
                 },
             )
             .collect::<Vec<_>>();
-        self.loader.prefetch(&targets, name);
+        self.prefetch(&targets, name);
         let mut found = BTreeSet::new();
         let mut matching = 0_usize;
         let mut incomplete = false;
@@ -342,7 +350,7 @@ impl Reader {
             classes: own.classes,
             complete: own.complete,
         };
-        let Outline::Read(file) = self.loader.load(library, name) else {
+        let Outline::Read(file) = self.load(library, name) else {
             return walk;
         };
         let targets = file
@@ -356,7 +364,7 @@ impl Reader {
                 },
             )
             .collect::<Vec<_>>();
-        self.loader.prefetch(&targets, name);
+        self.prefetch(&targets, name);
         let mut groups = BTreeMap::<(usize, usize), Vec<&crate::DartExport>>::new();
         for export in &file.exports {
             groups
@@ -386,7 +394,7 @@ impl Reader {
     }
 
     fn library_classes(&mut self, library: &Path, name: &str) -> Walk {
-        let file = match self.loader.load(library, name) {
+        let file = match self.load(library, name) {
             Outline::Read(file) => file,
             Outline::Skipped => return Walk::empty(),
             Outline::Missing | Outline::Unparsed => return Walk::unread(),
@@ -410,13 +418,13 @@ impl Reader {
                 },
             )
             .collect::<Vec<_>>();
-        self.loader.prefetch(&parts, name);
+        self.prefetch(&parts, name);
         for part in &file.parts {
             let Target::Outside(path) = self.sources.resolve(library, &part.uri, true) else {
                 walk.complete = false;
                 continue;
             };
-            match self.loader.load(&path, name) {
+            match self.load(&path, name) {
                 Outline::Read(part_file) => {
                     self.library_of.insert(path.clone(), library.to_path_buf());
                     if declares(&part_file, name) {

@@ -336,7 +336,7 @@ impl PackageConfigFile {
     }
 }
 
-fn find_package_config(root: &Path) -> Option<PathBuf> {
+pub(crate) fn find_package_config(root: &Path) -> Option<PathBuf> {
     root.ancestors()
         .map(|dir| dir.join(".dart_tool/package_config.json"))
         .find(|path| path.is_file())
