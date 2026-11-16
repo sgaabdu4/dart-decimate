@@ -5,10 +5,11 @@ use crate::dependency_scripts::{package_used_in_tooling, shell_script_packages};
 use crate::generated::is_generated_dart_path;
 use crate::graph::resolve_local_uri;
 use crate::package_map::PackageMap;
+use crate::symbols::path_filters::is_library_source;
 use crate::{DartFile, DependencyKind, Location, extract_dart_file, scan::ScannedProject};
 
 use super::codegen::codegen_dependencies_for_file;
-use super::usage::{DependencyUsage, is_library_file};
+use super::usage::DependencyUsage;
 use super::{
     DependencyHygieneError, DependencyHygieneReport, DependencyIssue, PrivateSrcImport, PubPackage,
     UnlistedPackageDependency, UnusedPackageDependency, dependency_issue, discover_packages,
@@ -173,7 +174,7 @@ fn record_directive(
         return;
     }
 
-    if is_library_file(&owner.root, file_path) {
+    if is_library_source(&owner.root, file_path) {
         usage
             .library_imports
             .entry(owner.root.clone())

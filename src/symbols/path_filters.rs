@@ -4,7 +4,7 @@ pub(super) fn is_private(name: &str) -> bool {
     name.starts_with('_')
 }
 
-pub(super) fn is_library_source(root: &Path, path: &Path) -> bool {
+pub(crate) fn is_library_source(root: &Path, path: &Path) -> bool {
     path.strip_prefix(root).is_ok_and(|relative| {
         relative
             .components()

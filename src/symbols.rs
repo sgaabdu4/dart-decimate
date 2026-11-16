@@ -16,7 +16,7 @@ use crate::{
 mod duplicate_declarations;
 mod extensions;
 mod index;
-mod path_filters;
+pub(crate) mod path_filters;
 mod private_type_leaks;
 mod riverpod;
 mod semantic_evidence;

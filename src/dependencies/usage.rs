@@ -24,15 +24,6 @@ impl DependencyUsage {
     }
 }
 
-pub(super) fn is_library_file(package_root: &Path, path: &Path) -> bool {
-    path.strip_prefix(package_root).is_ok_and(|relative| {
-        matches!(
-            relative.components().next(),
-            Some(std::path::Component::Normal(name)) if name == "lib"
-        )
-    })
-}
-
 pub(super) fn allows_dev_dependency(package_root: &Path, path: &Path) -> bool {
     let relative = path.strip_prefix(package_root).unwrap_or(path);
     !matches!(
