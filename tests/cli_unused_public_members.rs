@@ -1179,6 +1179,30 @@ fn unread_outside_types_keep_whole_class_skip() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+fn extension_on_types_are_not_unread_outside_types() -> Result<(), Box<dyn std::error::Error>> {
+    let (code, json) = strict_check_with_toolchain(
+        "extension Doubled<T extends num> on T {\n  T twice() => this;\n}\n\nextension Pairs on (int, int) {\n  int sum() => 1;\n}\n\nextension Names<T> on List<T> {\n  int count() => 1;\n}\n",
+        "import 'src/items.dart';\n\nvoid main() {\n  print(1.twice());\n  print((1, 2).sum());\n  print([1].count());\n}\n",
+    )?;
+
+    assert_eq!(code, 0);
+    assert_eq!(
+        json["summary"]["outside_types_unread"], 0,
+        "{}",
+        json["summary"]
+    );
+    assert!(
+        json["next_steps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|step| step["id"] != "read-outside-types")
+    );
+
+    Ok(())
+}
+
+#[test]
 fn bin_class_members_report() -> Result<(), Box<dyn std::error::Error>> {
     let tool = "class Tool {\n  int used() => 1;\n\n  int spare() => 2;\n\n  int _hidden() => 3;\n}\n\nenum Mode { fast, slow }\n\nvoid main() {\n  print(Tool().used());\n  print(Mode.fast);\n}\n";
     let cases = [
