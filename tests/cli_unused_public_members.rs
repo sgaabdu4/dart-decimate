@@ -1285,6 +1285,27 @@ fn project_barrel_export_combinators_hide_outside_names() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn annotated_extension_on_types_are_not_unread_outside_types()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (code, json) = strict_check_with_toolchain(
+        "@visibleForTesting\nextension RX on (int, int) {\n  int get sum => $1 + $2;\n}\n\n@visibleForTesting\nextension Call on void Function() {\n  void twice() {}\n}\n",
+        "import 'src/items.dart';\n\nvoid main() {\n  print((1, 2).sum);\n  (() {}).twice();\n}\n",
+    )?;
+
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["outside_types_unread"], 0);
+    assert!(
+        json["next_steps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|step| step["id"] != "read-outside-types")
+    );
+
+    Ok(())
+}
+
+#[test]
 fn bin_class_members_report() -> Result<(), Box<dyn std::error::Error>> {
     let tool = "class Tool {\n  int used() => 1;\n\n  int spare() => 2;\n\n  int _hidden() => 3;\n}\n\nenum Mode { fast, slow }\n\nvoid main() {\n  print(Tool().used());\n  print(Mode.fast);\n}\n";
     let cases = [
