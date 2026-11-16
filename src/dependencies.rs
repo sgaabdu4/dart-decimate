@@ -208,9 +208,10 @@ pub enum DependencyHygieneError {
 /// Returns [`DependencyHygieneError`] if pubspec discovery or parsing fails.
 pub fn declared_package_dependencies(
     root: &Path,
+    ignore_patterns: &[String],
     dependency: &str,
 ) -> Result<Vec<DeclaredPackageDependency>, DependencyHygieneError> {
-    let packages = discover_packages(root)?;
+    let packages = discover_packages(root, ignore_patterns)?;
     let mut declarations = Vec::new();
     for package in packages {
         for declared in package
@@ -248,8 +249,11 @@ pub fn declared_package_dependencies(
 /// # Errors
 ///
 /// Returns [`DependencyHygieneError`] if pubspec discovery or parsing fails.
-pub fn local_pub_packages(root: &Path) -> Result<Vec<LocalPubPackage>, DependencyHygieneError> {
-    discover_packages(root).map(|packages| {
+pub fn local_pub_packages(
+    root: &Path,
+    ignore_patterns: &[String],
+) -> Result<Vec<LocalPubPackage>, DependencyHygieneError> {
+    discover_packages(root, ignore_patterns).map(|packages| {
         packages
             .into_iter()
             .map(|package| LocalPubPackage {
@@ -298,8 +302,8 @@ pub(crate) struct PackageScope {
     pub(crate) application: bool,
 }
 
-pub(crate) fn package_scopes(root: &Path) -> Vec<PackageScope> {
-    discover_packages(root)
+pub(crate) fn package_scopes(root: &Path, ignore_patterns: &[String]) -> Vec<PackageScope> {
+    discover_packages(root, ignore_patterns)
         .unwrap_or_default()
         .into_iter()
         .map(|package| PackageScope {

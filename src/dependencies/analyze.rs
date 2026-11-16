@@ -32,7 +32,7 @@ struct ImportUsage {
 pub fn analyze_dependency_hygiene(
     project: &ScannedProject,
 ) -> Result<DependencyHygieneReport, DependencyHygieneError> {
-    let packages = discover_packages(&project.root)?;
+    let packages = discover_packages(&project.root, &project.ignore_patterns)?;
     let generated_runtime_files = reachable_generated_runtime_files(project, &packages)?;
     let mut imports = collect_import_usage(project, &packages, &generated_runtime_files);
     let mut unused_dependencies = unused_dependencies(&packages, &imports.used_by_package);

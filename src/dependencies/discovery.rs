@@ -5,9 +5,17 @@ use crate::scan::{IgnoreMatcher, project_walk};
 
 use super::{DependencyHygieneError, PubPackage, read_package};
 
-pub(super) fn discover_packages(root: &Path) -> Result<Vec<PubPackage>, DependencyHygieneError> {
+pub(super) fn discover_packages(
+    root: &Path,
+    ignore_patterns: &[String],
+) -> Result<Vec<PubPackage>, DependencyHygieneError> {
+    let ignore_matcher =
+        IgnoreMatcher::new(ignore_patterns).map_err(|error| DependencyHygieneError::ReadDir {
+            path: root.to_path_buf(),
+            source: std::io::Error::other(error),
+        })?;
     let mut pubspecs = Vec::new();
-    for entry in project_walk(root, root, &IgnoreMatcher::default()) {
+    for entry in project_walk(root, root, &ignore_matcher) {
         let entry = entry.map_err(|error| DependencyHygieneError::ReadDir {
             path: root.to_path_buf(),
             source: std::io::Error::other(error),

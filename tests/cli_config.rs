@@ -155,6 +155,42 @@ fn config_ignore_patterns_exclude_dead_files() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+fn config_ignore_patterns_exclude_pubspecs_from_dependency_checks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        ".dart-decimaterc",
+        "ignore_patterns = [\"tools/**\"]\n\n[cli]\nformat = \"json\"\nentry = [\"lib/main.dart\"]\n",
+    )?;
+    write(&fixture, "pubspec.yaml", "name: app\n")?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    write(
+        &fixture,
+        "tools/skill/pubspec.yaml",
+        "name: skill\ndependencies:\n  collection: any\n  path: any\n",
+    )?;
+    write(&fixture, "tools/skill/lib/skill.dart", "class Skill {}\n")?;
+    let mut output = Vec::new();
+
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+        ],
+        &mut output,
+    )?;
+
+    let json = serde_json::from_slice::<Value>(&output)?;
+    assert_eq!(code, 0);
+    assert_eq!(json["summary"]["unused_dependencies"], 0);
+    assert_eq!(json["summary"]["findings"], 0);
+
+    Ok(())
+}
+
+#[test]
 fn config_include_entry_exports_reports_entry_declarations()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

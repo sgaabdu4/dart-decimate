@@ -923,7 +923,7 @@ fn owning_scope<'scope>(
 
 impl PublicMemberContext {
     fn new(project: &ScannedProject, dead_code: &DeadCodeReport, index: &SymbolIndex) -> Self {
-        let packages = package_scopes(&project.root);
+        let packages = package_scopes(&project.root, &project.ignore_patterns);
         let public_classes = public_exported_declarations_from(project, |path| {
             owning_scope(&packages, path).map_or_else(
                 || is_public_library_entry(&project.root, path),

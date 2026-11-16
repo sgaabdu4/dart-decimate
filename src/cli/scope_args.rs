@@ -137,14 +137,14 @@ pub(super) fn apply_report_scope(
     }
 
     if !request.workspace_patterns.is_empty() {
-        let packages = local_pub_packages(&project.root)?;
+        let packages = local_pub_packages(&project.root, &project.ignore_patterns)?;
         let workspace_scope =
             workspace_file_scope(project, &packages, &request.workspace_patterns)?;
         results.file_scope = Some(intersect_scope(results.file_scope.take(), workspace_scope));
     }
 
     if let Some(base) = &request.changed_workspaces {
-        let packages = local_pub_packages(&project.root)?;
+        let packages = local_pub_packages(&project.root, &project.ignore_patterns)?;
         let changed = changed_files(&project.root, base)?;
         let workspace_scope = changed_workspace_file_scope(project, &packages, &changed);
         results.file_scope = Some(intersect_scope(results.file_scope.take(), workspace_scope));
