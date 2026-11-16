@@ -354,6 +354,7 @@ final router = GoRouter(routes: [
             root,
             files,
             graph,
+            ignore_patterns: Vec::new(),
         })
     }
 }

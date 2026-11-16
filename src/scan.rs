@@ -26,12 +26,14 @@ pub struct ScannedProject {
     pub files: Vec<DartFile>,
     /// Directed graph built from the extracted files.
     pub graph: ModuleGraph,
+    /// Glob patterns that excluded Dart files and pubspecs from discovery.
+    pub ignore_patterns: Vec<String>,
 }
 
 /// Options controlling Dart file discovery.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScanOptions {
-    /// Glob patterns excluded from Dart file discovery.
+    /// Glob patterns excluded from Dart file and pubspec discovery.
     pub ignore_patterns: Vec<String>,
     /// Dart conditional URI environment values. Empty means include every branch.
     pub conditional_environment: BTreeMap<String, String>,
@@ -161,6 +163,7 @@ pub fn scan_project_with_options(
         scan_roots: scan_roots.into_iter().collect(),
         files,
         graph,
+        ignore_patterns: options.ignore_patterns.clone(),
     })
 }
 
@@ -311,7 +314,7 @@ pub(crate) struct IgnoreMatcher {
 }
 
 impl IgnoreMatcher {
-    fn new(patterns: &[String]) -> Result<Self, ScanError> {
+    pub(crate) fn new(patterns: &[String]) -> Result<Self, ScanError> {
         let patterns = patterns
             .iter()
             .map(|pattern| {

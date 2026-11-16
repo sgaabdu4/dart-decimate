@@ -57,7 +57,7 @@ pub struct DartDecimateConfig {
     pub boundary_calls: Vec<BoundaryCallRule>,
     /// Declarative policy pack paths.
     pub policy_packs: Vec<PathBuf>,
-    /// Glob patterns excluded from Dart file discovery.
+    /// Glob patterns excluded from Dart file and pubspec discovery.
     pub ignore_patterns: Vec<String>,
     /// Pub dependency names ignored by dependency hygiene checks.
     pub ignore_dependencies: Vec<String>,

@@ -50,7 +50,7 @@ import 'package:collection/collection.dart';\n\
 void main() {}\n",
     )?;
     let project = scan_project(fixture.path())?;
-    let packages = discover_packages(&project.root)?;
+    let packages = discover_packages(&project.root, &[])?;
     assert_eq!(packages.len(), 1);
     assert_eq!(packages[0].name, "app");
     assert_eq!(packages[0].dependencies.len(), 3);
@@ -291,7 +291,7 @@ dependency_overrides:\n  stale: ^1.0.0\n",
         "import 'package:http/http.dart';\nvoid main() {}\n",
     )?;
     let project = scan_project(fixture.path())?;
-    let packages = discover_packages(&project.root)?;
+    let packages = discover_packages(&project.root, &[])?;
     assert_eq!(packages.len(), 1);
     assert_eq!(
         packages[0]
@@ -578,7 +578,7 @@ fn finds_declared_package_dependencies_for_trace() -> Result<(), Box<dyn std::er
 dependencies:\n  collection: ^1.18.0\n",
     )?;
 
-    let declarations = declared_package_dependencies(fixture.path(), "collection")?;
+    let declarations = declared_package_dependencies(fixture.path(), &[], "collection")?;
 
     assert_eq!(declarations.len(), 1);
     assert_eq!(declarations[0].package, "app");
@@ -651,7 +651,7 @@ fn skips_nested_checkout_packages_and_sources() -> Result<(), Box<dyn std::error
     write(&fixture, "worktrees/wt1/test/main_test.dart", app_main)?;
     let project = scan_project(fixture.path())?;
 
-    let packages = discover_packages(&project.root)?;
+    let packages = discover_packages(&project.root, &[])?;
     let report = analyze_dependency_hygiene(&project)?;
 
     assert_eq!(
@@ -685,7 +685,7 @@ fn skips_gitignored_nested_package_dependencies() -> Result<(), Box<dyn std::err
     )?;
     let project = scan_project(fixture.path())?;
 
-    let packages = discover_packages(&project.root)?;
+    let packages = discover_packages(&project.root, &[])?;
     let report = analyze_dependency_hygiene(&project)?;
 
     assert_eq!(packages.len(), 1);
