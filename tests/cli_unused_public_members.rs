@@ -668,6 +668,52 @@ fn strict_check_checks_the_members_of_a_mixin() -> Result<(), Box<dyn std::error
 }
 
 #[test]
+fn strict_check_keeps_a_mixin_member_that_the_superclass_chain_requires()
+-> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        (
+            "abstract class Base {\n  void hook();\n}\n\nmixin M {\n  void hook() {}\n}\n\nclass P extends Base with M {}\n",
+            "  print(P());\n",
+            "M.hook",
+        ),
+        (
+            "abstract class Base {\n  void hook();\n}\n\nmixin class M {\n  void hook() {}\n}\n\nclass P extends Base with M {}\n",
+            "  print(P());\n",
+            "M.hook",
+        ),
+        (
+            "import 'dart:async';\n\nmixin M {\n  Stream<int> bind(Stream<int> s) => s;\n}\n\nclass P extends StreamTransformerBase<int, int> with M {}\n",
+            "  Stream.value(1).transform(P());\n",
+            "M.bind",
+        ),
+        (
+            "import 'dart:async';\n\nmixin M {\n  Stream<int> bind(Stream<int> s) => s;\n}\n\nabstract class Mid extends StreamTransformerBase<int, int> {}\n\nclass P extends Mid with M {}\n",
+            "  Stream.value(1).transform(P());\n",
+            "M.bind",
+        ),
+        (
+            "abstract class I {\n  void hook();\n}\n\nabstract class Base implements I {}\n\nmixin M {\n  void hook() {}\n}\n\nclass P extends Base with M {}\n",
+            "  print(P());\n",
+            "M.hook",
+        ),
+    ];
+    for (items, main_body, kept) in cases {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(&fixture, items, main_body)?;
+
+        let (_, json) = strict_check(&fixture)?;
+        let messages = member_messages(&json);
+
+        assert!(
+            !messages.iter().any(|message| message.contains(kept)),
+            "{items}: {messages:?}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn strict_check_keeps_the_members_of_an_unpublished_library_that_has_no_entry_point()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;

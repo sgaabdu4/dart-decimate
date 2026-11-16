@@ -545,6 +545,10 @@ fn reached_interfaces(
                 .map(|interface| (interface.clone(), true)),
         )
         .collect::<Vec<_>>();
+    if !class.mixed.is_empty() {
+        open |= class.outside_extended;
+        pending.extend(class.extended.iter().map(|parent| (parent.clone(), false)));
+    }
     while let Some((reached_class, duty)) = pending.pop() {
         if reached
             .get(&reached_class)
