@@ -1393,6 +1393,64 @@ fn unlisted_packages_under_one_config_give_the_same_result_in_any_order()
 }
 
 #[test]
+fn unlisted_package_resolves_its_own_name_and_path_dependencies()
+-> Result<(), Box<dyn std::error::Error>> {
+    for (name, with_path_dependency) in [("aaa", false), ("zzz", false), ("aaa", true)] {
+        let fixture = tempfile::tempdir()?;
+        let toolchain = tempfile::tempdir()?;
+        let packages = write_toolchain(&toolchain, "3.14.0")?;
+        write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+        write(&fixture, "lib/main.dart", "void main() {}\n")?;
+        let (dependency, import) = if with_path_dependency {
+            write(
+                &fixture,
+                "bbb/pubspec.yaml",
+                "name: bbb\npublish_to: none\n",
+            )?;
+            write(&fixture, "bbb/lib/b.dart", "class Bee {}\n")?;
+            (
+                "dependencies:\n  bbb:\n    path: ../bbb\n",
+                "package:bbb/b.dart".to_owned(),
+            )
+        } else {
+            ("", format!("package:{name}/other.dart"))
+        };
+        write(
+            &fixture,
+            &format!("{name}/pubspec.yaml"),
+            &format!("name: {name}\npublish_to: none\n{dependency}"),
+        )?;
+        write(
+            &fixture,
+            &format!("{name}/lib/other.dart"),
+            "class Other {}\n",
+        )?;
+        write(
+            &fixture,
+            &format!("{name}/lib/main.dart"),
+            &format!(
+                "import '{import}';\nimport 'other.dart';\n\nclass AItem implements Comparable<AItem> {{\n  int compareTo(AItem other) => 0;\n\n  int spare() => 1;\n}}\n\nvoid main() {{\n  print(AItem());\n  print(Other());\n}}\n"
+            ),
+        )?;
+        write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            found_members(&json),
+            ["AItem.spare"],
+            "{name} {with_path_dependency}"
+        );
+        assert_eq!(
+            json["summary"]["outside_types_unread"], 0,
+            "{name} {with_path_dependency}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
