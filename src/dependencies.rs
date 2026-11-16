@@ -401,10 +401,11 @@ pub(super) fn read_package(path: &Path) -> Result<Option<PubPackage>, Dependency
         .parent()
         .map_or_else(|| PathBuf::from("."), normalize_path);
     let overrides = read_pubspec_overrides(&root)?;
-    let flutter_metadata_dependencies = flutter_usage::flutter_metadata_dependencies(&root, &value);
+    let application = is_application(&value, &root, name);
+    let flutter_metadata_dependencies =
+        flutter_usage::flutter_metadata_dependencies(&root, &value, application);
 
     let needed_packages = package_graph::needed_packages(&root, name);
-    let application = is_application(&value, &root, name);
 
     Ok(Some(PubPackage {
         name: name.to_owned(),

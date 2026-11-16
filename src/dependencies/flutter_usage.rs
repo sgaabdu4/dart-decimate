@@ -8,10 +8,14 @@ use serde_json::Value as JsonValue;
 pub(super) fn flutter_metadata_dependencies(
     package_root: &Path,
     pubspec: &Value,
+    application: bool,
 ) -> BTreeSet<String> {
     let mut dependencies = BTreeSet::new();
     if is_flutter_package(pubspec) {
         dependencies.insert("cupertino_icons".to_owned());
+        if application {
+            dependencies.insert("flutter".to_owned());
+        }
     }
     if let Some(flutter) = mapping_field(pubspec, "flutter") {
         collect_package_asset_references(flutter, &mut dependencies);

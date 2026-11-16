@@ -66,6 +66,46 @@ dev_dependencies:\n  mockito: ^5.0.0\n",
 }
 
 #[test]
+fn flutter_sdk_dependency_of_an_application_is_runtime() -> Result<(), Box<dyn std::error::Error>> {
+    let cases = [
+        ("name: app\npublish_to: none\n", "lib/main.dart", true),
+        ("name: pkg\nversion: 1.0.0\n", "lib/pkg.dart", false),
+    ];
+    for (head, library, runtime) in cases {
+        let fixture = tempfile::tempdir()?;
+        write(
+            &fixture,
+            "pubspec.yaml",
+            &format!(
+                "{head}dependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n"
+            ),
+        )?;
+        write(&fixture, library, "void main() {}\n")?;
+        write(
+            &fixture,
+            "test/app_test.dart",
+            "import 'package:flutter_test/flutter_test.dart';\nvoid main() {}\n",
+        )?;
+        write(
+            &fixture,
+            "test/flutter_test.dart",
+            "import 'package:flutter/widgets.dart';\nvoid main() {}\n",
+        )?;
+
+        let (_, json) = strict_check(&fixture)?;
+
+        assert_eq!(
+            json["summary"]["test_only_dependencies"],
+            usize::from(!runtime),
+            "{head}: {:?}",
+            rule_ids(&json)
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn check_marks_only_simple_unused_pub_dependencies_auto_fixable()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
