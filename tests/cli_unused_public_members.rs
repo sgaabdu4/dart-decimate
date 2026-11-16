@@ -1763,6 +1763,7 @@ fn missing_parts_give_one_step_for_each_package_that_can_use_them()
     }
     assert!(!reasons[0].contains("w.g.dart"), "{reasons:?}");
     assert!(reasons[0].contains("is a part but missing"), "{reasons:?}");
+    assert!(reasons[0].contains("generate them"), "{reasons:?}");
     assert!(!reasons[0].contains("imported but missing"), "{reasons:?}");
 
     Ok(())
@@ -1843,6 +1844,90 @@ fn missing_files_of_a_local_path_package_get_the_step_in_that_package()
                 && command.ends_with("dart run build_runner build")),
         "{commands:?}"
     );
+
+    Ok(())
+}
+
+type Row<'a> = (
+    &'a str,
+    &'a [(&'a str, &'a str)],
+    &'a str,
+    Vec<&'a str>,
+    &'a str,
+);
+
+#[test]
+fn missing_local_file_steps_follow_one_rule() -> Result<(), Box<dyn std::error::Error>> {
+    let base_case: &[(&str, &str)] = &[
+        ("lib/base.dart", "part 'base.g.dart';\n"),
+        (
+            "lib/main.dart",
+            "import 'base.dart';\n\nclass Impl extends GenBase {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n}\n",
+        ),
+    ];
+    let unrelated: &[(&str, &str)] = &[
+        (
+            "lib/main.dart",
+            "class Impl extends Missing {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n}\n",
+        ),
+        (
+            "test/w.dart",
+            "part 'w.g.dart';\n\nclass Plain {}\n\nvoid main() {\n  print(Plain());\n}\n",
+        ),
+    ];
+    // (case, files, folder to scan, commands, reason fragment)
+    let rows: [Row; 3] = [
+        (
+            "part reached through an import",
+            base_case,
+            "",
+            vec!["dart run build_runner build"],
+            "lib/base.g.dart is a part but missing; generate it ",
+        ),
+        (
+            "unrelated missing part",
+            unrelated,
+            "",
+            vec!["dart pub get"],
+            "",
+        ),
+        (
+            "scan root is the package",
+            base_case,
+            ".",
+            vec!["dart run build_runner build"],
+            "lib/base.g.dart",
+        ),
+    ];
+    for (case, files, scan, commands, reason) in rows {
+        let fixture = tempfile::tempdir()?;
+        let toolchain = tempfile::tempdir()?;
+        let packages = write_toolchain(&toolchain, "3.14.0")?;
+        write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+        for (path, source) in files {
+            write(&fixture, path, source)?;
+        }
+        write_package_config(&fixture, &toolchain, &packages, &[])?;
+        let mut output = Vec::new();
+        run_from(
+            [
+                "dart-decimate",
+                "check",
+                fixture.path().join(scan).to_str().unwrap_or("."),
+                "--threshold",
+                "0",
+                "--strict",
+                "--format",
+                "json",
+            ],
+            &mut output,
+        )?;
+        let json = serde_json::from_slice::<Value>(&output)?;
+
+        assert_eq!(next_step_commands(&json), commands, "{case}");
+        let reasons = step_reasons(&json, "generate-missing-import").join(" | ");
+        assert!(reasons.contains(reason), "{case}: {reasons}");
+    }
 
     Ok(())
 }

@@ -98,10 +98,6 @@ impl OutsideSources {
         }
     }
 
-    pub(crate) fn missing_imports(&self) -> BTreeSet<PathBuf> {
-        self.missing.borrow().clone()
-    }
-
     pub(crate) fn is_sdk_source(&self, path: &Path) -> bool {
         path.starts_with(&self.sdk_lib)
     }

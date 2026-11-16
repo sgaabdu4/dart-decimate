@@ -120,6 +120,15 @@ pub struct ModuleGraph {
 }
 
 impl ModuleGraph {
+    pub(crate) fn resolve_specifier(
+        &self,
+        from: &Path,
+        specifier: &str,
+    ) -> Option<(PathBuf, bool)> {
+        resolve_local_uri(&self.root, &self.packages, from, specifier)
+            .map(|target| (target.path, target.local))
+    }
+
     /// Project root used to resolve package and relative imports.
     #[must_use]
     pub fn root(&self) -> &Path {
