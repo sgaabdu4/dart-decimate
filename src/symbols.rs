@@ -506,7 +506,13 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
                 let outside = sets.iter().any(BTreeSet::is_empty);
                 (sets.into_iter().flatten().collect::<BTreeSet<_>>(), outside)
             };
-            let (extended, outside_extended) = resolve_all(&class.names);
+            let superclasses = class
+                .names
+                .iter()
+                .filter(|name| !matches!(name.as_str(), "Object" | "core.Object"))
+                .cloned()
+                .collect::<Vec<_>>();
+            let (extended, outside_extended) = resolve_all(&superclasses);
             let (mixed, outside_mixed) = resolve_all(&class.mixins);
             let (implemented, outside_implemented) = resolve_all(&class.implemented);
             let key = ClassKey {
