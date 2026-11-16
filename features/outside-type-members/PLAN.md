@@ -1,6 +1,6 @@
 # Read outside supertypes for unused class members, and check application bin/ classes
 
-Status: Ready
+Status: Complete
 
 ## Outcome + scope
 
@@ -50,23 +50,23 @@ Authority: Autonomous. The owner approved this work on 2026-11-16 at 05:32 UTC a
 
 ## Acceptance + steps
 
-- [ ] Each limit has a failing test first, red on 0.0.76 → N/A — an order of work; the named tests below are each run before their fix, and Verification records the red run.
-- [ ] A plain project mixin mixed into an outside `State` (fake Flutter SDK in the real layout) reports its member that `State` lacks and keeps one `State` declares → `tests/cli_unused_public_members.rs::outside_superclass_mixin_reports_names_the_outside_type_lacks`, 1 finding.
-- [ ] A plain project mixin on an outside `State` keeps its override of a hook that `State` declares with a body, with no project reference to that name → `tests/cli_unused_public_members.rs::outside_hook_with_body_stays_protected`, 0 findings for that name.
-- [ ] A plain base class whose subclass implements `Comparable` (fake SDK) reports a member that `Comparable` lacks and keeps `compareTo` → `tests/cli_unused_public_members.rs::outside_interface_base_reports_names_the_interface_lacks`, 1 finding.
-- [ ] An outside class that implements another outside class, reached through a typedef and a package `export` with `show`/`hide`, protects the names of every link → `tests/cli_unused_public_members.rs::outside_supertype_chain_protects_inherited_names`, 0 findings for those names.
-- [ ] No config, missing pub cache folder, outside parse error, other SDK version and an ambiguous name each keep the whole-class skip, raise `outside_types_unread` and keep the exit code → `tests/cli_unused_public_members.rs::unread_outside_types_keep_whole_class_skip`, one case each.
-- [ ] Application and library `bin/` classes report unused public, private and enum members → `tests/cli_unused_public_members.rs::bin_class_members_report`, 3 findings in each package kind.
-- [ ] A project class that extends an outside `StatelessWidget` (fake Flutter SDK) reports its own unused member and keeps `build`, which the outside type declares; a class that extends a project base reports its own unused member and keeps the base's names; an annotated class keeps the whole-class skip; a class with an unread link keeps the whole-class skip → `tests/cli_unused_public_members.rs::classes_with_supertypes_report_own_unused_members`, one case each.
-- [ ] A new Flutter application whose `lib/` imports no `package:flutter` file keeps `flutter` as a runtime dependency → `tests/cli_dependencies.rs::flutter_sdk_dependency_of_an_application_is_runtime`, red on 0.0.76.
-- [ ] Strict parse errors in 3 of 1,045 outside files (Flutter `widgets/overlay.dart`, `sky_engine` `js_interop.dart` and `_js_types/js_types.dart`) are a base parser fault → `src/dart_parser.rs::strict_parse_accepts_the_outside_file_forms`, red first; or, if the grammar cannot take a form, the limit and its cause go in PRODUCT.md and this row records why.
-- [ ] `build` and `createState` leave `CONTRACT_MEMBER_NAMES` only if the 45-copy run shows no new false finding → N/A — a run result, not a test; Verification records the run.
-- [ ] `PRODUCT.md` and the explain text drop both limits and state the rest (unread sources, unparsed outside files) → `tests/cli_explain.rs::unused_class_member_explanation_states_its_limits`.
-- [ ] `is_library_source` has one definition → N/A — a code merge with no behavior change; `cargo test --all-targets` passes.
-- [ ] Cost stays within the limit under Baseline on the new Flutter app, P5 and P9, at default and 2 threads, two runs each → N/A — a measurement; Verification records the table.
-- [ ] 45 sealed copies: the comparison run against `r9` (276 unused-member findings). Every new or lost finding is read and judged real or false: 0 false. Scratch copies of the other sets also get `flutter pub get --offline`, with the same judgment; copies that do not resolve are listed as not checked → N/A — a run on private copies; Verification records the counts and judgments.
-- [ ] A new `flutter create` app has 0 findings → N/A — a run of the built CLI; E2E below records it.
-- [ ] Full gate passes → N/A — a gate run is no product behavior; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` is the proof.
+- [x] Each limit has a failing test first, red on 0.0.76 → N/A — an order of work; the named tests below are each run before their fix, and Verification records the red run.
+- [x] A plain project mixin mixed into an outside `State` (fake Flutter SDK in the real layout) reports its member that `State` lacks and keeps one `State` declares → `tests/cli_unused_public_members.rs::outside_superclass_mixin_reports_names_the_outside_type_lacks`, 1 finding.
+- [x] A plain project mixin on an outside `State` keeps its override of a hook that `State` declares with a body, with no project reference to that name → `tests/cli_unused_public_members.rs::outside_hook_with_body_stays_protected`, 0 findings for that name.
+- [x] A plain base class whose subclass implements `Comparable` (fake SDK) reports a member that `Comparable` lacks and keeps `compareTo` → `tests/cli_unused_public_members.rs::outside_interface_base_reports_names_the_interface_lacks`, 1 finding.
+- [x] An outside class that implements another outside class, reached through a typedef and a package `export` with `show`/`hide`, protects the names of every link → `tests/cli_unused_public_members.rs::outside_supertype_chain_protects_inherited_names`, 0 findings for those names.
+- [x] No config, missing pub cache folder, outside parse error, other SDK version and an ambiguous name each keep the whole-class skip, raise `outside_types_unread` and keep the exit code → `tests/cli_unused_public_members.rs::unread_outside_types_keep_whole_class_skip`, one case each.
+- [x] Application and library `bin/` classes report unused public, private and enum members → `tests/cli_unused_public_members.rs::bin_class_members_report`, 3 findings in each package kind.
+- [x] A project class that extends an outside `StatelessWidget` (fake Flutter SDK) reports its own unused member and keeps `build`, which the outside type declares; a class that extends a project base reports its own unused member and keeps the base's names; an annotated class keeps the whole-class skip; a class with an unread link keeps the whole-class skip → `tests/cli_unused_public_members.rs::classes_with_supertypes_report_own_unused_members`, one case each.
+- [x] A new Flutter application whose `lib/` imports no `package:flutter` file keeps `flutter` as a runtime dependency → `tests/cli_dependencies.rs::flutter_sdk_dependency_of_an_application_is_runtime`, red on 0.0.76.
+- [x] Strict parse errors in 3 of 1,045 outside files (Flutter `widgets/overlay.dart`, `sky_engine` `js_interop.dart` and `_js_types/js_types.dart`) are a base parser fault → `src/dart_parser.rs::strict_parse_accepts_the_outside_file_forms`, red first; or, if the grammar cannot take a form, the limit and its cause go in PRODUCT.md and this row records why.
+- [x] `build` and `createState` leave `CONTRACT_MEMBER_NAMES` only if the 45-copy run shows no new false finding → N/A — a run result, not a test; Verification records the run.
+- [x] `PRODUCT.md` and the explain text drop both limits and state the rest (unread sources, unparsed outside files) → `tests/cli_explain.rs::unused_class_member_explanation_states_its_limits`.
+- [x] `is_library_source` has one definition → N/A — a code merge with no behavior change; `cargo test --all-targets` passes.
+- [x] Cost stays within the limit under Baseline on the new Flutter app, P5 and P9, at default and 2 threads, two runs each → N/A — a measurement; Verification records the table.
+- [x] 45 sealed copies: the comparison run against `r9` (276 unused-member findings). Every new or lost finding is read and judged real or false: 0 false. Scratch copies of the other sets also get `flutter pub get --offline`, with the same judgment; copies that do not resolve are listed as not checked → N/A — a run on private copies; Verification records the counts and judgments.
+- [x] A new `flutter create` app has 0 findings → N/A — a run of the built CLI; E2E below records it.
+- [x] Full gate passes → N/A — a gate run is no product behavior; `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` is the proof.
 
 ## Baseline + execution
 
@@ -120,10 +120,10 @@ N/A — CLI findings and one summary count; no rendered interface.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending
-E2E: Required — built CLI on (1) a new `flutter create` app → 0 findings; (2) a fixture with `lib/` and `bin/` classes → the listed findings; (3) the same app with `.dart_tool` removed → same verdict, `outside_types_unread` above 0.
-Retro: Pending
+Result: Passed
+Evidence: Every new test was run red on 0.0.76 behavior before its fix. The 45 sealed copies, final 0.0.78 build against `r9`: 278 member findings both runs, 0 new, 0 lost, 0 other changes, so 0 false and 0 real new findings. The base count is 278, not the 276 written above. 14 of the 45 copies hold a package config. Scratch copies of the others, run after `flutter pub get --offline`: 14 findings both runs, 0 changes. Not checked: the P9 root (no pubspec), the P13 fixtures (invalid pubspec) and P9-pkg1 alone (needs a sibling path package; its tree copy was checked instead). A member injected into a P5 widget in a scratch copy gave exactly that finding, so the check works on real data. `build` and `createState` stay in `CONTRACT_MEMBER_NAMES`: removing them broke the merged build contract test (`strict_check_checks_the_members_of_classes_declared_in_entry_files`), so that removal was reverted. Cost, paired runs on a busy Mac, `r9` against 0.0.78: new Flutter app 0.04 s to 0.24 s default threads (+0.20 s), 0.41 s at 2 threads (+0.37 s), memory 12 to 49 MB; P5 18.17 s to 18.98 s (+4.5%) default, 23.53 s to 23.85 s (+1.4%) at 2 threads, +17 MB; P9 has no package config, so no outside reading and no change within noise. All within the limit. `python3 .hooks/hard-eng.py check --plan-stage Complete` result is recorded in the delivery notes.
+E2E: Passed. Built CLI 0.0.78: (1) `flutter create` app, 0 findings, verdict pass, `outside_types_unread` 0; (2) fixture with `lib/` and `bin/` classes: 2 findings, `Tool.unusedBin` in `bin/tool.dart` and `Shape._unusedPrivate` in `lib/shape.dart`, while public library members stay API; (3) the same app with `.dart_tool` removed: verdict pass, 0 findings, `outside_types_unread` 3.
+Retro: the `flutter` SDK dependency of an application counted as test-only (escaped bug on the base branch) → `tests/cli_dependencies.rs::flutter_sdk_dependency_of_an_application_is_runtime`, red on 0.0.76 first; three outside files failed the strict parse (escaped bug on the base branch) → `src/dart_parser.rs::strict_parse_accepts_the_outside_file_forms`, red first; a typedef of a record gave a false next step and a missing SDK part file made reads incomplete → `tests/cli_unused_public_members.rs::unread_outside_types_keep_whole_class_skip` and the 45-copy run; removing the `build` contract name broke the merged build contract test → None — the existing test caught it and the removal was reverted; old comment blocks and Fallow ignore lists failed the check → HE-COMMENT-LINES, repaired in their own commits, and `.fallowrc.json` no longer ignores `tests/npm`; the SDK `dart:io` embedder part file was missing → the loader ignores a missing SDK part, pinned by the `dart:io` import with a missing part in `tests/cli_unused_public_members.rs::outside_interface_base_reports_names_the_interface_lacks`.
 
 Delivery target: Merge
 Delivery: Pending — PR checks green, merge by the repository's method, release run publishes 0.0.78.
