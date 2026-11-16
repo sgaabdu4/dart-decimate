@@ -46,7 +46,7 @@ Decided by the coordinator under the owner's standing rule (2026-11-15: strict b
 2. New Flutter app: the `test-only-dependency` finding for `flutter` is false. A Flutter application needs the `flutter` SDK dependency at run time. Fix it first, in its own commit, with a failing test.
 
 Handoff: Approval
-Authority: Autonomous. The owner approved this work on 2026-11-16 at 05:32 UTC and approved PRs in this repository for the strict rollout (2026-11-15). Build, PR, merge and the 0.0.77 release follow the repository's method.
+Authority: Autonomous. The owner approved this work on 2026-11-16 at 05:32 UTC and approved PRs in this repository for the strict rollout (2026-11-15). Build, PR, merge and the 0.0.78 release follow the repository's method.
 
 ## Acceptance + steps
 
@@ -104,7 +104,7 @@ Execution: one Sonnet builder, then a fresh Opus reviewer before the final gate.
 1. Slice 1: source discovery, outline loader and pre-filter, timed on the new app and P5 against the limit. Over the limit → add an outline cache under the existing `cache` config, keyed by path, size and change time, and measure again.
 2. Slice 2: hierarchy join, chains and fallback, with the tests above.
 3. Slice 3: own members of classes with supertype clauses, then `bin/` scope for every package and the `is_library_source` merge. A 45-copy run after this slice; every new finding read and judged before slice 4.
-4. Slice 4: parser fault, contract names, docs, final 45-copy run, E2E, gate, version 0.0.77.
+4. Slice 4: parser fault, contract names, docs, final 45-copy run, E2E, gate, version 0.0.78.
 
 ## Risks + recovery
 
@@ -126,4 +126,4 @@ E2E: Required — built CLI on (1) a new `flutter create` app → 0 findings; (2
 Retro: Pending
 
 Delivery target: Merge
-Delivery: Pending — PR checks green, merge by the repository's method, release run publishes 0.0.77.
+Delivery: Pending — PR checks green, merge by the repository's method, release run publishes 0.0.78.
