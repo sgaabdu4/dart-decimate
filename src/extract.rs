@@ -230,6 +230,15 @@ pub struct ClassSupertypes {
     pub constraints: Vec<String>,
 }
 
+impl ClassSupertypes {
+    pub(crate) fn has_clauses(&self) -> bool {
+        !(self.names.is_empty()
+            && self.mixins.is_empty()
+            && self.implemented.is_empty()
+            && self.constraints.is_empty())
+    }
+}
+
 /// A class-like member declaration that can become a future symbol node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemberDeclaration {
@@ -242,7 +251,7 @@ pub struct MemberDeclaration {
     /// Declared method return type, when the member is a method.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
-    /// Whether an annotation or a supertype clause lets code outside the project call this member.
+    /// Whether an annotation lets code outside the project call this member.
     #[serde(default, skip_serializing)]
     pub contract: bool,
     /// Whether the member has an implementation: false only for an abstract method, getter or setter.

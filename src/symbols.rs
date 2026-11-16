@@ -22,7 +22,7 @@ mod riverpod;
 mod semantic_evidence;
 use duplicate_declarations::duplicate_declarations_across_libraries;
 use extensions::extend_implicit_extension_references;
-use path_filters::{is_library_source, is_private, is_public_library_entry};
+use path_filters::{is_bin_source, is_library_source, is_private, is_public_library_entry};
 pub use private_type_leaks::PrivateTypeLeak;
 use private_type_leaks::private_type_leaks;
 use riverpod::extend_generated_provider_owner_references;
@@ -375,7 +375,7 @@ fn unused_member_from_declaration(
         || !reachable_files.contains(&indexed.path)
         || dead_files.contains(&indexed.path)
         || is_generated_dart_path(&indexed.path)
-        || !public_members.in_library(&project.root, &indexed.path)
+        || !public_members.in_checked_source(&project.root, &indexed.path)
         || !should_check_member(index, public_members, indexed)
     {
         return None;
@@ -439,6 +439,7 @@ const CONTRACT_MEMBER_NAMES: &[&str] = &[
 ];
 
 struct PublicMemberContext {
+    root: PathBuf,
     class_owners: BTreeSet<(PathBuf, String)>,
     generated_part_libraries: BTreeSet<PathBuf>,
     entry_points: BTreeSet<PathBuf>,
@@ -742,7 +743,68 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
                 .extend(names);
         }
     }
+    for (key, class) in &classes {
+        if outside.contains(key) {
+            continue;
+        }
+        let (names, unread) = inherited(class, &classes, &member_names);
+        if unread.is_empty() {
+            skips
+                .named_members
+                .entry(key.clone())
+                .or_default()
+                .extend(names);
+        } else {
+            if checkable.contains(key) {
+                skips.unread_names.extend(unread);
+            }
+            skips.whole_classes.insert(key.clone());
+        }
+    }
     skips
+}
+
+fn inherited(
+    class: &HierarchyClass,
+    classes: &BTreeMap<ClassKey, HierarchyClass>,
+    member_names: &BTreeMap<ClassKey, DeclaredNames>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut names = BTreeSet::new();
+    let mut unread = class
+        .unread_extended
+        .iter()
+        .chain(&class.unread_interface)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    let mut pending = class
+        .extended
+        .iter()
+        .chain(&class.mixed)
+        .chain(&class.implemented)
+        .cloned()
+        .collect::<Vec<_>>();
+    while let Some(ancestor) = pending.pop() {
+        if !seen.insert(ancestor.clone()) {
+            continue;
+        }
+        if let Some(declared) = member_names.get(&ancestor) {
+            names.extend(declared.all.iter().cloned());
+        }
+        if let Some(parent) = classes.get(&ancestor) {
+            unread.extend(parent.unread_extended.iter().cloned());
+            unread.extend(parent.unread_interface.iter().cloned());
+            pending.extend(
+                parent
+                    .extended
+                    .iter()
+                    .chain(&parent.mixed)
+                    .chain(&parent.implemented)
+                    .cloned(),
+            );
+        }
+    }
+    (names, unread)
 }
 
 fn owning_scope<'scope>(
@@ -768,6 +830,7 @@ impl PublicMemberContext {
         .map(|exported| (exported.path, exported.declaration.name))
         .collect();
         Self {
+            root: project.root.clone(),
             interface_skips: interface_skips(project, index),
             packages,
             public_classes,
@@ -805,16 +868,16 @@ impl PublicMemberContext {
             .contains(&(path.to_path_buf(), owner.to_owned()))
     }
 
-    fn in_library(&self, root: &Path, path: &Path) -> bool {
-        owning_scope(&self.packages, path).map_or_else(
-            || is_library_source(root, path),
-            |scope| is_library_source(&scope.root, path),
-        )
+    fn in_checked_source(&self, root: &Path, path: &Path) -> bool {
+        let root = owning_scope(&self.packages, path).map_or(root, |scope| scope.root.as_path());
+        is_library_source(root, path) || is_bin_source(root, path)
     }
 
-    fn is_runtime_entry(&self, path: &Path) -> bool {
+    fn is_runtime_entry(&self, root: &Path, path: &Path) -> bool {
+        let scope = owning_scope(&self.packages, path);
         self.entry_points.contains(path)
-            && owning_scope(&self.packages, path).is_none_or(|scope| !scope.application)
+            && scope.is_none_or(|scope| !scope.application)
+            && !is_bin_source(scope.map_or(root, |scope| scope.root.as_path()), path)
     }
 
     fn checks(&self, index: &SymbolIndex, indexed: &IndexedMember) -> bool {
@@ -830,7 +893,7 @@ impl PublicMemberContext {
                 },
                 &indexed.member.name,
             )
-            && !self.is_runtime_entry(&indexed.path)
+            && !self.is_runtime_entry(&self.root, &indexed.path)
             && !self.exports_class(&indexed.path, &indexed.member.owner)
             && !self
                 .generated_part_libraries
