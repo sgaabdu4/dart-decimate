@@ -705,11 +705,7 @@ impl PublicMemberContext {
 
     fn is_runtime_entry(&self, path: &Path) -> bool {
         self.entry_points.contains(path)
-            && !owning_scope(&self.packages, path).is_some_and(|scope| {
-                scope.application
-                    && is_public_library_entry(&scope.root, path)
-                    && path.file_name().is_none_or(|name| name != "main.dart")
-            })
+            && owning_scope(&self.packages, path).is_none_or(|scope| !scope.application)
     }
 
     fn checks(&self, index: &SymbolIndex, indexed: &IndexedMember) -> bool {

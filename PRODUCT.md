@@ -331,7 +331,7 @@ Current implemented parity:
   superclass (for example a Flutter `State` or `StatelessWidget`) is protected
   as a whole everywhere, because the tool does not read SDK or package
   sources; a `typedef Name = Type;` counts as its target type), entry files
-  and publicly exported classes
+  of a package that is not an application and publicly exported classes
   are skipped; an application exports no public API, so its `lib/` classes are
   checked too. An application has `publish_to: none` with `lib/main.dart` or a
   `bin/` script, or a Flutter dependency with `lib/main.dart`. A package with
