@@ -121,12 +121,6 @@ fn read_outside_types_steps(root: &Path, results: &AnalysisResults) -> Vec<NextS
         report
         .outside_unread_folders
         .iter()
-        .filter(|folder| {
-            !report
-                .outside_missing_imports
-                .iter()
-                .any(|(missing_folder, _)| missing_folder == *folder)
-        })
         .map(|folder| {
             let flutter = std::fs::read_to_string(root.join(folder).join("pubspec.yaml"))
                 .is_ok_and(|pubspec| pubspec.contains("sdk: flutter"));
