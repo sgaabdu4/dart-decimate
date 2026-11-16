@@ -359,6 +359,39 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
     let root = parsed.tree().root_node();
     let parse_source = parsed.source();
 
+    let mut file = extract_declarations(path, root, parse_source);
+    let mut references = extract_identifier_references(root, parse_source);
+    references.extend(extract_dot_shorthand_references(source));
+    references.extend(extract_primary_constructor_identifier_references(source));
+    sort_identifier_references(&mut references);
+    let mut signature_references = extract_signature_references(root, parse_source);
+    signature_references.extend(extract_primary_constructor_signature_references(source));
+    sort_signature_references(&mut signature_references);
+    file.references = references;
+    file.signature_references = signature_references;
+    file.routes = extract_route_declarations(root, parse_source);
+
+    Ok(file)
+}
+
+/// Extract the directives, declarations, members and supertype clauses of Dart source text, without references, signatures or routes.
+///
+/// # Errors
+pub(crate) fn extract_dart_outline(
+    path: impl AsRef<Path>,
+    source: &str,
+) -> Result<DartFile, ExtractError> {
+    let path = path.as_ref().to_path_buf();
+    let parsed =
+        crate::dart_parser::parse_dart_source_strict(&path, source).map_err(extract_parse_error)?;
+    Ok(extract_declarations(
+        path,
+        parsed.tree().root_node(),
+        parsed.source(),
+    ))
+}
+
+fn extract_declarations(path: PathBuf, root: Node<'_>, parse_source: &str) -> DartFile {
     let mut library = None;
     let mut part_of = None;
     let mut imports = Vec::new();
@@ -367,14 +400,6 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
     let mut declarations = Vec::new();
     let mut members = Vec::new();
     let mut class_supertypes = Vec::new();
-    let mut references = extract_identifier_references(root, parse_source);
-    references.extend(extract_dot_shorthand_references(source));
-    references.extend(extract_primary_constructor_identifier_references(source));
-    sort_identifier_references(&mut references);
-    let mut signature_references = extract_signature_references(root, parse_source);
-    signature_references.extend(extract_primary_constructor_signature_references(source));
-    sort_signature_references(&mut signature_references);
-    let routes = extract_route_declarations(root, parse_source);
 
     let mut cursor = root.walk();
     for child in root.named_children(&mut cursor) {
@@ -422,7 +447,7 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
         }
     }
 
-    Ok(DartFile {
+    DartFile {
         path,
         library,
         part_of,
@@ -432,10 +457,10 @@ pub fn extract_dart_source(path: impl AsRef<Path>, source: &str) -> Result<DartF
         declarations,
         members,
         class_supertypes,
-        references,
-        signature_references,
-        routes,
-    })
+        references: Vec::new(),
+        signature_references: Vec::new(),
+        routes: Vec::new(),
+    }
 }
 
 fn extract_parse_error(error: crate::dart_parser::DartParseError) -> ExtractError {
