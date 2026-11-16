@@ -50,7 +50,18 @@ pub struct SymbolReport {
     pub outside_unread_folders: Vec<String>,
     /// Local imports whose file is missing, as package folder and file relative to that folder.
     #[serde(default, skip_serializing)]
-    pub outside_missing_imports: Vec<(String, String)>,
+    pub outside_missing_imports: Vec<MissingFile>,
+}
+
+/// A local import or part file that does not exist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissingFile {
+    /// Package folder that owns the file, relative to the scan root when inside it.
+    pub folder: String,
+    /// File path relative to that folder.
+    pub file: String,
+    /// Whether a `part` directive names the file.
+    pub part: bool,
 }
 
 /// Options for symbol-level dead-code analysis.
@@ -315,15 +326,14 @@ fn unused_members(
     });
 
     let skips = &public_members.interface_skips;
-    let roots = PackageRoots::new(project);
     let folders = skips
         .unread_packages
         .iter()
         .filter(|package| {
             let has_missing = skips
                 .missing_imports
-                .iter()
-                .any(|file| roots.of(file) == **package);
+                .keys()
+                .any(|file| nearest_package(file, &project.root) == **package);
             let config = find_package_config(package);
             !has_missing || config.is_none_or(|config| skips.config_gaps.contains(&config))
         })
@@ -332,12 +342,13 @@ fn unused_members(
     let missing = skips
         .missing_imports
         .iter()
-        .map(|file| {
-            let folder = roots.of(file);
-            (
-                package_folder(&project.root, &folder),
-                package_folder(&folder, file),
-            )
+        .map(|(file, part)| {
+            let folder = nearest_package(file, &project.root);
+            MissingFile {
+                folder: package_folder(&project.root, &folder),
+                file: package_folder(&folder, file),
+                part: *part,
+            }
         })
         .collect();
     (
@@ -350,7 +361,14 @@ fn unused_members(
 #[derive(Default)]
 struct UnreadOutside {
     folders: Vec<String>,
-    missing: Vec<(String, String)>,
+    missing: Vec<MissingFile>,
+}
+
+fn nearest_package(file: &Path, fallback: &Path) -> PathBuf {
+    file.ancestors()
+        .skip(1)
+        .find(|folder| folder.join("pubspec.yaml").is_file())
+        .map_or_else(|| fallback.to_path_buf(), Path::to_path_buf)
 }
 
 fn package_folder(root: &Path, package: &Path) -> String {
@@ -523,7 +541,7 @@ struct InterfaceSkips {
     named_members: BTreeMap<ClassKey, BTreeSet<String>>,
     unread_names: BTreeSet<String>,
     unread_packages: BTreeSet<PathBuf>,
-    missing_imports: BTreeSet<PathBuf>,
+    missing_imports: BTreeMap<PathBuf, bool>,
     config_gaps: BTreeSet<PathBuf>,
 }
 
@@ -574,7 +592,7 @@ struct Hierarchy {
     classes: BTreeMap<ClassKey, HierarchyClass>,
     member_names: BTreeMap<ClassKey, DeclaredNames>,
     outside: BTreeSet<ClassKey>,
-    missing_imports: BTreeSet<PathBuf>,
+    missing_imports: BTreeMap<PathBuf, bool>,
     config_gaps: BTreeSet<PathBuf>,
 }
 
@@ -714,6 +732,7 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let scanned = scanned_files(project);
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
+    let mut unread_libraries = BTreeSet::<PathBuf>::new();
     for file in &project.files {
         let path = normalize_against(&project.root, &file.path);
         for member in &file.members {
@@ -752,7 +771,11 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
                 path: path.clone(),
                 name: class.owner.clone(),
             };
-            classes.insert(key, links.hierarchy_class(class));
+            let linked = links.hierarchy_class(class);
+            if !linked.unread_extended.is_empty() || !linked.unread_interface.is_empty() {
+                unread_libraries.insert(library.clone());
+            }
+            classes.insert(key, linked);
         }
     }
     let mut outside_keys = BTreeSet::new();
@@ -779,7 +802,7 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             },
         );
     }
-    let (missing_imports, config_gaps) = outside_causes(project, &outsides);
+    let (missing_imports, config_gaps) = outside_causes(project, &outsides, &unread_libraries);
     Hierarchy {
         classes,
         member_names,
@@ -792,17 +815,22 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
 fn outside_causes(
     project: &ScannedProject,
     outsides: &BTreeMap<PathBuf, OutsideTypes>,
-) -> (BTreeSet<PathBuf>, BTreeSet<PathBuf>) {
+    unread_libraries: &BTreeSet<PathBuf>,
+) -> (BTreeMap<PathBuf, bool>, BTreeSet<PathBuf>) {
     let mut missing = outsides
         .values()
         .flat_map(OutsideTypes::missing_imports)
-        .collect::<BTreeSet<_>>();
+        .map(|path| (path, false))
+        .collect::<BTreeMap<_, _>>();
     for file in &project.files {
         let base = normalize_against(&project.root, &file.path);
+        if !unread_libraries.contains(&base) {
+            continue;
+        }
         for part in file.parts.iter().filter(|part| !part.uri.contains(':')) {
             let path = crate::graph::normalize_path(&base.with_file_name(&part.uri));
-            if path.starts_with(&project.root) && !path.is_file() {
-                missing.insert(path);
+            if !path.is_file() {
+                missing.insert(path, true);
             }
         }
     }
