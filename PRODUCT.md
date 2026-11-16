@@ -323,11 +323,15 @@ Current implemented parity:
   also from a workspace root (annotated members, classes with supertypes,
   generated-part libraries, members of classes that a class extends or mixes
   in when it has an `implements` or `with` clause (if every type it implements
-  or mixes in, with their supertypes, is project code, only the members those
-  types declare are skipped; if any is outside the project, the whole class is
-  skipped, because the tool does not read SDK or package sources, so member
-  names of outside types are unknown; a `typedef Name = Type;` counts as its
-  target type), entry files and publicly exported classes
+  or mixes in, and, with a `with` clause, its superclass, with their
+  supertypes, is project code, only the members those types declare are
+  skipped; if any is outside the project, the whole class is skipped, because
+  the tool does not read SDK or package sources, so member names of outside
+  types are unknown. A project mixin that any class mixes into an outside
+  superclass (for example a Flutter `State` or `StatelessWidget`) is protected
+  as a whole everywhere, because the tool does not read SDK or package
+  sources; a `typedef Name = Type;` counts as its target type), entry files
+  and publicly exported classes
   are skipped; an application exports no public API, so its `lib/` classes are
   checked too. An application has `publish_to: none` with `lib/main.dart` or a
   `bin/` script, or a Flutter dependency with `lib/main.dart`. A package with
