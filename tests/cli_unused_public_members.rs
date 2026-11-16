@@ -710,6 +710,25 @@ fn strict_check_keeps_a_mixin_member_that_the_superclass_chain_requires()
         );
     }
 
+    for superclass in ["Object", "core.Object"] {
+        let fixture = tempfile::tempdir()?;
+        write_app_with_class_hierarchy(
+            &fixture,
+            &format!(
+                "import 'dart:core' as core;\n\nmixin M {{\n  void used() {{}}\n\n  void spare() {{}}\n}}\n\nclass P extends {superclass} with M {{}}\n"
+            ),
+            "  P().used();\n",
+        )?;
+
+        let (_, json) = strict_check(&fixture)?;
+        let messages = member_messages(&json);
+
+        assert!(
+            messages.iter().any(|message| message.contains("M.spare")),
+            "{superclass}: {messages:?}"
+        );
+    }
+
     Ok(())
 }
 
