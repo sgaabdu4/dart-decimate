@@ -78,6 +78,8 @@ impl OutsideSources {
                 .get(name)
                 .map_or(Target::Unknown, |path| Target::Outside(path.clone()));
         }
+        let anchor = self.root.join("pubspec.yaml");
+        let from = if from_outside { from } else { &anchor };
         match resolve_local_uri(&self.root, &self.packages, from, specifier) {
             None => Target::Unknown,
             Some(target) if target.local && !from_outside => Target::Local,

@@ -1356,6 +1356,43 @@ fn monorepo_root_reads_each_packages_own_config() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn unlisted_packages_under_one_config_give_the_same_result_in_any_order()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    let pubspec = "publish_to: none\ndependencies:\n  flutter:\n    sdk: flutter\n";
+    write(&fixture, "pubspec.yaml", &format!("name: app\n{pubspec}"))?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    for name in ["aaa", "zzz"] {
+        let class = format!("{}Item", name.to_uppercase());
+        write(
+            &fixture,
+            &format!("{name}/pubspec.yaml"),
+            &format!("name: {name}\n{pubspec}"),
+        )?;
+        write(
+            &fixture,
+            &format!("{name}/lib/main.dart"),
+            &format!(
+                "import 'package:flutter/widgets.dart';\n\nclass {class} extends StatelessWidget {{\n  Widget build(BuildContext context) => this;\n\n  int spare{name}() => 1;\n}}\n\nvoid main() {{\n  print({class}());\n}}\n"
+            ),
+        )?;
+    }
+    write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+    let (_, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        found_members(&json),
+        ["AAAItem.spareaaa", "ZZZItem.sparezzz"]
+    );
+    assert_eq!(json["summary"]["outside_types_unread"], 0);
+
+    Ok(())
+}
+
+#[test]
 fn human_output_without_findings_names_the_next_step() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(
