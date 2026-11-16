@@ -468,7 +468,12 @@ impl InterfaceSkips {
     }
 }
 
-fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSkips {
+type Hierarchy = (
+    BTreeMap<ClassKey, HierarchyClass>,
+    BTreeMap<ClassKey, DeclaredNames>,
+);
+
+fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let resolver = DeclarationResolver::new(
         project,
         index.declarations.iter().map(|indexed| ClassKey {
@@ -520,46 +525,59 @@ fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSk
             );
         }
     }
+    (classes, member_names)
+}
+
+fn reached_interfaces(
+    class: &HierarchyClass,
+    classes: &BTreeMap<ClassKey, HierarchyClass>,
+) -> (BTreeMap<ClassKey, bool>, bool) {
+    let mut reached = BTreeMap::<ClassKey, bool>::new();
+    let mut open = class.outside_interface;
+    let mut pending = class
+        .mixed
+        .iter()
+        .map(|mixin| (mixin.clone(), false))
+        .chain(
+            class
+                .implemented
+                .iter()
+                .map(|interface| (interface.clone(), true)),
+        )
+        .collect::<Vec<_>>();
+    while let Some((reached_class, duty)) = pending.pop() {
+        if reached
+            .get(&reached_class)
+            .is_some_and(|known| *known || !duty)
+        {
+            continue;
+        }
+        reached.insert(reached_class.clone(), duty);
+        if let Some(parent) = classes.get(&reached_class) {
+            open |= parent.outside_extended || parent.outside_interface;
+            pending.extend(
+                parent
+                    .extended
+                    .iter()
+                    .chain(&parent.mixed)
+                    .map(|supertype| (supertype.clone(), duty))
+                    .chain(
+                        parent
+                            .implemented
+                            .iter()
+                            .map(|interface| (interface.clone(), true)),
+                    ),
+            );
+        }
+    }
+    (reached, open)
+}
+
+fn interface_skips(project: &ScannedProject, index: &SymbolIndex) -> InterfaceSkips {
+    let (classes, member_names) = class_hierarchy(project, index);
     let mut skips = InterfaceSkips::default();
     for class in classes.values() {
-        let mut reached = BTreeMap::<ClassKey, bool>::new();
-        let mut open = class.outside_interface;
-        let mut pending = class
-            .mixed
-            .iter()
-            .map(|mixin| (mixin.clone(), false))
-            .chain(
-                class
-                    .implemented
-                    .iter()
-                    .map(|interface| (interface.clone(), true)),
-            )
-            .collect::<Vec<_>>();
-        while let Some((reached_class, duty)) = pending.pop() {
-            if reached
-                .get(&reached_class)
-                .is_some_and(|known| *known || !duty)
-            {
-                continue;
-            }
-            reached.insert(reached_class.clone(), duty);
-            if let Some(parent) = classes.get(&reached_class) {
-                open |= parent.outside_extended || parent.outside_interface;
-                pending.extend(
-                    parent
-                        .extended
-                        .iter()
-                        .chain(&parent.mixed)
-                        .map(|supertype| (supertype.clone(), duty))
-                        .chain(
-                            parent
-                                .implemented
-                                .iter()
-                                .map(|interface| (interface.clone(), true)),
-                        ),
-                );
-            }
-        }
+        let (reached, open) = reached_interfaces(class, &classes);
         if reached.is_empty() && !open {
             continue;
         }
