@@ -665,6 +665,13 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let roots = PackageRoots::new(project);
     let mut outsides = BTreeMap::<PathBuf, OutsideTypes>::new();
     let loader = SharedLoader::default();
+    let scanned = std::rc::Rc::new(
+        project
+            .files
+            .iter()
+            .map(|file| normalize_against(&project.root, &file.path))
+            .collect::<BTreeSet<_>>(),
+    );
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
     for file in &project.files {
@@ -691,7 +698,9 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
             resolver: &resolver,
             outside: outsides
                 .entry(config.clone().unwrap_or_else(|| project.root.clone()))
-                .or_insert_with(|| OutsideTypes::with_loader(&reader_root, loader.clone())),
+                .or_insert_with(|| {
+                    OutsideTypes::with_loader(&reader_root, loader.clone(), &scanned)
+                }),
             path: &path,
             library: &library,
             imports: imports_by_path.get(&library).copied().unwrap_or_default(),

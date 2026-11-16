@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::graph::{normalize_path, resolve_local_uri};
 use crate::package_map::{PackageMap, parse_yaml};
@@ -27,9 +28,15 @@ pub(crate) struct OutsideSources {
     packages: PackageMap,
     dart_libraries: BTreeMap<String, PathBuf>,
     sdk_lib: PathBuf,
+    scanned: Rc<BTreeSet<PathBuf>>,
 }
 
 impl OutsideSources {
+    pub(crate) fn with_scanned(mut self, scanned: Rc<BTreeSet<PathBuf>>) -> Self {
+        self.scanned = scanned;
+        self
+    }
+
     pub(crate) fn discover(root: &Path) -> Option<Self> {
         Self::discover_with_path(root, std::env::var_os("PATH").as_deref())
     }
@@ -63,6 +70,7 @@ impl OutsideSources {
             packages,
             dart_libraries,
             sdk_lib,
+            scanned: Rc::default(),
         })
     }
 
@@ -79,7 +87,7 @@ impl OutsideSources {
                 .map_or(Target::Unknown, |path| Target::Outside(path.clone()));
         }
         let anchor = self.root.join("pubspec.yaml");
-        let resolved = if from_outside {
+        let resolved = if from_outside || !specifier.starts_with("package:") {
             resolve_local_uri(&self.root, &self.packages, from, specifier)
         } else {
             resolve_local_uri(&self.root, &self.packages, &anchor, specifier)
@@ -87,7 +95,11 @@ impl OutsideSources {
         };
         match resolved {
             None => Target::Unknown,
-            Some(target) if target.local && !from_outside => Target::Local,
+            Some(target)
+                if target.local && !from_outside && self.scanned.contains(&target.path) =>
+            {
+                Target::Local
+            }
             Some(target) => Target::Outside(target.path),
         }
     }
