@@ -634,6 +634,16 @@ impl LinkResolver<'_> {
     }
 }
 
+fn scanned_files(project: &ScannedProject) -> std::rc::Rc<BTreeSet<PathBuf>> {
+    std::rc::Rc::new(
+        project
+            .files
+            .iter()
+            .map(|file| normalize_against(&project.root, &file.path))
+            .collect(),
+    )
+}
+
 fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let resolver = DeclarationResolver::new(
         project,
@@ -665,13 +675,7 @@ fn class_hierarchy(project: &ScannedProject, index: &SymbolIndex) -> Hierarchy {
     let roots = PackageRoots::new(project);
     let mut outsides = BTreeMap::<PathBuf, OutsideTypes>::new();
     let loader = SharedLoader::default();
-    let scanned = std::rc::Rc::new(
-        project
-            .files
-            .iter()
-            .map(|file| normalize_against(&project.root, &file.path))
-            .collect::<BTreeSet<_>>(),
-    );
+    let scanned = scanned_files(project);
     let mut classes = BTreeMap::<ClassKey, HierarchyClass>::new();
     let mut member_names = BTreeMap::<ClassKey, DeclaredNames>::new();
     for file in &project.files {
