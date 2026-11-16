@@ -196,3 +196,38 @@ fn package_uris_resolve_outside_the_project_only() -> Result<(), Box<dyn std::er
 
     Ok(())
 }
+
+#[test]
+fn readers_that_share_a_loader_parse_each_outside_file_once()
+-> Result<(), Box<dyn std::error::Error>> {
+    let layout = layout(true, "3.14.0")?;
+    let ui = layout
+        .toolchain
+        .path()
+        .join("flutter/bin/cache/pkg/sky_engine/lib/ui/ui.dart");
+    write(
+        layout.toolchain.path(),
+        "flutter/bin/cache/pkg/sky_engine/lib/ui/ui.dart",
+        "class Window {}\n",
+    )?;
+    let parses = crate::dart_parser::track_parse_count(&ui);
+    let loader = SharedLoader::default();
+    let imports = [crate::DartImport {
+        uri: "dart:ui".to_owned(),
+        condition: None,
+        prefix: None,
+        deferred: false,
+        combinators: Vec::new(),
+        location: crate::Location { line: 1, column: 0 },
+    }];
+    let library = layout.project.path().join("lib/main.dart");
+
+    for _ in 0..3 {
+        let mut types = OutsideTypes::with_loader(layout.project.path(), loader.clone());
+        assert!(types.link(&library, &imports, "Window", false).is_some());
+    }
+
+    assert_eq!(parses.count(), 1);
+
+    Ok(())
+}
