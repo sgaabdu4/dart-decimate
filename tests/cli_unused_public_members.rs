@@ -1203,6 +1203,88 @@ fn extension_on_types_are_not_unread_outside_types() -> Result<(), Box<dyn std::
 }
 
 #[test]
+fn project_barrel_exports_of_outside_libraries_are_read() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\npublish_to: none\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    )?;
+    write(
+        &fixture,
+        "lib/barrel.dart",
+        "export 'package:flutter/widgets.dart';\nexport 'dart:io';\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/items.dart",
+        "import '../barrel.dart';\n\nclass Item extends StatelessWidget {\n  Widget build(BuildContext context) => this;\n\n  int spare() => 1;\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/items.dart';\n\nvoid main() {\n  print(Item());\n}\n",
+    )?;
+    write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["outside_types_unread"], 0,
+        "{}",
+        json["summary"]
+    );
+    assert_eq!(found_members(&json), ["Item.spare"]);
+    assert_eq!(code, 1);
+
+    Ok(())
+}
+
+#[test]
+fn project_barrel_export_combinators_hide_outside_names() -> Result<(), Box<dyn std::error::Error>>
+{
+    let fixture = tempfile::tempdir()?;
+    let toolchain = tempfile::tempdir()?;
+    let packages = write_toolchain(&toolchain, "3.14.0")?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\npublish_to: none\ndependencies:\n  flutter:\n    sdk: flutter\n",
+    )?;
+    write(
+        &fixture,
+        "lib/barrel.dart",
+        "export 'package:flutter/widgets.dart' hide StatelessWidget;\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/items.dart",
+        "import '../barrel.dart';\n\nclass Item extends StatelessWidget {\n  Widget build(BuildContext context) => this;\n\n  int spare() => 1;\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/items.dart';\n\nvoid main() {\n  print(Item());\n}\n",
+    )?;
+    write_package_config(&fixture, &toolchain, &packages, &[])?;
+
+    let (code, json) = strict_check(&fixture)?;
+
+    assert_eq!(
+        json["summary"]["outside_types_unread"], 1,
+        "{}",
+        json["summary"]
+    );
+    assert_eq!(found_members(&json), Vec::<String>::new());
+    assert_eq!(code, 0);
+
+    Ok(())
+}
+
+#[test]
 fn bin_class_members_report() -> Result<(), Box<dyn std::error::Error>> {
     let tool = "class Tool {\n  int used() => 1;\n\n  int spare() => 2;\n\n  int _hidden() => 3;\n}\n\nenum Mode { fast, slow }\n\nvoid main() {\n  print(Tool().used());\n  print(Mode.fast);\n}\n";
     let cases = [
