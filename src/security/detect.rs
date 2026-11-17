@@ -3,10 +3,7 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
-use self::process_arguments::{
-    is_command_wrapper, list_is_proven_fixed, name_is_reassigned, placed_argument_list,
-    placed_command_list,
-};
+use self::process_arguments::{list_is_proven_fixed, name_is_reassigned};
 use super::catalogue::MatcherCatalogue;
 use super::{
     DetectedSecurityCandidate, DetectionResult, LibraryImportContext, SecurityBlindSpot,
@@ -780,7 +777,7 @@ fn process_manager_call_is_risky(
 ) -> bool {
     !parsed_run_in_shell_is_disabled(root, source, index)
         || process_manager_invokes_command_shell(root, source, index, command)
-        || !placed_command_list(root, source, index, command)
+        || !fixed_argument_list(root, source, index, command)
 }
 
 fn process_call_is_risky(
@@ -792,15 +789,11 @@ fn process_call_is_risky(
     arguments: &[&str],
     inherited_imports: Option<&LibraryImportContext>,
 ) -> bool {
-    let executable = resolved_fixed_literal_value(root, source, index, arguments[0]);
-    let fixed_executable = executable.is_some();
+    let fixed_executable =
+        resolved_fixed_literal_value(root, source, index, arguments[0]).is_some();
     let fixed_dart_runtime = pattern == "Process.start"
         && resolved_dart_runtime_start(Some((root, source)), index, call, inherited_imports);
-    let trusted = fixed_dart_runtime
-        || executable
-            .as_deref()
-            .is_some_and(|value| !is_command_wrapper(value));
-    let fixed_arguments = placed_argument_list(root, source, index, arguments[1], trusted);
+    let fixed_arguments = fixed_argument_list(root, source, index, arguments[1]);
     !parsed_run_in_shell_is_disabled(root, source, index)
         || call_invokes_command_shell(root, source, index, call)
         || (!fixed_executable && !fixed_dart_runtime)

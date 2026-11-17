@@ -34,7 +34,7 @@ pub(super) const MISC_ISSUES: &[IssueExplanation] = &[
         ],
         "Security candidate",
         "A deterministic local security review candidate was detected.",
-        "Dart Decimate surfaces candidates for agent verification; it does not prove exploitability. A process call with a fixed executable and no shell is safe when each variable argument is attached as --option=$value or follows a fixed --. The double dash is not trusted after a command wrapper such as ssh, sudo or kubectl, or beside a shell word. An option that runs a command (ProxyCommand, upload-pack, receive-pack, rsh, to-command, exec, command, core.sshCommand) stays a finding even when attached.",
+        "Dart Decimate surfaces candidates for agent verification; it does not prove exploitability. A process call is safe only with a fixed executable, no shell and fixed arguments; a variable argument is a finding, also after a -- or in an attached --option=$value.",
         "HttpClient.badCertificateCallback or an http:// URL appears in reachable code.",
         "Verify source, sink, reachability, and product intent before changing code.",
         next_line_suppressions!("security-sink"),
