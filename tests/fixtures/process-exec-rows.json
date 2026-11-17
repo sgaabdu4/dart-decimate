@@ -178,5 +178,55 @@
   "case": "process manager safe double dash",
   "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String path) =>\n    processManager.run(['git', 'log', '--', path]);\n",
   "flagged": false
+ },
+ {
+  "case": "ssh proxy command attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['-oProxyCommand=$v', 'host']);\n",
+  "flagged": true
+ },
+ {
+  "case": "ssh proxy command with long name",
+  "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--ProxyCommand=$v', 'host']);\n",
+  "flagged": true
+ },
+ {
+  "case": "git upload pack attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['ls-remote', '--upload-pack=$v', 'origin']);\n",
+  "flagged": true
+ },
+ {
+  "case": "git receive pack attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['push', '--receive-pack=$v', 'origin']);\n",
+  "flagged": true
+ },
+ {
+  "case": "rsync rsh attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('rsync', ['--rsh=$v', 'a', 'b']);\n",
+  "flagged": true
+ },
+ {
+  "case": "to command attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--to-command=$v']);\n",
+  "flagged": true
+ },
+ {
+  "case": "exec attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--exec=$v']);\n",
+  "flagged": true
+ },
+ {
+  "case": "command attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--command=$v']);\n",
+  "flagged": true
+ },
+ {
+  "case": "git config ssh command attached",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['--config=core.sshCommand=$v', 'fetch']);\n",
+  "flagged": true
+ },
+ {
+  "case": "git config key after dash c",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['-c', 'core.sshCommand=$v', 'fetch']);\n",
+  "flagged": true
  }
 ]

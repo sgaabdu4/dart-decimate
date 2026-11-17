@@ -10,6 +10,29 @@ const COMMAND_WRAPPERS: [&str; 19] = [
     "nohup", "doas", "su", "runuser", "chroot", "script", "watch", "parallel",
 ];
 
+const COMMAND_RUNNING_OPTIONS: [&str; 9] = [
+    "proxycommand",
+    "upload-pack",
+    "receive-pack",
+    "rsh",
+    "to-command",
+    "exec",
+    "command",
+    "ssh-command",
+    "sshcommand",
+];
+
+fn option_runs_a_command(literal: &str) -> bool {
+    let lower = literal.to_ascii_lowercase();
+    let option = lower.split('=').next().unwrap_or_default();
+    let name = option.trim_start_matches('-');
+    COMMAND_RUNNING_OPTIONS
+        .iter()
+        .any(|listed| name == *listed || name.strip_prefix('o') == Some(*listed))
+        || option.starts_with("core.")
+        || lower.contains("core.sshcommand")
+}
+
 pub(super) fn is_command_wrapper(executable: &str) -> bool {
     let name = executable_name(executable);
     COMMAND_WRAPPERS.contains(&name.as_str())
@@ -135,7 +158,8 @@ fn attached_option_value(element: &str) -> bool {
     else {
         return false;
     };
-    inner
-        .split_once('=')
-        .is_some_and(|(option, _)| is_option_word(option))
+    !option_runs_a_command(inner)
+        && inner
+            .split_once('=')
+            .is_some_and(|(option, _)| is_option_word(option))
 }
