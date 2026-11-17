@@ -1875,8 +1875,23 @@ fn missing_local_file_steps_follow_one_rule() -> Result<(), Box<dyn std::error::
             "part 'w.g.dart';\n\nclass Plain {}\n\nvoid main() {\n  print(Plain());\n}\n",
         ),
     ];
+    let workspace: &[(&str, &str)] = &[
+        (
+            "pubspec.yaml",
+            "name: app\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\nworkspace:\n  - packages/a\n",
+        ),
+        (
+            "packages/a/pubspec.yaml",
+            "name: a\npublish_to: none\nresolution: workspace\nenvironment:\n  sdk: ^3.6.0\n",
+        ),
+        ("packages/a/lib/base.dart", "part 'base.g.dart';\n"),
+        (
+            "packages/a/lib/main.dart",
+            "import 'base.dart';\n\nclass Impl extends GenBase {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n}\n",
+        ),
+    ];
     // (case, files, folder to scan, commands, reason fragment)
-    let rows: [Row; 3] = [
+    let rows: [Row; 5] = [
         (
             "part reached through an import",
             base_case,
@@ -1896,6 +1911,20 @@ fn missing_local_file_steps_follow_one_rule() -> Result<(), Box<dyn std::error::
             base_case,
             ".",
             vec!["dart run build_runner build"],
+            "lib/base.g.dart",
+        ),
+        (
+            "scan root below the package",
+            base_case,
+            "lib",
+            vec!["dart run build_runner build"],
+            "lib/base.g.dart",
+        ),
+        (
+            "pub workspace member",
+            workspace,
+            "",
+            vec!["cd packages/a && dart run build_runner build"],
             "lib/base.g.dart",
         ),
     ];
@@ -1928,6 +1957,86 @@ fn missing_local_file_steps_follow_one_rule() -> Result<(), Box<dyn std::error::
         let reasons = step_reasons(&json, "generate-missing-import").join(" | ");
         assert!(reasons.contains(reason), "{case}: {reasons}");
     }
+
+    Ok(())
+}
+
+fn scan_json(path: &Path) -> Result<(i32, Value), Box<dyn std::error::Error>> {
+    let mut output = Vec::new();
+    let code = run_from(
+        [
+            "dart-decimate",
+            "check",
+            path.to_str().unwrap_or("."),
+            "--threshold",
+            "0",
+            "--strict",
+            "--format",
+            "json",
+        ],
+        &mut output,
+    )?;
+    Ok((code, serde_json::from_slice::<Value>(&output)?))
+}
+
+#[test]
+fn scanning_a_sub_folder_checks_the_package_above_it() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "class Item {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Item());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "test/other.dart",
+        "class Other {\n  int spare() => 1;\n}\n",
+    )?;
+
+    let (_, whole) = scan_json(fixture.path())?;
+    let (_, sub) = scan_json(&fixture.path().join("lib"))?;
+
+    assert_eq!(found_members(&sub), ["Item.spare"]);
+    assert!(found_members(&whole).contains(&"Item.spare".to_owned()));
+
+    let steps = missing_import_fixture(&[
+        ("lib/base.dart", "part 'base.g.dart';\n"),
+        (
+            "lib/main.dart",
+            "import 'base.dart';\n\nclass Impl extends GenBase {\n  int spare() => 1;\n}\n\nvoid main() {\n  print(Impl());\n}\n",
+        ),
+    ])?;
+    assert_eq!(
+        next_step_commands(&steps.1),
+        ["dart run build_runner build"]
+    );
+
+    Ok(())
+}
+
+#[test]
+fn scanning_a_folder_without_a_package_says_so() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "lib/main.dart", "void main() {}\n")?;
+    let mut output = Vec::new();
+
+    let error = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().join("lib").to_str().unwrap_or("."),
+            "--format",
+            "json",
+        ],
+        &mut output,
+    )
+    .err()
+    .ok_or("a folder without a package must not pass")?;
+
+    let message = error.to_string();
+    assert!(message.contains("no pubspec.yaml"), "{message}");
+    assert!(message.contains("dart-decimate check"), "{message}");
 
     Ok(())
 }

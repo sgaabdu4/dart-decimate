@@ -44,6 +44,14 @@ pub enum CliError {
         "security --top cannot be combined with --gate, --diff-file, --diff-stdin, --changed-since, or --compare"
     )]
     UnsupportedSecurityTopScope,
+    /// A check ran on a folder that no Dart package holds or sits under.
+    #[error(
+        "no pubspec.yaml in {path} or any folder above it, so no package was checked; run the check from the package folder, for example: cd <package folder> && dart-decimate check"
+    )]
+    NoPackage {
+        /// The scanned folder.
+        path: std::path::PathBuf,
+    },
     /// Cross-language duplicate detection is JavaScript/TypeScript-specific in Fallow.
     #[error("dupes --cross-language is not supported for Dart-only analysis")]
     UnsupportedCrossLanguageDupes,
