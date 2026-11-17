@@ -1,0 +1,141 @@
+use tree_sitter::Node;
+
+use super::{
+    command_interpreter_uses_c_flag, posix_shell_flag_invokes_command,
+    resolved_fixed_literal_value, resolved_list_arguments,
+};
+
+const COMMAND_WRAPPERS: [&str; 19] = [
+    "ssh", "sudo", "env", "xargs", "kubectl", "docker", "podman", "adb", "find", "nice", "timeout",
+    "nohup", "doas", "su", "runuser", "chroot", "script", "watch", "parallel",
+];
+
+pub(super) fn is_command_wrapper(executable: &str) -> bool {
+    let name = executable_name(executable);
+    COMMAND_WRAPPERS.contains(&name.as_str())
+}
+
+fn executable_name(executable: &str) -> String {
+    let name = executable
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(executable)
+        .to_ascii_lowercase();
+    name.strip_suffix(".exe")
+        .map_or(name.clone(), str::to_owned)
+}
+
+fn is_shell_element(root: Node<'_>, source: &str, index: usize, element: &str) -> bool {
+    let Some(value) = resolved_fixed_literal_value(root, source, index, element) else {
+        return false;
+    };
+    let name = executable_name(&value);
+    let flag = value.to_ascii_lowercase();
+    command_interpreter_uses_c_flag(&name)
+        || matches!(name.as_str(), "cmd" | "powershell" | "pwsh")
+        || posix_shell_flag_invokes_command(&flag)
+        || matches!(flag.as_str(), "/c" | "/k" | "-command" | "-encodedcommand")
+}
+
+pub(super) fn placed_argument_list(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    arguments: &str,
+    trusted_executable: bool,
+) -> bool {
+    let Some(elements) = resolved_list_arguments(root, source, index, arguments) else {
+        return false;
+    };
+    placed_elements(root, source, index, &elements, trusted_executable)
+}
+
+pub(super) fn placed_command_list(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    command: &str,
+) -> bool {
+    let Some(elements) = resolved_list_arguments(root, source, index, command) else {
+        return false;
+    };
+    let Some((executable, arguments)) = elements.split_first() else {
+        return false;
+    };
+    let trusted = resolved_fixed_literal_value(root, source, index, executable)
+        .is_some_and(|value| !is_command_wrapper(&value));
+    placed_elements(root, source, index, arguments, trusted)
+}
+
+fn flatten(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    elements: &[String],
+    depth: usize,
+) -> Option<Vec<String>> {
+    let mut flat = Vec::new();
+    for element in elements {
+        let element = element.trim();
+        if element.is_empty() {
+            continue;
+        }
+        if let Some(spread) = element.strip_prefix("...") {
+            if depth >= 4 {
+                return None;
+            }
+            let inner =
+                resolved_list_arguments(root, source, index, spread.trim_start_matches('?'))?;
+            flat.extend(flatten(root, source, index, &inner, depth + 1)?);
+        } else {
+            flat.push(element.to_owned());
+        }
+    }
+    Some(flat)
+}
+
+fn placed_elements(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    elements: &[String],
+    trusted_executable: bool,
+) -> bool {
+    let Some(flat) = flatten(root, source, index, elements, 0) else {
+        return false;
+    };
+    let separator_trusted = trusted_executable
+        && !flat
+            .iter()
+            .any(|element| is_shell_element(root, source, index, element));
+    let mut after_separator = false;
+    flat.iter().all(|element| {
+        if let Some(word) = resolved_fixed_literal_value(root, source, index, element) {
+            after_separator |= separator_trusted && word == "--";
+            return true;
+        }
+        after_separator || attached_option_value(element)
+    })
+}
+
+fn is_option_word(word: &str) -> bool {
+    let name = word.trim_start_matches('-');
+    word.starts_with('-')
+        && word != "--"
+        && !name.is_empty()
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
+fn attached_option_value(element: &str) -> bool {
+    let Some(inner) = element
+        .strip_prefix('\'')
+        .or_else(|| element.strip_prefix('"'))
+    else {
+        return false;
+    };
+    inner
+        .split_once('=')
+        .is_some_and(|(option, _)| is_option_word(option))
+}

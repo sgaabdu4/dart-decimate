@@ -3,6 +3,7 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
+use self::process_arguments::{is_command_wrapper, placed_argument_list, placed_command_list};
 use super::catalogue::MatcherCatalogue;
 use super::{
     DetectedSecurityCandidate, DetectionResult, LibraryImportContext, SecurityBlindSpot,
@@ -12,6 +13,7 @@ use crate::Location;
 use crate::dart_parser::parse_dart_source_lossy;
 use crate::generated::{is_flutterfire_options_path, is_generated_dart_path};
 
+mod process_arguments;
 mod weak_randomness;
 
 pub(super) fn detect_in_source(
@@ -743,13 +745,17 @@ fn detect_process_call(
     let risky = if package_process {
         !parsed_run_in_shell_is_disabled(root, source, index)
             || process_manager_invokes_command_shell(root, source, index, arguments[0])
-            || !placed_argument_list(root, source, index, arguments[0])
+            || !placed_command_list(root, source, index, arguments[0])
     } else {
-        let fixed_executable =
-            resolved_fixed_literal_value(root, source, index, arguments[0]).is_some();
-        let fixed_arguments = placed_argument_list(root, source, index, arguments[1]);
+        let executable = resolved_fixed_literal_value(root, source, index, arguments[0]);
+        let fixed_executable = executable.is_some();
         let fixed_dart_runtime = pattern == "Process.start"
             && resolved_dart_runtime_start(Some((root, source)), index, call, inherited_imports);
+        let trusted = fixed_dart_runtime
+            || executable
+                .as_deref()
+                .is_some_and(|value| !is_command_wrapper(value));
+        let fixed_arguments = placed_argument_list(root, source, index, arguments[1], trusted);
         !parsed_run_in_shell_is_disabled(root, source, index)
             || call_invokes_command_shell(root, source, index, call)
             || (!fixed_executable && !fixed_dart_runtime)
@@ -1812,69 +1818,6 @@ fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &s
                 && lexical_binding_value(root, source, index, argument)
                     .is_some_and(fixed_string_literal)
     })
-}
-
-#[derive(Default)]
-struct ArgumentPlace {
-    after_separator: bool,
-}
-
-fn placed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &str) -> bool {
-    let Some(elements) = resolved_list_arguments(root, source, index, arguments) else {
-        return false;
-    };
-    let mut place = ArgumentPlace::default();
-    placed_elements(root, source, index, &elements, &mut place, 0)
-}
-
-fn placed_elements(
-    root: Node<'_>,
-    source: &str,
-    index: usize,
-    elements: &[String],
-    place: &mut ArgumentPlace,
-    depth: usize,
-) -> bool {
-    elements.iter().all(|element| {
-        let element = element.trim();
-        if element.is_empty() {
-            return true;
-        }
-        if let Some(spread) = element.strip_prefix("...") {
-            let spread = spread.trim_start_matches('?');
-            return depth < 4
-                && resolved_list_arguments(root, source, index, spread).is_some_and(|inner| {
-                    placed_elements(root, source, index, &inner, place, depth + 1)
-                });
-        }
-        if let Some(word) = resolved_fixed_literal_value(root, source, index, element) {
-            place.after_separator |= word == "--";
-            return true;
-        }
-        place.after_separator || attached_option_value(element)
-    })
-}
-
-fn is_option_word(word: &str) -> bool {
-    let name = word.trim_start_matches('-');
-    word.starts_with('-')
-        && word != "--"
-        && !name.is_empty()
-        && name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-}
-
-fn attached_option_value(element: &str) -> bool {
-    let Some(inner) = element
-        .strip_prefix('\'')
-        .or_else(|| element.strip_prefix('"'))
-    else {
-        return false;
-    };
-    inner
-        .split_once('=')
-        .is_some_and(|(option, _)| is_option_word(option))
 }
 
 fn list_literal_contents(value: &str) -> Option<&str> {

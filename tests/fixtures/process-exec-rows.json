@@ -63,5 +63,120 @@
   "case": "command shell with a variable command",
   "source": "Future<ProcessResult> run(String command) => Process.run('sh', ['-c', '--', command]);\n",
   "flagged": true
+ },
+ {
+  "case": "wrapper kubectl after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('kubectl', ['exec', 'pod', '--', 'sh', '-c', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper docker after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('docker', ['exec', '--', 'box', 'sh', '-c', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper ssh after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('ssh', ['server', '--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper adb after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('adb', ['shell', '--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper sudo after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('sudo', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper env after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('env', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper xargs after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('xargs', ['--', 'sh', '-c', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper find after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('find', ['.', '-name', 'x', '-exec', 'sh', '-c', '--', cmd, ';']);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper podman after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('podman', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper nice after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('nice', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper timeout after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('timeout', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper nohup after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('nohup', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper doas after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('doas', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper su after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('su', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper runuser after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('runuser', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper chroot after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('chroot', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper script after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('script', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper watch after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('watch', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "wrapper parallel after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('parallel', ['--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "shell name after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('mytool', ['run', '--', 'bash', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "shell command flag after a double dash",
+  "source": "Future<ProcessResult> run(String cmd) => Process.run('mytool', ['run', '-c', '--', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "process manager wrapper after a double dash",
+  "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String cmd) =>\n    processManager.run(['kubectl', 'exec', 'p', '--', 'sh', '-c', cmd]);\n",
+  "flagged": true
+ },
+ {
+  "case": "process manager safe double dash",
+  "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String path) =>\n    processManager.run(['git', 'log', '--', path]);\n",
+  "flagged": false
  }
 ]
