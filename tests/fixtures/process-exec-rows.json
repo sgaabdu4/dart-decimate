@@ -824,5 +824,12 @@
   "flagged": false,
   "category": "process-execution",
   "main": 0
+ },
+ {
+  "case": "executable set by an initializer list",
+  "source": "class Runner {\n  Runner(String e) : exe = e;\n\n  String exe = 'git';\n\n  Future<ProcessResult> go() => Process.run(exe, ['log']);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  }
 ]
