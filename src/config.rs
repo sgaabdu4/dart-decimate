@@ -465,7 +465,15 @@ fn config_path(root: &Path, explicit: Option<&Path>) -> Result<Option<PathBuf>, 
         return Err(ConfigError::NotFound { path });
     }
 
-    Ok(config_candidates(root)
+    let folder = if root.join("pubspec.yaml").is_file() {
+        root
+    } else {
+        root.ancestors()
+            .skip(1)
+            .find(|folder| folder.join("pubspec.yaml").is_file())
+            .unwrap_or(root)
+    };
+    Ok(config_candidates(folder)
         .into_iter()
         .find(|candidate| candidate.is_file()))
 }

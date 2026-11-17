@@ -69,19 +69,7 @@ fn default_entry_points(project: &ScannedProject, mode: EntryPointMode) -> Vec<P
 
 fn entry_point_roots(project: &ScannedProject) -> Vec<PathBuf> {
     let mut roots = project.scan_roots.clone();
-    let package_above = (!project.root.join("pubspec.yaml").is_file())
-        .then(|| {
-            project
-                .root
-                .ancestors()
-                .skip(1)
-                .find(|folder| folder.join("pubspec.yaml").is_file())
-        })
-        .flatten();
-    if let Some(package) = package_above {
-        roots.retain(|root| root != &project.root);
-        roots.push(package.to_path_buf());
-    } else if !roots.iter().any(|root| root == &project.root) {
+    if !roots.iter().any(|root| root == &project.root) {
         roots.push(project.root.clone());
     }
     roots.sort();
