@@ -1549,9 +1549,10 @@ Future<ProcessResult> sshWithCipher(String cipher) {
         .as_array()
         .unwrap_or_else(|| panic!("process occurrences: {json:#}"));
 
-    assert_eq!(occurrences.len(), 2, "{json:#}");
+    assert_eq!(occurrences.len(), 3, "{json:#}");
     assert_eq!(occurrences[0]["line"], 9);
     assert_eq!(occurrences[1]["line"], 13);
+    assert_eq!(occurrences[2]["line"], 17);
     Ok(())
 }
 

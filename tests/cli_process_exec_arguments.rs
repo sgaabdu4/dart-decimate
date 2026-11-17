@@ -5,15 +5,20 @@ use serde_json::Value;
 
 type Row = (&'static str, &'static str, bool);
 
-const ROWS: [Row; 12] = [
+const ROWS: [Row; 13] = [
     (
         "value after its own fixed option word",
         "Future<Process> start(String dir) => Process.start('mytool', ['--store', dir, '--json']);\n",
-        false,
+        true,
+    ),
+    (
+        "value after a flag that takes no value",
+        "Future<Process> start(String value) => Process.start('mytool', ['--json', value]);\n",
+        true,
     ),
     (
         "executable is a final field set from a literal",
-        "class Tool {\n  final String executable = 'mytool';\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message', message]);\n}\n",
+        "class Tool {\n  final String executable = 'mytool';\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message=$message']);\n}\n",
         false,
     ),
     (
@@ -28,22 +33,22 @@ const ROWS: [Row; 12] = [
     ),
     (
         "spread of a list whose elements follow the rule",
-        "Future<Process> start(String to) {\n  final base = ['--store', 'data', '--json'];\n  return Process.start('mytool', [...base, '--to', to]);\n}\n",
+        "Future<Process> start(String to) {\n  final base = ['--store', 'data', '--json'];\n  return Process.start('mytool', [...base, '--', to]);\n}\n",
         false,
     ),
     (
         "variable executable",
-        "Future<Process> start(String tool, String value) => Process.start(tool, ['--x', value]);\n",
+        "Future<Process> start(String tool, String value) => Process.start(tool, ['--x=$value']);\n",
         true,
     ),
     (
         "executable is a final field set by the constructor",
-        "class Tool {\n  Tool(this.executable);\n\n  final String executable;\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message', message]);\n}\n",
+        "class Tool {\n  Tool(this.executable);\n\n  final String executable;\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message=$message']);\n}\n",
         true,
     ),
     (
         "run in shell on",
-        "Future<Process> start(String dir) => Process.start('mytool', ['--store', dir], runInShell: true);\n",
+        "Future<Process> start(String dir) => Process.start('mytool', ['--store=$dir'], runInShell: true);\n",
         true,
     ),
     (
@@ -63,7 +68,7 @@ const ROWS: [Row; 12] = [
     ),
     (
         "command shell with a variable command",
-        "Future<ProcessResult> run(String command) => Process.run('sh', ['-c', command]);\n",
+        "Future<ProcessResult> run(String command) => Process.run('sh', ['-c', '--', command]);\n",
         true,
     ),
 ];
