@@ -14,6 +14,23 @@ pub(super) fn extend_implicit_extension_references(
     project: &ScannedProject,
 ) {
     let dependencies = project.graph.dependencies();
+    let mut imports_by_source = BTreeMap::<&PathBuf, Vec<&crate::ResolvedDependency>>::new();
+    for dependency in dependencies
+        .iter()
+        .filter(|dependency| dependency.kind == DependencyKind::Import)
+    {
+        imports_by_source
+            .entry(&dependency.from_path)
+            .or_default()
+            .push(dependency);
+    }
+    let mut member_names = BTreeMap::<(&PathBuf, &String), Vec<&String>>::new();
+    for member in members {
+        member_names
+            .entry((&member.path, &member.member.owner))
+            .or_default()
+            .push(&member.member.name);
+    }
     for declaration in declarations
         .iter()
         .filter(|declaration| declaration.declaration.kind == DeclarationKind::Extension)
@@ -27,13 +44,11 @@ pub(super) fn extend_implicit_extension_references(
             .map(|exported| exported.entry_path.clone())
             .chain(std::iter::once(declaration.path.clone()))
             .collect::<BTreeSet<_>>();
-        let implicit_references = members
-            .iter()
-            .filter(|member| {
-                member.path == declaration.path
-                    && member.member.owner == declaration.declaration.name
-            })
-            .filter_map(|member| references_by_name.get(&member.member.name))
+        let implicit_references = member_names
+            .get(&(&declaration.path, &declaration.declaration.name))
+            .into_iter()
+            .flatten()
+            .filter_map(|name| references_by_name.get(*name))
             .flatten()
             .filter(|reference| {
                 extension_visible_from(
@@ -41,7 +56,7 @@ pub(super) fn extend_implicit_extension_references(
                     declaration,
                     &entry_paths,
                     library_by_path,
-                    &dependencies,
+                    &imports_by_source,
                 )
             })
             .cloned()
@@ -62,7 +77,7 @@ fn extension_visible_from(
     declaration: &IndexedDeclaration,
     entry_paths: &BTreeSet<PathBuf>,
     library_by_path: &BTreeMap<PathBuf, PathBuf>,
-    dependencies: &[crate::ResolvedDependency],
+    imports_by_source: &BTreeMap<&PathBuf, Vec<&crate::ResolvedDependency>>,
 ) -> bool {
     let reference_library = library_by_path
         .get(&reference.path)
@@ -74,22 +89,22 @@ fn extension_visible_from(
         return true;
     }
 
-    dependencies.iter().any(|dependency| {
-        dependency.kind == DependencyKind::Import
-            && dependency.from_path == reference.path
-            && entry_paths.contains(&dependency.to_path)
-            && dependency.visibility.prefix.is_none()
-            && dependency
-                .visibility
-                .combinators
-                .iter()
-                .all(|combinator| match combinator.kind {
-                    DartCombinatorKind::Show => {
-                        combinator.names.contains(&declaration.declaration.name)
-                    }
-                    DartCombinatorKind::Hide => {
-                        !combinator.names.contains(&declaration.declaration.name)
-                    }
-                })
-    })
+    imports_by_source
+        .get(&reference.path)
+        .is_some_and(|imports| {
+            imports.iter().any(|dependency| {
+                entry_paths.contains(&dependency.to_path)
+                    && dependency.visibility.prefix.is_none()
+                    && dependency.visibility.combinators.iter().all(|combinator| {
+                        match combinator.kind {
+                            DartCombinatorKind::Show => {
+                                combinator.names.contains(&declaration.declaration.name)
+                            }
+                            DartCombinatorKind::Hide => {
+                                !combinator.names.contains(&declaration.declaration.name)
+                            }
+                        }
+                    })
+            })
+        })
 }
