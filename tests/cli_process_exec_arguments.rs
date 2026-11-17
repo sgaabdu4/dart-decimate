@@ -26,6 +26,12 @@ fn process_calls_are_safe_only_with_fixed_executables_and_placed_variable_argume
             fixture.path().join("lib/main.dart"),
             format!("import 'dart:io';\n\n{body}"),
         )?;
+        for (path, source) in row["files"].as_object().into_iter().flatten() {
+            fs::write(
+                fixture.path().join(path),
+                source.as_str().ok_or("file source")?,
+            )?;
+        }
         let mut output = Vec::new();
         run_from(
             [
