@@ -173,11 +173,7 @@ pub fn build_json_report(project: &ScannedProject, results: &AnalysisResults) ->
     );
     let security =
         json_security_inventories(&project.root, results.security.as_ref(), scope.as_ref());
-    let next_steps = if scope.is_some() {
-        Vec::new()
-    } else {
-        next_steps(&project.root, results)
-    };
+    let next_steps = report_next_steps(project, results, scope.is_some());
     if scope.is_some() {
         apply_health_inventory_summary(
             &mut summary,
@@ -392,6 +388,28 @@ fn report_findings(
     });
 
     findings
+}
+
+fn report_next_steps(
+    project: &ScannedProject,
+    results: &AnalysisResults,
+    scoped: bool,
+) -> Vec<NextStep> {
+    if project.scope.is_some() {
+        return next_steps(&project.root, results)
+            .into_iter()
+            .filter(|step| {
+                matches!(
+                    step.id.as_str(),
+                    "read-outside-types" | "generate-missing-import"
+                )
+            })
+            .collect();
+    }
+    if scoped {
+        return Vec::new();
+    }
+    next_steps(&project.root, results)
 }
 
 fn report_summary(

@@ -24,6 +24,15 @@ fn has_package(project: &ScannedProject, request: &CommandRequest) -> bool {
             .is_ok_and(|packages| !packages.is_empty())
 }
 
+fn scanned_files_under(project: &ScannedProject, scope: &Path) -> Vec<std::path::PathBuf> {
+    project
+        .files
+        .iter()
+        .map(|file| crate::graph::normalize_against(&project.root, &file.path))
+        .filter(|path| path.starts_with(scope))
+        .collect()
+}
+
 pub(super) fn analyze_project(
     project: &ScannedProject,
     request: &CommandRequest,
@@ -51,7 +60,10 @@ pub(super) fn analyze_project(
         security: analyze_project_security(project, request, dead_code.as_ref())?,
         routes: analyze_project_routes(project, request.command),
         widgets: analyze_project_widgets(project, request.command, dead_code.as_ref())?,
-        file_scope: None,
+        file_scope: project
+            .scope
+            .as_ref()
+            .map(|scope| scanned_files_under(project, scope)),
         require_suppression_reasons: missing_suppression_reasons_enabled(&request.rules),
         dead_code,
     })

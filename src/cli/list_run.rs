@@ -225,6 +225,7 @@ fn scoped_project(
             .collect(),
         graph: project.graph,
         ignore_patterns: project.ignore_patterns,
+        scope: project.scope,
     })
 }
 

@@ -28,6 +28,8 @@ pub struct ScannedProject {
     pub graph: ModuleGraph,
     /// Glob patterns that excluded Dart files and pubspecs from discovery.
     pub ignore_patterns: Vec<String>,
+    /// The folder the user scanned when the package that holds it sits above it.
+    pub scope: Option<PathBuf>,
 }
 
 /// Options controlling Dart file discovery.
@@ -118,7 +120,8 @@ pub fn scan_project_with_options(
     root: impl AsRef<Path>,
     options: &ScanOptions,
 ) -> Result<ScannedProject, ScanError> {
-    let root = normalize_scan_root(root.as_ref())?;
+    let scanned = normalize_scan_root(root.as_ref())?;
+    let (root, scope) = package_above(&scanned);
     let ignore_matcher = IgnoreMatcher::new(&options.ignore_patterns)?;
     let package_map = PackageMap::discover(&root)?;
     let mut scan_roots = BTreeSet::new();
@@ -164,7 +167,22 @@ pub fn scan_project_with_options(
         files,
         graph,
         ignore_patterns: options.ignore_patterns.clone(),
+        scope,
     })
+}
+
+fn package_above(scanned: &Path) -> (PathBuf, Option<PathBuf>) {
+    if scanned.join("pubspec.yaml").is_file() {
+        return (scanned.to_path_buf(), None);
+    }
+    scanned
+        .ancestors()
+        .skip(1)
+        .find(|folder| folder.join("pubspec.yaml").is_file())
+        .map_or_else(
+            || (scanned.to_path_buf(), None),
+            |package| (package.to_path_buf(), Some(scanned.to_path_buf())),
+        )
 }
 
 fn ignored_by_parent_gitignore(root: &Path, scan_root: &Path) -> bool {

@@ -303,28 +303,14 @@ pub(crate) struct PackageScope {
 }
 
 pub(crate) fn package_scopes(root: &Path, ignore_patterns: &[String]) -> Vec<PackageScope> {
-    let mut scopes = discover_packages(root, ignore_patterns)
+    discover_packages(root, ignore_patterns)
         .unwrap_or_default()
         .into_iter()
         .map(|package| PackageScope {
             root: package.root,
             application: package.application,
         })
-        .collect::<Vec<_>>();
-    if !scopes.iter().any(|scope| root.starts_with(&scope.root))
-        && let Some(package) = root
-            .ancestors()
-            .skip(1)
-            .map(|folder| folder.join("pubspec.yaml"))
-            .find(|pubspec| pubspec.is_file())
-            .and_then(|pubspec| read_package(&pubspec).ok().flatten())
-    {
-        scopes.push(PackageScope {
-            root: package.root,
-            application: package.application,
-        });
-    }
-    scopes
+        .collect()
 }
 
 fn is_application(value: &Value, root: &Path, name: &str) -> bool {
