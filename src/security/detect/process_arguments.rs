@@ -164,3 +164,98 @@ fn attached_option_value(element: &str) -> bool {
             .split_once('=')
             .is_some_and(|(option, _)| is_option_word(option))
 }
+
+const LIST_CHANGES: [&str; 17] = [
+    "add",
+    "addAll",
+    "insert",
+    "insertAll",
+    "remove",
+    "removeAt",
+    "removeLast",
+    "removeRange",
+    "removeWhere",
+    "retainWhere",
+    "replaceRange",
+    "setAll",
+    "setRange",
+    "fillRange",
+    "clear",
+    "sort",
+    "shuffle",
+];
+
+pub(super) fn list_is_changed(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
+    let Some(mut node) = root.descendant_for_byte_range(index, index.saturating_add(1)) else {
+        return true;
+    };
+    let mut scopes = Vec::new();
+    while let Some(parent) = node.parent() {
+        if parent.kind() == "class_body" {
+            scopes.push(parent);
+        }
+        if parent.parent().is_none() {
+            scopes.push(node);
+        }
+        node = parent;
+    }
+    let mut cursor = root.walk();
+    if root
+        .named_children(&mut cursor)
+        .any(|child| super::direct_binding(child, name, source, false).is_some())
+    {
+        scopes.push(root);
+    }
+    scopes
+        .into_iter()
+        .any(|scope| scope_changes_list(scope, source, name))
+}
+
+fn scope_changes_list(scope: Node<'_>, source: &str, name: &str) -> bool {
+    if text_changes_list(&source[scope.start_byte()..scope.end_byte()], name) {
+        return true;
+    }
+    let mut stack = vec![scope];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "assignment_expression"
+            && node
+                .child_by_field_name("left")
+                .and_then(|left| left.utf8_text(source.as_bytes()).ok())
+                .is_some_and(|left| assigns_list(left.trim(), name))
+        {
+            return true;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.named_children(&mut cursor));
+    }
+    false
+}
+
+fn assigns_list(left: &str, name: &str) -> bool {
+    let left = left.strip_prefix("this.").unwrap_or(left);
+    left == name
+        || left
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.starts_with('['))
+}
+
+fn text_changes_list(text: &str, name: &str) -> bool {
+    super::segment_indices(text, name).into_iter().any(|start| {
+        let rest = text[start + name.len()..].trim_start();
+        if rest.starts_with("..") {
+            return true;
+        }
+        let Some(member) = rest.strip_prefix('.') else {
+            return false;
+        };
+        let method = member.trim_start();
+        let end = method
+            .find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .unwrap_or(method.len());
+        let (method, after) = method.split_at(end);
+        (LIST_CHANGES.contains(&method) && after.trim_start().starts_with('('))
+            || (method == "length"
+                && after.trim_start().starts_with('=')
+                && !after.trim_start().starts_with("=="))
+    })
+}

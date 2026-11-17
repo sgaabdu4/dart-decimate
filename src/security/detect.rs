@@ -3,7 +3,9 @@ use std::path::Path;
 
 use tree_sitter::Node;
 
-use self::process_arguments::{is_command_wrapper, placed_argument_list, placed_command_list};
+use self::process_arguments::{
+    is_command_wrapper, list_is_changed, placed_argument_list, placed_command_list,
+};
 use super::catalogue::MatcherCatalogue;
 use super::{
     DetectedSecurityCandidate, DetectionResult, LibraryImportContext, SecurityBlindSpot,
@@ -1886,6 +1888,9 @@ fn resolved_list_arguments_inner(
         );
     }
     if !is_identifier(value) || !visited.insert(value.to_owned()) {
+        return None;
+    }
+    if list_is_changed(root, source, index, value) {
         return None;
     }
     let binding = lexical_binding_value(root, source, index, value)?;
