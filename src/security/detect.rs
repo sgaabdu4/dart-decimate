@@ -1817,7 +1817,6 @@ fn fixed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &s
 #[derive(Default)]
 struct ArgumentPlace {
     after_separator: bool,
-    after_option: bool,
 }
 
 fn placed_argument_list(root: Node<'_>, source: &str, index: usize, arguments: &str) -> bool {
@@ -1850,12 +1849,9 @@ fn placed_elements(
         }
         if let Some(word) = resolved_fixed_literal_value(root, source, index, element) {
             place.after_separator |= word == "--";
-            place.after_option = !place.after_separator && is_option_word(&word);
             return true;
         }
-        let allowed = place.after_separator || place.after_option || attached_option_value(element);
-        place.after_option = false;
-        allowed
+        place.after_separator || attached_option_value(element)
     })
 }
 
