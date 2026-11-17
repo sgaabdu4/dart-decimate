@@ -245,6 +245,11 @@
   "flagged": true
  },
  {
+  "case": "variable before an equals sign",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['log', '$v=1']);\n",
+  "flagged": true
+ },
+ {
   "case": "spread of a list that gets add",
   "source": "Future<ProcessResult> run(String v) {\n  final base = ['--json'];\n  base.add(v);\n  return Process.run('git', ['log', ...base]);\n}\n",
   "flagged": true

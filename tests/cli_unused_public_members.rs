@@ -1993,12 +1993,18 @@ fn scanning_a_sub_folder_checks_the_package_above_it() -> Result<(), Box<dyn std
         "test/other.dart",
         "class Other {\n  int spare() => 1;\n}\n",
     )?;
+    write(
+        &fixture,
+        "bin/tool.dart",
+        "class Tool {\n  int idle() => 1;\n}\n\nvoid main() {\n  print(Tool());\n}\n",
+    )?;
 
     let (_, whole) = scan_json(fixture.path())?;
     let (_, sub) = scan_json(&fixture.path().join("lib"))?;
 
     assert_eq!(found_members(&sub), ["Item.spare"]);
     assert!(found_members(&whole).contains(&"Item.spare".to_owned()));
+    assert!(found_members(&whole).contains(&"Tool.idle".to_owned()));
 
     let steps = missing_import_fixture(&[
         ("lib/base.dart", "part 'base.g.dart';\n"),
