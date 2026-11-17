@@ -502,8 +502,8 @@ Current implemented parity:
   `FirebaseOptions.apiKey` client keys, remote `http://` network sinks,
   certificate-validation bypasses, unrestricted or file-backed WebView surfaces,
   shell/dynamic process execution (a call with a fixed executable, no shell and
-  separate arguments is safe when each variable argument follows a fixed option
-  word or a fixed `--`), dynamic raw SQL, JavaScript password autofill
+  separate arguments is safe when each variable argument is attached as
+  `--option=$value` or follows a fixed `--`), dynamic raw SQL, JavaScript password autofill
   literals, secret-like writes to plain local storage, and direct
   `dart:math Random()` use in security-shaped declarations/calls, with `--top`,
   `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,
