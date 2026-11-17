@@ -747,23 +747,17 @@ fn detect_process_call(
         return;
     }
     let risky = if package_process {
-        !parsed_run_in_shell_is_disabled(root, source, index)
-            || process_manager_invokes_command_shell(root, source, index, arguments[0])
-            || !placed_command_list(root, source, index, arguments[0])
+        process_manager_call_is_risky(root, source, index, arguments[0])
     } else {
-        let executable = resolved_fixed_literal_value(root, source, index, arguments[0]);
-        let fixed_executable = executable.is_some();
-        let fixed_dart_runtime = pattern == "Process.start"
-            && resolved_dart_runtime_start(Some((root, source)), index, call, inherited_imports);
-        let trusted = fixed_dart_runtime
-            || executable
-                .as_deref()
-                .is_some_and(|value| !is_command_wrapper(value));
-        let fixed_arguments = placed_argument_list(root, source, index, arguments[1], trusted);
-        !parsed_run_in_shell_is_disabled(root, source, index)
-            || call_invokes_command_shell(root, source, index, call)
-            || (!fixed_executable && !fixed_dart_runtime)
-            || !fixed_arguments
+        process_call_is_risky(
+            root,
+            source,
+            index,
+            call,
+            pattern,
+            &arguments,
+            inherited_imports,
+        )
     };
     if risky {
         result.candidates.push(detected(
@@ -776,6 +770,41 @@ fn detect_process_call(
             pattern,
         ));
     }
+}
+
+fn process_manager_call_is_risky(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    command: &str,
+) -> bool {
+    !parsed_run_in_shell_is_disabled(root, source, index)
+        || process_manager_invokes_command_shell(root, source, index, command)
+        || !placed_command_list(root, source, index, command)
+}
+
+fn process_call_is_risky(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    call: &str,
+    pattern: &str,
+    arguments: &[&str],
+    inherited_imports: Option<&LibraryImportContext>,
+) -> bool {
+    let executable = resolved_fixed_literal_value(root, source, index, arguments[0]);
+    let fixed_executable = executable.is_some();
+    let fixed_dart_runtime = pattern == "Process.start"
+        && resolved_dart_runtime_start(Some((root, source)), index, call, inherited_imports);
+    let trusted = fixed_dart_runtime
+        || executable
+            .as_deref()
+            .is_some_and(|value| !is_command_wrapper(value));
+    let fixed_arguments = placed_argument_list(root, source, index, arguments[1], trusted);
+    !parsed_run_in_shell_is_disabled(root, source, index)
+        || call_invokes_command_shell(root, source, index, call)
+        || (!fixed_executable && !fixed_dart_runtime)
+        || !fixed_arguments
 }
 
 fn flattened_process_arguments<'source>(
@@ -2278,6 +2307,7 @@ fn root_node(mut node: Node<'_>) -> Node<'_> {
     node
 }
 
+#[derive(Clone, Copy)]
 enum LexicalBinding<'source> {
     Value(&'source str),
     Mutable(&'source str),
