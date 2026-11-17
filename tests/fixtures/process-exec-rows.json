@@ -2,336 +2,827 @@
  {
   "case": "value after its own fixed option word",
   "source": "Future<Process> start(String dir) => Process.start('mytool', ['--store', dir, '--json']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "value after a flag that takes no value",
   "source": "Future<Process> start(String value) => Process.start('mytool', ['--json', value]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "executable is a final field set from a literal",
   "source": "class Tool {\n  final String executable = 'mytool';\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message=$message']);\n}\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "variable after a fixed double dash",
   "source": "Future<ProcessResult> log(String path) => Process.run('git', ['log', '--', path]);\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "value attached to its option word",
   "source": "Future<ProcessResult> commit(String text) => Process.run('git', ['commit', '--message=$text']);\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "spread of a list whose elements follow the rule",
   "source": "Future<Process> start(String to) {\n  final base = ['--store', 'data', '--json'];\n  return Process.start('mytool', [...base, '--', to]);\n}\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "variable executable",
   "source": "Future<Process> start(String tool, String value) => Process.start(tool, ['--x=$value']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "executable is a final field set by the constructor",
   "source": "class Tool {\n  Tool(this.executable);\n\n  final String executable;\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message=$message']);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "run in shell on",
   "source": "Future<Process> start(String dir) => Process.start('mytool', ['--store=$dir'], runInShell: true);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "variable first element",
   "source": "Future<ProcessResult> run(String name) => Process.run('git', [name, '--all']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "variable after a fixed word that is not an option",
   "source": "Future<ProcessResult> log(String name) => Process.run('git', ['log', name]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "spread of a variable list",
   "source": "Future<ProcessResult> run(List<String> extra) => Process.run('git', ['status', '--short', ...extra]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "command shell with a variable command",
   "source": "Future<ProcessResult> run(String command) => Process.run('sh', ['-c', '--', command]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper kubectl after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('kubectl', ['exec', 'pod', '--', 'sh', '-c', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper docker after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('docker', ['exec', '--', 'box', 'sh', '-c', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper ssh after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('ssh', ['server', '--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper adb after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('adb', ['shell', '--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper sudo after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('sudo', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper env after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('env', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper xargs after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('xargs', ['--', 'sh', '-c', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper find after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('find', ['.', '-name', 'x', '-exec', 'sh', '-c', '--', cmd, ';']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper podman after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('podman', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper nice after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('nice', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper timeout after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('timeout', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper nohup after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('nohup', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper doas after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('doas', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper su after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('su', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper runuser after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('runuser', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper chroot after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('chroot', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper script after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('script', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper watch after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('watch', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "wrapper parallel after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('parallel', ['--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "shell name after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('mytool', ['run', '--', 'bash', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "shell command flag after a double dash",
   "source": "Future<ProcessResult> run(String cmd) => Process.run('mytool', ['run', '-c', '--', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "process manager wrapper after a double dash",
   "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String cmd) =>\n    processManager.run(['kubectl', 'exec', 'p', '--', 'sh', '-c', cmd]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "process manager safe double dash",
   "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String path) =>\n    processManager.run(['git', 'log', '--', path]);\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "ssh proxy command attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['-oProxyCommand=$v', 'host']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "ssh proxy command with long name",
   "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--ProxyCommand=$v', 'host']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "git upload pack attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['ls-remote', '--upload-pack=$v', 'origin']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "git receive pack attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['push', '--receive-pack=$v', 'origin']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "rsync rsh attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('rsync', ['--rsh=$v', 'a', 'b']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "to command attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--to-command=$v']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "exec attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--exec=$v']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "command attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('mytool', ['--command=$v']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "git config ssh command attached",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['--config=core.sshCommand=$v', 'fetch']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "git config key after dash c",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['-c', 'core.sshCommand=$v', 'fetch']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "attached value cut by a call",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['log', '--x=$v'.substring(4)]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "attached value in a conditional",
   "source": "Future<ProcessResult> run(String a, String x, String v) => Process.run('git', ['log', '--x=$a' == '' ? x : v]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "attached value joined with plus",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['log', '--x=' + v]);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "variable before an equals sign",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['log', '$v=1']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "spread of a list that gets add",
   "source": "Future<ProcessResult> run(String v) {\n  final base = ['--json'];\n  base.add(v);\n  return Process.run('git', ['log', ...base]);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "spread of a field list that gets add",
   "source": "class Tool {\n  final base = ['--json'];\n\n  void push(String v) => base.add(v);\n\n  Future<ProcessResult> run() => Process.run('git', ['log', ...base]);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "list passed directly that gets add",
   "source": "Future<ProcessResult> run(String v) {\n  final args = ['log'];\n  args.add(v);\n  return Process.run('git', args);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "list passed directly that gets insert",
   "source": "Future<ProcessResult> run(String v) {\n  final base = ['log'];\n  base.insert(0, v);\n  return Process.run('git', base);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "list passed directly that gets an index write",
   "source": "Future<ProcessResult> run(String v) {\n  final args = ['log', 'x'];\n  args[1] = v;\n  return Process.run('git', args);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "list passed directly that gets addAll",
   "source": "Future<ProcessResult> run(List<String> v) {\n  final args = ['log'];\n  args.addAll(v);\n  return Process.run('git', args);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "list passed directly that is never changed",
   "source": "Future<ProcessResult> run() {\n  final args = ['log', '--oneline'];\n  return Process.run('git', args);\n}\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "executable variable that is reassigned",
   "source": "Future<ProcessResult> run(String e, String v) {\n  var exe = 'git';\n  exe = e;\n  return Process.run(exe, ['--message=$v']);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "executable typed variable that is reassigned",
   "source": "Future<ProcessResult> run(String e, String v) {\n  String exe = 'git';\n  exe = e;\n  return Process.run(exe, ['--message=$v']);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "executable field that is reassigned",
   "source": "class Tool {\n  String exe = 'git';\n\n  void use(String e) => exe = e;\n\n  Future<ProcessResult> run(String v) => Process.run(exe, ['--message=$v']);\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "executable variable that is never reassigned",
   "source": "Future<ProcessResult> run(String v) {\n  var exe = 'git';\n  return Process.run(exe, ['--message=$v']);\n}\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "call inside a map closure",
   "source": "Iterable<Future<ProcessResult>> run(List<String> vs) => vs.map((v) => Process.run('git', ['log', v]));\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "call inside a forEach closure",
   "source": "void run(List<String> vs) {\n  vs.forEach((v) {\n    Process.run('git', ['log', v]);\n  });\n}\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  },
  {
   "case": "safe call inside a closure",
   "source": "Iterable<Future<ProcessResult>> run(List<String> vs) => vs.map((v) => Process.run('git', ['log', '--', v]));\n",
-  "flagged": false
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "executable parameter whose first and last letters match",
   "source": "Future<ProcessResult> run(String exe) => Process.run(exe, ['log']);\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "call inside a then closure",
   "source": "Future<ProcessResult> run(Future<void> ready, String v) => ready.then((_) => Process.run('git', ['log', v]));\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
  },
  {
   "case": "call inside a nested arrow closure",
   "source": "List<Object> run(List<String> vs) => vs.map((v) => (String w) => Process.run('git', ['log', w])).toList();\n",
-  "flagged": true
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "field set by the constructor",
+  "source": "class Runner {\n  Runner(this.arg);\n\n  String arg;\n\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "field set from outside",
+  "source": "class Runner {\n  String arg = 'log';\n\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\n\nvoid use(Runner r, String v) {\n  r.arg = v;\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "field set by a cascade",
+  "source": "class Runner {\n  String arg = 'log';\n\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\n\nvoid use(List<String> a) {\n  Runner()..arg = a.first;\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "top-level variable as argument",
+  "source": "var flag = '--x';\n\nFuture<ProcessResult> run() => Process.run('git', [flag]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "top-level variable as executable",
+  "source": "var exe = 'git';\n\nFuture<ProcessResult> run(String v) => Process.run(exe, ['--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "run in shell from a constructor field",
+  "source": "class Runner {\n  Runner(this.shell);\n\n  bool shell;\n\n  Future<ProcessResult> go() => Process.run('git', ['log'], runInShell: shell);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "late executable set from outside",
+  "source": "class Runner {\n  late String exe = 'git';\n\n  Future<ProcessResult> go(String v) => Process.run(exe, ['--', v]);\n}\n\nvoid use(Runner r, String e) {\n  r.exe = e;\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "local executable with plus assign",
+  "source": "Future<ProcessResult> run(String v) {\n  var exe = 'git';\n  exe += v;\n  return Process.run(exe, ['log']);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "local executable with null assign",
+  "source": "Future<ProcessResult> run(String? v) {\n  var exe = 'git';\n  exe ??= v;\n  return Process.run(exe, ['log']);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "raw sql with a constructor field",
+  "source": "class Repo {\n  Repo(this.table);\n\n  String table;\n\n  Future<void> go(dynamic db) => db.rawQuery('select * from $table');\n}\n",
+  "flagged": true,
+  "category": "raw-sql",
+  "main": 1
+ },
+ {
+  "case": "raw sql with a top-level variable",
+  "source": "var table = 'items';\n\nFuture<void> go(dynamic db) => db.rawQuery('select * from $table');\n",
+  "flagged": true,
+  "category": "raw-sql",
+  "main": 1
+ },
+ {
+  "case": "raw sql with a final literal",
+  "source": "Future<void> go(dynamic db) {\n  final table = 'items';\n  return db.rawQuery('select * from $table');\n}\n",
+  "flagged": false,
+  "category": "raw-sql",
+  "main": 0
+ },
+ {
+  "case": "certificate bypass with a constructor field",
+  "source": "class C {\n  C(this.allowBad);\n\n  bool allowBad;\n\n  void go(HttpClient c) {\n    c.badCertificateCallback = (cert, host, port) => allowBad;\n  }\n}\n",
+  "flagged": true,
+  "category": "tls-bypass",
+  "main": 1
+ },
+ {
+  "case": "certificate bypass with a literal true",
+  "source": "void go(HttpClient c) {\n  c.badCertificateCallback = (cert, host, port) => true;\n}\n",
+  "flagged": true,
+  "category": "tls-bypass",
+  "main": 1
+ },
+ {
+  "case": "spread through an alias",
+  "source": "Future<ProcessResult> run(String v) {\n  final base = ['--json'];\n  final alias = base;\n  alias.add(v);\n  return Process.run('git', ['log', ...base]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "spread changed by a helper",
+  "source": "void addTo(List<String> l, String v) => l.add(v);\n\nFuture<ProcessResult> run(String v) {\n  final base = ['--json'];\n  addTo(base, v);\n  return Process.run('git', ['log', ...base]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "null aware spread changed by add",
+  "source": "Future<ProcessResult> run(String v) {\n  final List<String>? base = ['--json'];\n  base?.add(v);\n  return Process.run('git', ['log', ...?base]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "final field list changed from outside",
+  "source": "class Runner {\n  final base = ['--json'];\n\n  Future<ProcessResult> go() => Process.run('git', ['log', ...base]);\n}\n\nvoid use(Runner r, String v) {\n  r.base.add(v);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "list field replaced from outside",
+  "source": "class Runner {\n  List<String> base = ['log'];\n\n  Future<ProcessResult> go() => Process.run('git', base);\n}\n\nvoid use(Runner r, String v) {\n  r.base = [v];\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "top-level list changed",
+  "source": "final base = ['log'];\n\nFuture<ProcessResult> run() => Process.run('git', base);\n\nvoid grow(String v) {\n  base.add(v);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "unlisted wrapper gcloud after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('gcloud', ['compute', 'ssh', 'vm', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper lxc after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('lxc', ['exec', 'box', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper oc after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('oc', ['exec', 'pod', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper multipass after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('multipass', ['exec', 'vm', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper docker-compose after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('docker-compose', ['exec', 'web', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper npx after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('npx', ['--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper npm after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('npm', ['exec', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper setsid after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('setsid', ['--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper stdbuf after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('stdbuf', ['-oL', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper sshpass after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('sshpass', ['-p', 'pw', 'ssh', 'host', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper dart after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('dart', ['run', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper git after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['submodule', 'foreach', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper wsl after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('wsl', ['--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper node after a double dash",
+  "source": "Future<ProcessResult> run(String v) => Process.run('node', ['--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "process manager unlisted wrapper",
+  "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String v) =>\n    processManager.run(['lxc', 'exec', 'box', '--', v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted wrapper with a list sum",
+  "source": "Future<ProcessResult> run(String v) => Process.run('lxc', ['exec', 'box', '--', 'a'] + [v]);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option tar --use-compress-program",
+  "source": "Future<ProcessResult> run(String v) => Process.run('tar', ['--use-compress-program=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option tar --checkpoint-action=exec",
+  "source": "Future<ProcessResult> run(String v) => Process.run('tar', ['--checkpoint-action=exec=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option rsync --rsync-path",
+  "source": "Future<ProcessResult> run(String v) => Process.run('rsync', ['--rsync-path=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option ssh -oRemoteCommand",
+  "source": "Future<ProcessResult> run(String v) => Process.run('ssh', ['-oRemoteCommand=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option ssh -oLocalCommand",
+  "source": "Future<ProcessResult> run(String v) => Process.run('ssh', ['-oLocalCommand=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option ssh -oKnownHostsCommand",
+  "source": "Future<ProcessResult> run(String v) => Process.run('ssh', ['-oKnownHostsCommand=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option docker --entrypoint",
+  "source": "Future<ProcessResult> run(String v) => Process.run('docker', ['--entrypoint=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option node --eval",
+  "source": "Future<ProcessResult> run(String v) => Process.run('node', ['--eval=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option gawk --source",
+  "source": "Future<ProcessResult> run(String v) => Process.run('gawk', ['--source=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option sed --expression",
+  "source": "Future<ProcessResult> run(String v) => Process.run('sed', ['--expression=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option make --eval",
+  "source": "Future<ProcessResult> run(String v) => Process.run('make', ['--eval=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "unlisted option zip --unzip-command",
+  "source": "Future<ProcessResult> run(String v) => Process.run('zip', ['--unzip-command=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "batch file with an attached value",
+  "source": "Future<ProcessResult> run(String v) => Process.run('tool.bat', ['--name=$v']);\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "const list and an unrelated add",
+  "source": "class A {\n  void x(dynamic o) {\n    o.args.add('x');\n  }\n\n  Future<ProcessResult> go() {\n    const args = ['status'];\n    return Process.run('git', args);\n  }\n}\n",
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "sibling method local add",
+  "source": "class A {\n  void other() {\n    final args = ['y'];\n    args.add('x');\n  }\n\n  Future<ProcessResult> go() {\n    final args = ['status'];\n    return Process.run('git', args);\n  }\n}\n",
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
  }
 ]
