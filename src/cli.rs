@@ -240,8 +240,20 @@ where
     run_request(&request, writer)
 }
 
+fn has_package(root: &std::path::Path, request: &CommandRequest) -> bool {
+    root.ancestors()
+        .any(|folder| folder.join("pubspec.yaml").is_file())
+        || crate::local_pub_packages(root, &request.scan_options.ignore_patterns)
+            .is_ok_and(|packages| !packages.is_empty())
+}
+
 fn run_request<W: Write>(request: &CommandRequest, mut writer: W) -> Result<i32, CliError> {
     let project = scan_project_with_options(&request.root, &request.scan_options)?;
+    if request.command == ReportCommand::Check && !has_package(&project.root, request) {
+        return Err(CliError::NoPackage {
+            path: project.root.clone(),
+        });
+    }
     if matches!(
         request.command,
         ReportCommand::TraceFile
