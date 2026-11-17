@@ -1005,5 +1005,33 @@
   "flagged": true,
   "category": "process-execution",
   "main": 1
+ },
+ {
+  "case": "local var set from a parameter, used once",
+  "source": "Future<ProcessResult> go(String v, bool cond) {\n  var arg = v;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "local var set from a conditional with a parameter, used once",
+  "source": "Future<ProcessResult> go(String v, bool cond) {\n  var arg = cond ? 'a' : v;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "final set from a concatenation with a parameter",
+  "source": "Future<ProcessResult> go(String v, bool cond) {\n  final arg = 'lo' + v;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "final set from an interpolated parameter",
+  "source": "Future<ProcessResult> go(String v, bool cond) {\n  final arg = '$v';\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  }
 ]
