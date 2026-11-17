@@ -2099,6 +2099,49 @@ fn a_broken_nested_pubspec_keeps_its_parse_error() -> Result<(), Box<dyn std::er
 }
 
 #[test]
+fn file_paths_count_from_the_scan_root_and_a_miss_exits_two()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'src/a.dart';\n\nvoid main() {\n  print(A());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/src/a.dart",
+        "class A {\n  int spare() => 1;\n}\n",
+    )?;
+    let scan = |file: &str| {
+        let mut output = Vec::new();
+        let result = run_from(
+            [
+                "dart-decimate",
+                "check",
+                fixture.path().join("lib").to_str().unwrap_or("."),
+                "--file",
+                file,
+                "--strict",
+                "--format",
+                "json",
+            ],
+            &mut output,
+        );
+        result.map(|code| (code, serde_json::from_slice::<Value>(&output)))
+    };
+
+    let (_, found) = scan("src/a.dart")?;
+    assert_eq!(found_members(&found?), ["A.spare"]);
+    let error = scan("src/missing.dart")
+        .err()
+        .ok_or("a file that matches nothing must exit 2")?;
+    assert!(error.to_string().contains("--file"), "{error}");
+
+    Ok(())
+}
+
+#[test]
 fn scanning_a_folder_without_a_package_says_so() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "lib/main.dart", "void main() {}\n")?;

@@ -52,6 +52,14 @@ pub enum CliError {
         /// The scanned folder.
         path: std::path::PathBuf,
     },
+    /// No `--file` path names a scanned file.
+    #[error(
+        "no scanned file matches --file {files:?}; paths count from the scanned folder, so pass a path under it or run from the package folder"
+    )]
+    NoFileMatch {
+        /// The `--file` values.
+        files: Vec<std::path::PathBuf>,
+    },
     /// Cross-language duplicate detection is JavaScript/TypeScript-specific in Fallow.
     #[error("dupes --cross-language is not supported for Dart-only analysis")]
     UnsupportedCrossLanguageDupes,
