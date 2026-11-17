@@ -1,7 +1,7 @@
 use tree_sitter::Node;
 
 use super::{
-    command_interpreter_uses_c_flag, posix_shell_flag_invokes_command,
+    command_interpreter_uses_c_flag, posix_shell_flag_invokes_command, read_string,
     resolved_fixed_literal_value, resolved_list_arguments,
 };
 
@@ -152,13 +152,14 @@ fn is_option_word(word: &str) -> bool {
 }
 
 fn attached_option_value(element: &str) -> bool {
-    let Some(inner) = element
-        .strip_prefix('\'')
-        .or_else(|| element.strip_prefix('"'))
-    else {
+    if !matches!(element.as_bytes().first(), Some(b'\'' | b'"')) {
+        return false;
+    }
+    let Some((inner, _, end)) = read_string(element, 0) else {
         return false;
     };
-    !option_runs_a_command(inner)
+    end == element.len()
+        && !option_runs_a_command(&inner)
         && inner
             .split_once('=')
             .is_some_and(|(option, _)| is_option_word(option))
