@@ -123,11 +123,22 @@ pub(super) fn apply_report_scope(
     }
 
     if !request.file_paths.is_empty() {
+        let base = project.scope.as_deref().unwrap_or(&project.root);
         let file_scope = request
             .file_paths
             .iter()
-            .map(|path| normalize_against(&project.root, path))
+            .map(|path| normalize_against(base, path))
             .collect::<Vec<_>>();
+        let known = project
+            .files
+            .iter()
+            .map(|file| normalize_against(&project.root, &file.path))
+            .collect::<BTreeSet<_>>();
+        if !file_scope.iter().any(|path| known.contains(path)) {
+            return Err(CliError::NoFileMatch {
+                files: request.file_paths.clone(),
+            });
+        }
         results.file_scope = Some(intersect_scope(results.file_scope.take(), file_scope));
     }
 
