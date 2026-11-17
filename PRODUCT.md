@@ -504,9 +504,10 @@ Current implemented parity:
   shell/dynamic process execution (a variable argument is a finding, also after a
   `--` or in an attached `--option=$value`, as in 0.0.77; an executable or list
   that is a non-final field, a top-level variable or a changed list is not
-  trusted; limits, missed by 0.0.77 too: a list built with a cascade on creation
-  such as `['log']..add(v)` and an executable changed by a pattern assignment
-  such as `(exe, _) = (v, 0)`), dynamic raw SQL, JavaScript password autofill
+  trusted; a local `var` is trusted only when its name appears nowhere else in
+  its function than its declaration and the one use judged, so a for-in loop or
+  a pattern assignment on it makes it a finding; a limit, missed by 0.0.77 too:
+  a list built with a cascade on creation such as `['log']..add(v)`), dynamic raw SQL, JavaScript password autofill
   literals, secret-like writes to plain local storage, and direct
   `dart:math Random()` use in security-shaped declarations/calls, with `--top`,
   `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,
