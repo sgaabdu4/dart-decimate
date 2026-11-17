@@ -300,8 +300,33 @@
   "flagged": false
  },
  {
+  "case": "call inside a map closure",
+  "source": "Iterable<Future<ProcessResult>> run(List<String> vs) => vs.map((v) => Process.run('git', ['log', v]));\n",
+  "flagged": true
+ },
+ {
+  "case": "call inside a forEach closure",
+  "source": "void run(List<String> vs) {\n  vs.forEach((v) {\n    Process.run('git', ['log', v]);\n  });\n}\n",
+  "flagged": true
+ },
+ {
+  "case": "safe call inside a closure",
+  "source": "Iterable<Future<ProcessResult>> run(List<String> vs) => vs.map((v) => Process.run('git', ['log', '--', v]));\n",
+  "flagged": false
+ },
+ {
   "case": "executable parameter whose first and last letters match",
   "source": "Future<ProcessResult> run(String exe) => Process.run(exe, ['log']);\n",
+  "flagged": true
+ },
+ {
+  "case": "call inside a then closure",
+  "source": "Future<ProcessResult> run(Future<void> ready, String v) => ready.then((_) => Process.run('git', ['log', v]));\n",
+  "flagged": true
+ },
+ {
+  "case": "call inside a nested arrow closure",
+  "source": "List<Object> run(List<String> vs) => vs.map((v) => (String w) => Process.run('git', ['log', w])).toList();\n",
   "flagged": true
  }
 ]
