@@ -165,65 +165,76 @@ fn attached_option_value(element: &str) -> bool {
             .is_some_and(|(option, _)| is_option_word(option))
 }
 
-const LIST_CHANGES: [&str; 17] = [
-    "add",
-    "addAll",
-    "insert",
-    "insertAll",
-    "remove",
-    "removeAt",
-    "removeLast",
-    "removeRange",
-    "removeWhere",
-    "retainWhere",
-    "replaceRange",
-    "setAll",
-    "setRange",
-    "fillRange",
-    "clear",
-    "sort",
-    "shuffle",
-];
-
-pub(super) fn list_is_changed(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
-    scopes_of(root, source, index, name)
-        .into_iter()
-        .any(|scope| scope_changes_list(scope, source, name))
-}
-
 pub(super) fn name_is_reassigned(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
-    scopes_of(root, source, index, name)
-        .into_iter()
-        .any(|scope| scope_assigns_name(scope, source, name))
+    function_body_of(root, index).is_none_or(|body| scope_assigns_name(body, source, name))
 }
 
-fn scopes_of<'tree>(root: Node<'tree>, source: &str, index: usize, name: &str) -> Vec<Node<'tree>> {
-    let Some(mut node) = root.descendant_for_byte_range(index, index.saturating_add(1)) else {
-        return vec![root];
-    };
-    let mut scopes = Vec::new();
+fn function_body_of(root: Node<'_>, index: usize) -> Option<Node<'_>> {
+    let mut node = root.descendant_for_byte_range(index, index.saturating_add(1))?;
+    let mut body = None;
     while let Some(parent) = node.parent() {
-        if parent.kind() == "class_body" {
-            scopes.push(parent);
-        }
-        if parent.parent().is_none() {
-            scopes.push(node);
+        match parent.kind() {
+            "class_body" => break,
+            "function_body" | "function_expression_body" => body = Some(parent),
+            _ => {}
         }
         node = parent;
     }
-    let mut cursor = root.walk();
-    if root
-        .named_children(&mut cursor)
-        .any(|child| super::direct_binding(child, name, source, false).is_some())
-    {
-        scopes.push(root);
-    }
-    scopes
+    body
 }
 
-fn scope_changes_list(scope: Node<'_>, source: &str, name: &str) -> bool {
-    text_changes_list(&source[scope.start_byte()..scope.end_byte()], name)
-        || scope_assigns_name(scope, source, name)
+pub(super) fn list_is_proven_fixed(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
+    if name_is_const(root, source, name) {
+        return true;
+    }
+    let Some(body) = function_body_of(root, index) else {
+        return false;
+    };
+    let text = &source[body.start_byte()..body.end_byte()];
+    let uses = super::segment_indices(text, name)
+        .into_iter()
+        .filter(|start| {
+            let before = text[..*start].trim_end();
+            !before.ends_with('.') || before.ends_with("...")
+        })
+        .count();
+    uses == 2 && !scope_assigns_name(body, source, name)
+}
+
+fn name_is_const(root: Node<'_>, source: &str, name: &str) -> bool {
+    let mut declarations = 0;
+    let mut constant = false;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if matches!(
+            node.kind(),
+            "initialized_identifier"
+                | "initialized_variable_definition"
+                | "static_final_declaration"
+        ) && node
+            .child_by_field_name("name")
+            .and_then(|binding| binding.utf8_text(source.as_bytes()).ok())
+            == Some(name)
+        {
+            declarations += 1;
+            constant = node.parent().is_some_and(|parent| {
+                let mut cursor = parent.walk();
+                let direct = parent
+                    .children(&mut cursor)
+                    .any(|child| child.kind() == "const");
+                direct
+                    || parent.parent().is_some_and(|outer| {
+                        let mut cursor = outer.walk();
+                        outer
+                            .children(&mut cursor)
+                            .any(|child| child.kind() == "const")
+                    })
+            });
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.named_children(&mut cursor));
+    }
+    declarations == 1 && constant
 }
 
 fn scope_assigns_name(scope: Node<'_>, source: &str, name: &str) -> bool {
@@ -233,7 +244,7 @@ fn scope_assigns_name(scope: Node<'_>, source: &str, name: &str) -> bool {
             && node
                 .child_by_field_name("left")
                 .and_then(|left| left.utf8_text(source.as_bytes()).ok())
-                .is_some_and(|left| assigns_list(left.trim(), name))
+                .is_some_and(|left| assigns_name(left.trim(), name))
         {
             return true;
         }
@@ -243,31 +254,9 @@ fn scope_assigns_name(scope: Node<'_>, source: &str, name: &str) -> bool {
     false
 }
 
-fn assigns_list(left: &str, name: &str) -> bool {
-    let left = left.strip_prefix("this.").unwrap_or(left);
+fn assigns_name(left: &str, name: &str) -> bool {
     left == name
         || left
             .strip_prefix(name)
             .is_some_and(|rest| rest.starts_with('['))
-}
-
-fn text_changes_list(text: &str, name: &str) -> bool {
-    super::segment_indices(text, name).into_iter().any(|start| {
-        let rest = text[start + name.len()..].trim_start();
-        if rest.starts_with("..") {
-            return true;
-        }
-        let Some(member) = rest.strip_prefix('.') else {
-            return false;
-        };
-        let method = member.trim_start();
-        let end = method
-            .find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-            .unwrap_or(method.len());
-        let (method, after) = method.split_at(end);
-        (LIST_CHANGES.contains(&method) && after.trim_start().starts_with('('))
-            || (method == "length"
-                && after.trim_start().starts_with('=')
-                && !after.trim_start().starts_with("=="))
-    })
 }

@@ -507,7 +507,9 @@ Current implemented parity:
   command wrapper such as `ssh`, `sudo` or `kubectl` or beside a shell word, and
   an option that runs a command such as `ProxyCommand`, `--upload-pack`,
   `--receive-pack`, `--rsh`, `--to-command`, `--exec`, `--command` or
-  `core.sshCommand` stays a finding even when attached), dynamic raw SQL, JavaScript password autofill
+  `core.sshCommand` stays a finding even when attached; limits, missed by 0.0.77 too: a list built
+  with a cascade on creation such as `['log']..add(v)` and an executable changed
+  by a pattern assignment such as `(exe, _) = (v, 0)`), dynamic raw SQL, JavaScript password autofill
   literals, secret-like writes to plain local storage, and direct
   `dart:math Random()` use in security-shaped declarations/calls, with `--top`,
   `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,
