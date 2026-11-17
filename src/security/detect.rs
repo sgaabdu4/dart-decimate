@@ -681,6 +681,7 @@ fn detect_process_call(
     let Ok(function) = function_node.utf8_text(source.as_bytes()) else {
         return;
     };
+    let function = function.rsplit("=>").next().map_or(function, str::trim);
     let index = function_node.start_byte();
     let pattern = matcher
         .callees
