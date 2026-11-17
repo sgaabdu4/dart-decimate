@@ -15,10 +15,24 @@ use crate::{
 use super::entry_points::{entry_points_for_check, entry_points_for_dead_code};
 use super::{CliError, CommandRequest};
 
+fn has_package(project: &ScannedProject, request: &CommandRequest) -> bool {
+    project
+        .root
+        .ancestors()
+        .any(|folder| folder.join("pubspec.yaml").is_file())
+        || crate::local_pub_packages(&project.root, &request.scan_options.ignore_patterns)
+            .is_ok_and(|packages| !packages.is_empty())
+}
+
 pub(super) fn analyze_project(
     project: &ScannedProject,
     request: &CommandRequest,
 ) -> Result<AnalysisResults, CliError> {
+    if request.command == ReportCommand::Check && !has_package(project, request) {
+        return Err(CliError::NoPackage {
+            path: project.root.clone(),
+        });
+    }
     let dead_code = analyze_project_dead_code(project, request)?;
 
     Ok(AnalysisResults {
