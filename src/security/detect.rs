@@ -4,7 +4,7 @@ use std::path::Path;
 use tree_sitter::Node;
 
 use self::process_arguments::{
-    is_command_wrapper, list_is_changed, name_is_reassigned, placed_argument_list,
+    is_command_wrapper, list_is_proven_fixed, name_is_reassigned, placed_argument_list,
     placed_command_list,
 };
 use super::catalogue::MatcherCatalogue;
@@ -1924,10 +1924,10 @@ fn resolved_list_arguments_inner(
     if !is_identifier(value) || !visited.insert(value.to_owned()) {
         return None;
     }
-    if list_is_changed(root, source, index, value) {
+    let binding = lexical_binding_value(root, source, index, value)?;
+    if !list_is_proven_fixed(root, source, index, value) {
         return None;
     }
-    let binding = lexical_binding_value(root, source, index, value)?;
     resolved_list_arguments_inner(root, source, index, binding, visited)
 }
 
@@ -1941,11 +1941,12 @@ fn settled_binding<'source>(
     index: usize,
     name: &str,
     binding: LexicalBinding<'source>,
+    local: bool,
 ) -> Option<&'source str> {
     match binding {
         LexicalBinding::Value(value) => Some(value),
         LexicalBinding::Mutable(value) => {
-            (!name_is_reassigned(root, source, index, name)).then_some(value)
+            (local && !name_is_reassigned(root, source, index, name)).then_some(value)
         }
         LexicalBinding::Unknown => None,
     }
@@ -1962,7 +1963,7 @@ fn lexical_binding_value<'source>(
         if parent.kind() == "class_body"
             && let Some(binding) = class_binding(parent, child, name, source)
         {
-            return settled_binding(root, source, index, name, binding);
+            return settled_binding(root, source, index, name, binding, false);
         }
         if process_scope_parameters_bind_name(parent, name, source)
             || process_scope_header_binds_name(parent, child, name, source)
@@ -1976,6 +1977,7 @@ fn lexical_binding_value<'source>(
                 index,
                 name,
                 top_level_binding(parent, name, source)?,
+                false,
             );
         }
         let mut cursor = parent.walk();
@@ -1985,7 +1987,14 @@ fn lexical_binding_value<'source>(
             .collect::<Vec<_>>();
         while let Some(sibling) = siblings.pop() {
             if let Some(binding) = direct_binding(sibling, name, source, false) {
-                return settled_binding(root, source, index, name, binding);
+                return settled_binding(
+                    root,
+                    source,
+                    index,
+                    name,
+                    binding,
+                    parent.kind() != "class_body",
+                );
             }
         }
         child = parent;
