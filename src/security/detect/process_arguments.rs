@@ -186,8 +186,20 @@ const LIST_CHANGES: [&str; 17] = [
 ];
 
 pub(super) fn list_is_changed(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
+    scopes_of(root, source, index, name)
+        .into_iter()
+        .any(|scope| scope_changes_list(scope, source, name))
+}
+
+pub(super) fn name_is_reassigned(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
+    scopes_of(root, source, index, name)
+        .into_iter()
+        .any(|scope| scope_assigns_name(scope, source, name))
+}
+
+fn scopes_of<'tree>(root: Node<'tree>, source: &str, index: usize, name: &str) -> Vec<Node<'tree>> {
     let Some(mut node) = root.descendant_for_byte_range(index, index.saturating_add(1)) else {
-        return true;
+        return vec![root];
     };
     let mut scopes = Vec::new();
     while let Some(parent) = node.parent() {
@@ -207,14 +219,14 @@ pub(super) fn list_is_changed(root: Node<'_>, source: &str, index: usize, name: 
         scopes.push(root);
     }
     scopes
-        .into_iter()
-        .any(|scope| scope_changes_list(scope, source, name))
 }
 
 fn scope_changes_list(scope: Node<'_>, source: &str, name: &str) -> bool {
-    if text_changes_list(&source[scope.start_byte()..scope.end_byte()], name) {
-        return true;
-    }
+    text_changes_list(&source[scope.start_byte()..scope.end_byte()], name)
+        || scope_assigns_name(scope, source, name)
+}
+
+fn scope_assigns_name(scope: Node<'_>, source: &str, name: &str) -> bool {
     let mut stack = vec![scope];
     while let Some(node) = stack.pop() {
         if node.kind() == "assignment_expression"

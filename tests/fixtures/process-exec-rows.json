@@ -278,5 +278,30 @@
   "case": "list passed directly that is never changed",
   "source": "Future<ProcessResult> run() {\n  final args = ['log', '--oneline'];\n  return Process.run('git', args);\n}\n",
   "flagged": false
+ },
+ {
+  "case": "executable variable that is reassigned",
+  "source": "Future<ProcessResult> run(String e, String v) {\n  var exe = 'git';\n  exe = e;\n  return Process.run(exe, ['--message=$v']);\n}\n",
+  "flagged": true
+ },
+ {
+  "case": "executable typed variable that is reassigned",
+  "source": "Future<ProcessResult> run(String e, String v) {\n  String exe = 'git';\n  exe = e;\n  return Process.run(exe, ['--message=$v']);\n}\n",
+  "flagged": true
+ },
+ {
+  "case": "executable field that is reassigned",
+  "source": "class Tool {\n  String exe = 'git';\n\n  void use(String e) => exe = e;\n\n  Future<ProcessResult> run(String v) => Process.run(exe, ['--message=$v']);\n}\n",
+  "flagged": true
+ },
+ {
+  "case": "executable variable that is never reassigned",
+  "source": "Future<ProcessResult> run(String v) {\n  var exe = 'git';\n  return Process.run(exe, ['--message=$v']);\n}\n",
+  "flagged": false
+ },
+ {
+  "case": "executable parameter whose first and last letters match",
+  "source": "Future<ProcessResult> run(String exe) => Process.run(exe, ['log']);\n",
+  "flagged": true
  }
 ]

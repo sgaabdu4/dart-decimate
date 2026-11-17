@@ -4,7 +4,8 @@ use std::path::Path;
 use tree_sitter::Node;
 
 use self::process_arguments::{
-    is_command_wrapper, list_is_changed, placed_argument_list, placed_command_list,
+    is_command_wrapper, list_is_changed, name_is_reassigned, placed_argument_list,
+    placed_command_list,
 };
 use super::catalogue::MatcherCatalogue;
 use super::{
@@ -1104,6 +1105,9 @@ fn string_literals(source: &str) -> Vec<StringLiteral> {
 fn read_string(source: &str, start: usize) -> Option<(String, usize, usize)> {
     let bytes = source.as_bytes();
     let quote = *bytes.get(start)?;
+    if !matches!(quote, b'\'' | b'"') {
+        return None;
+    }
     if bytes.get(start..start + 3) == Some([quote, quote, quote].as_slice()) {
         let mut index = start + 3;
         let value_start = index;
@@ -1901,6 +1905,22 @@ fn fixed_string_literal(value: &str) -> bool {
     fixed_literal_value(value).is_some()
 }
 
+fn settled_binding<'source>(
+    root: Node<'_>,
+    source: &str,
+    index: usize,
+    name: &str,
+    binding: LexicalBinding<'source>,
+) -> Option<&'source str> {
+    match binding {
+        LexicalBinding::Value(value) => Some(value),
+        LexicalBinding::Mutable(value) => {
+            (!name_is_reassigned(root, source, index, name)).then_some(value)
+        }
+        LexicalBinding::Unknown => None,
+    }
+}
+
 fn lexical_binding_value<'source>(
     root: Node<'_>,
     source: &'source str,
@@ -1912,10 +1932,7 @@ fn lexical_binding_value<'source>(
         if parent.kind() == "class_body"
             && let Some(binding) = class_binding(parent, child, name, source)
         {
-            return match binding {
-                LexicalBinding::Value(value) => Some(value),
-                LexicalBinding::Unknown => None,
-            };
+            return settled_binding(root, source, index, name, binding);
         }
         if process_scope_parameters_bind_name(parent, name, source)
             || process_scope_header_binds_name(parent, child, name, source)
@@ -1923,7 +1940,13 @@ fn lexical_binding_value<'source>(
             return None;
         }
         if parent.parent().is_none() {
-            return top_level_binding(parent, name, source);
+            return settled_binding(
+                root,
+                source,
+                index,
+                name,
+                top_level_binding(parent, name, source)?,
+            );
         }
         let mut cursor = parent.walk();
         let mut siblings = parent
@@ -1932,10 +1955,7 @@ fn lexical_binding_value<'source>(
             .collect::<Vec<_>>();
         while let Some(sibling) = siblings.pop() {
             if let Some(binding) = direct_binding(sibling, name, source, false) {
-                return match binding {
-                    LexicalBinding::Value(value) => Some(value),
-                    LexicalBinding::Unknown => None,
-                };
+                return settled_binding(root, source, index, name, binding);
             }
         }
         child = parent;
@@ -2050,7 +2070,7 @@ fn top_level_binding<'source>(
     root: Node<'_>,
     name: &str,
     source: &'source str,
-) -> Option<&'source str> {
+) -> Option<LexicalBinding<'source>> {
     let mut cursor = root.walk();
     let mut binding = None;
     for child in root.named_children(&mut cursor) {
@@ -2062,10 +2082,7 @@ fn top_level_binding<'source>(
         }
         binding = Some(candidate);
     }
-    match binding {
-        Some(LexicalBinding::Value(value)) => Some(value),
-        Some(LexicalBinding::Unknown) | None => None,
-    }
+    binding
 }
 
 fn class_binding<'source>(
@@ -2262,6 +2279,7 @@ fn root_node(mut node: Node<'_>) -> Node<'_> {
 
 enum LexicalBinding<'source> {
     Value(&'source str),
+    Mutable(&'source str),
     Unknown,
 }
 
@@ -2299,26 +2317,22 @@ fn direct_binding<'source>(
         if binding_name != name {
             return None;
         }
-        if !immutable {
-            return Some(LexicalBinding::Unknown);
-        }
-        return Some(
-            node.child_by_field_name("value")
-                .and_then(|value| value.utf8_text(source.as_bytes()).ok())
-                .map(str::trim)
-                .map_or(LexicalBinding::Unknown, LexicalBinding::Value),
-        );
+        let value = node
+            .child_by_field_name("value")
+            .and_then(|value| value.utf8_text(source.as_bytes()).ok())
+            .map(str::trim);
+        return Some(match (value, immutable) {
+            (Some(value), true) => LexicalBinding::Value(value),
+            (Some(value), false) => LexicalBinding::Mutable(value),
+            (None, _) => LexicalBinding::Unknown,
+        });
     }
     if node.kind() == "assignment_expression" {
         let left = node
             .child_by_field_name("left")?
             .utf8_text(source.as_bytes())
             .ok()?;
-        let operator = node
-            .child_by_field_name("operator")?
-            .utf8_text(source.as_bytes())
-            .ok()?;
-        if left.trim() == name && operator == "=" {
+        if left.trim() == name {
             return Some(LexicalBinding::Unknown);
         }
         return None;
