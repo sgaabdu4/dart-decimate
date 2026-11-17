@@ -228,5 +228,20 @@
   "case": "git config key after dash c",
   "source": "Future<ProcessResult> run(String v) => Process.run('git', ['-c', 'core.sshCommand=$v', 'fetch']);\n",
   "flagged": true
+ },
+ {
+  "case": "attached value cut by a call",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['log', '--x=$v'.substring(4)]);\n",
+  "flagged": true
+ },
+ {
+  "case": "attached value in a conditional",
+  "source": "Future<ProcessResult> run(String a, String x, String v) => Process.run('git', ['log', '--x=$a' == '' ? x : v]);\n",
+  "flagged": true
+ },
+ {
+  "case": "attached value joined with plus",
+  "source": "Future<ProcessResult> run(String v) => Process.run('git', ['log', '--x=' + v]);\n",
+  "flagged": true
  }
 ]
