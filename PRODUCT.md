@@ -501,15 +501,12 @@ Current implemented parity:
 - `dart-decimate security` inventory for hardcoded secret-shaped literals,
   `FirebaseOptions.apiKey` client keys, remote `http://` network sinks,
   certificate-validation bypasses, unrestricted or file-backed WebView surfaces,
-  shell/dynamic process execution (a call with a fixed executable, no shell and
-  separate arguments is safe when each variable argument is attached as
-  `--option=$value` or follows a fixed `--`; the `--` is not trusted after a
-  command wrapper such as `ssh`, `sudo` or `kubectl` or beside a shell word, and
-  an option that runs a command such as `ProxyCommand`, `--upload-pack`,
-  `--receive-pack`, `--rsh`, `--to-command`, `--exec`, `--command` or
-  `core.sshCommand` stays a finding even when attached; limits, missed by 0.0.77 too: a list built
-  with a cascade on creation such as `['log']..add(v)` and an executable changed
-  by a pattern assignment such as `(exe, _) = (v, 0)`), dynamic raw SQL, JavaScript password autofill
+  shell/dynamic process execution (a variable argument is a finding, also after a
+  `--` or in an attached `--option=$value`, as in 0.0.77; an executable or list
+  that is a non-final field, a top-level variable or a changed list is not
+  trusted; limits, missed by 0.0.77 too: a list built with a cascade on creation
+  such as `['log']..add(v)` and an executable changed by a pattern assignment
+  such as `(exe, _) = (v, 0)`), dynamic raw SQL, JavaScript password autofill
   literals, secret-like writes to plain local storage, and direct
   `dart:math Random()` use in security-shaped declarations/calls, with `--top`,
   `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,

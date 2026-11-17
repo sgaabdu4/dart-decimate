@@ -16,28 +16,28 @@
  {
   "case": "executable is a final field set from a literal",
   "source": "class Tool {\n  final String executable = 'mytool';\n\n  Future<Process> send(String message) =>\n      Process.start(executable, ['--message=$message']);\n}\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 1
  },
  {
   "case": "variable after a fixed double dash",
   "source": "Future<ProcessResult> log(String path) => Process.run('git', ['log', '--', path]);\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 1
  },
  {
   "case": "value attached to its option word",
   "source": "Future<ProcessResult> commit(String text) => Process.run('git', ['commit', '--message=$text']);\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 1
  },
  {
   "case": "spread of a list whose elements follow the rule",
   "source": "Future<Process> start(String to) {\n  final base = ['--store', 'data', '--json'];\n  return Process.start('mytool', [...base, '--', to]);\n}\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 1
  },
@@ -247,7 +247,7 @@
  {
   "case": "process manager safe double dash",
   "source": "import 'package:process/process.dart';\n\nFuture<ProcessResult> run(ProcessManager processManager, String path) =>\n    processManager.run(['git', 'log', '--', path]);\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 1
  },
@@ -422,7 +422,7 @@
  {
   "case": "executable variable that is never reassigned",
   "source": "Future<ProcessResult> run(String v) {\n  var exe = 'git';\n  return Process.run(exe, ['--message=$v']);\n}\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 1
  },
@@ -443,7 +443,7 @@
  {
   "case": "safe call inside a closure",
   "source": "Iterable<Future<ProcessResult>> run(List<String> vs) => vs.map((v) => Process.run('git', ['log', '--', v]));\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
   "main": 0
  },
