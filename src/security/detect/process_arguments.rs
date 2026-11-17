@@ -1,7 +1,24 @@
 use tree_sitter::Node;
 
 pub(super) fn name_is_reassigned(root: Node<'_>, source: &str, index: usize, name: &str) -> bool {
-    function_body_of(root, index).is_none_or(|body| scope_assigns_name(body, source, name))
+    function_body_of(root, index).is_none_or(|body| body_use_count(body, source, name) != 2)
+}
+
+fn body_use_count(body: Node<'_>, source: &str, name: &str) -> usize {
+    let text = &source[body.start_byte()..body.end_byte()];
+    let bytes = text.as_bytes();
+    let word = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
+    text.match_indices(name)
+        .filter(|(start, _)| {
+            let after = bytes.get(start + name.len()).copied();
+            let before = text[..*start].trim_end();
+            !start
+                .checked_sub(1)
+                .is_some_and(|position| word(bytes[position]))
+                && !after.is_some_and(|byte| word(byte) || byte == b'$')
+                && (!before.ends_with('.') || before.ends_with("..."))
+        })
+        .count()
 }
 
 fn function_body_of(root: Node<'_>, index: usize) -> Option<Node<'_>> {
@@ -25,15 +42,7 @@ pub(super) fn list_is_proven_fixed(root: Node<'_>, source: &str, index: usize, n
     let Some(body) = function_body_of(root, index) else {
         return false;
     };
-    let text = &source[body.start_byte()..body.end_byte()];
-    let uses = super::segment_indices(text, name)
-        .into_iter()
-        .filter(|start| {
-            let before = text[..*start].trim_end();
-            !before.ends_with('.') || before.ends_with("...")
-        })
-        .count();
-    uses == 2 && !scope_assigns_name(body, source, name)
+    body_use_count(body, source, name) == 2 && !scope_assigns_name(body, source, name)
 }
 
 fn name_is_const(root: Node<'_>, source: &str, name: &str) -> bool {

@@ -973,11 +973,11 @@
   "main": 0
  },
  {
-  "case": "stated limit: executable changed by a pattern assignment",
+  "case": "executable changed by a pattern assignment",
   "source": "Future<ProcessResult> run(String v) {\n  var exe = 'git';\n  (exe, _) = (v, 0);\n  return Process.run(exe, ['log']);\n}\n",
-  "flagged": false,
+  "flagged": true,
   "category": "process-execution",
-  "main": 0
+  "main": 1
  },
  {
   "case": "stated limit: tear-off of the run function",
