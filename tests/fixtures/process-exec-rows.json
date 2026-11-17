@@ -498,7 +498,7 @@
  },
  {
   "case": "top-level variable as executable",
-  "source": "var exe = 'git';\n\nFuture<ProcessResult> run(String v) => Process.run(exe, ['--', v]);\n",
+  "source": "var exe = 'git';\n\nFuture<ProcessResult> run() => Process.run(exe, ['log']);\n",
   "flagged": true,
   "category": "process-execution",
   "main": 1
@@ -512,7 +512,7 @@
  },
  {
   "case": "late executable set from outside",
-  "source": "class Runner {\n  late String exe = 'git';\n\n  Future<ProcessResult> go(String v) => Process.run(exe, ['--', v]);\n}\n\nvoid use(Runner r, String e) {\n  r.exe = e;\n}\n",
+  "source": "class Runner {\n  late String exe = 'git';\n\n  Future<ProcessResult> go() => Process.run(exe, ['log']);\n}\n\nvoid use(Runner r, String e) {\n  r.exe = e;\n}\n",
   "flagged": true,
   "category": "process-execution",
   "main": 1
@@ -831,5 +831,179 @@
   "flagged": true,
   "category": "process-execution",
   "main": 0
+ },
+ {
+  "case": "review3 y1_for_in_arg",
+  "source": "Future<ProcessResult> go(List<String> xs) async {\n  var arg = 'log';\n  for (arg in xs) {}\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y2_pattern_assign_arg",
+  "source": "Future<ProcessResult> go(String e) {\n  var arg = 'log';\n  (arg, _) = (e, 0);\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y3_list_pattern_arg",
+  "source": "Future<ProcessResult> go(String e) {\n  var arg = 'log';\n  [arg] = [e];\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y4_record_pattern_named_arg",
+  "source": "Future<ProcessResult> go(({String a}) r) {\n  var arg = 'log';\n  (a: arg) = r;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y5_local_never_reassigned_arg",
+  "source": "Future<ProcessResult> go() {\n  var arg = 'log';\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": false,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y6_closure_sets_local_arg",
+  "source": "Future<ProcessResult> go(Stream<String> s) async {\n  var arg = 'log';\n  s.listen((v) { arg = v; });\n  await Future<void>.delayed(Duration.zero);\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y7_extension_param_control",
+  "source": "extension E on String {\n  Future<ProcessResult> go(String v) => Process.run(v, ['log']);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y8_extension_static_var_arg",
+  "source": "extension E on int {\n  static var arg = 'log';\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\nvoid set(String v) { E.arg = v; }\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y9_enum_static_var_arg",
+  "source": "enum K {\n  a;\n  static var arg = 'log';\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\nvoid set(String v) { K.arg = v; }\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y10_mixin_var_arg",
+  "source": "mixin M {\n  var arg = 'log';\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y11_extension_type_field_arg",
+  "source": "extension type T(String arg) {\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y12_local_var_inner_fn_sets",
+  "source": "Future<ProcessResult> go(String v) {\n  var arg = 'log';\n  void set() => arg = v;\n  set();\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y13_local_var_increment_string",
+  "source": "Future<ProcessResult> go(String v) {\n  var arg = 'log';\n  arg = arg + v;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y14_local_var_switch_pattern",
+  "source": "Future<ProcessResult> go(Object o) {\n  var arg = 'log';\n  if (o case String s) { arg = s; }\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y15_sql_local_var_pattern",
+  "source": "class Db { Future<void> rawQuery(String q) async {} }\nFuture<void> go(Db db, String e) {\n  var table = 'users';\n  (table, _) = (e, 0);\n  return db.rawQuery('SELECT * FROM $table');\n}\n",
+  "flagged": true,
+  "category": "raw-sql",
+  "main": 1
+ },
+ {
+  "case": "review3 y16_tls_local_var_pattern",
+  "source": "HttpClient make(bool b) {\n  var allowBad = false;\n  (allowBad, _) = (b, 0);\n  return HttpClient()..badCertificateCallback = (c, h, p) => allowBad;\n}\n",
+  "flagged": true,
+  "category": "tls-bypass",
+  "main": 1
+ },
+ {
+  "case": "review3 y17_sql_local_var_never",
+  "source": "class Db { Future<void> rawQuery(String q) async {} }\nFuture<void> go(Db db) {\n  var table = 'users';\n  return db.rawQuery('SELECT * FROM $table');\n}\n",
+  "flagged": false,
+  "category": "raw-sql",
+  "main": 1
+ },
+ {
+  "case": "review3 y18_local_late_var_arg",
+  "source": "Future<ProcessResult> go(String e) {\n  late String arg;\n  arg = e;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "review3 y19_local_var_no_init_assigned",
+  "source": "Future<ProcessResult> go(String e) {\n  String arg;\n  arg = e;\n  return Process.run('git', [arg]);\n}\n",
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "stated limit: list built by a cascade on creation",
+  "source": "Future<ProcessResult> run(String v) {\n  final args = ['log']..add(v);\n  return Process.run('git', args);\n}\n",
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "stated limit: executable changed by a pattern assignment",
+  "source": "Future<ProcessResult> run(String v) {\n  var exe = 'git';\n  (exe, _) = (v, 0);\n  return Process.run(exe, ['log']);\n}\n",
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "stated limit: tear-off of the run function",
+  "source": "Future<ProcessResult> run(String v) {\n  final r = Process.run;\n  return r('git', [v]);\n}\n",
+  "flagged": false,
+  "category": "process-execution",
+  "main": 0
+ },
+ {
+  "case": "field set from outside in another file",
+  "source": "class Runner {\n  String arg = 'log';\n\n  Future<ProcessResult> go() => Process.run('git', [arg]);\n}\n",
+  "files": {
+   "lib/other.dart": "import 'main.dart';\n\nvoid use(Runner r, String v) {\n  r.arg = v;\n}\n"
+  },
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
+ },
+ {
+  "case": "top-level variable set in another file",
+  "source": "var exe = 'git';\n\nFuture<ProcessResult> run() => Process.run(exe, ['log']);\n",
+  "files": {
+   "lib/other.dart": "import 'main.dart';\n\nvoid use(String v) {\n  exe = v;\n}\n"
+  },
+  "flagged": true,
+  "category": "process-execution",
+  "main": 1
  }
 ]
