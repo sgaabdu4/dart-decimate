@@ -2016,6 +2016,56 @@ fn scanning_a_sub_folder_checks_the_package_above_it() -> Result<(), Box<dyn std
 }
 
 #[test]
+fn scanning_a_sub_folder_reports_what_a_root_scan_reports_for_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "pubspec.yaml", "name: app\npublish_to: none\n")?;
+    write(
+        &fixture,
+        "lib/main.dart",
+        "import 'package:app/util.dart';\nimport 'package:app/item.dart';\n\nvoid main() {\n  print(Util().used());\n  print(Item());\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/util.dart",
+        "class Util {\n  int used() => 1;\n\n  int spare() => 2;\n}\n",
+    )?;
+    write(
+        &fixture,
+        "lib/item.dart",
+        "class Item {\n  int testOnly() => 1;\n}\n",
+    )?;
+    write(
+        &fixture,
+        "test/item_test.dart",
+        "import 'package:app/item.dart';\n\nvoid main() {\n  print(Item().testOnly());\n}\n",
+    )?;
+
+    let (_, whole) = scan_json(fixture.path())?;
+    let (_, sub) = scan_json(&fixture.path().join("lib"))?;
+    let under_lib = |json: &Value| {
+        let mut found = json["findings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|finding| {
+                finding["path"]
+                    .as_str()
+                    .is_some_and(|path| path.starts_with("lib/"))
+            })
+            .map(|finding| format!("{} {}", finding["path"], finding["message"]))
+            .collect::<Vec<_>>();
+        found.sort();
+        found
+    };
+
+    assert_eq!(under_lib(&sub), under_lib(&whole));
+    assert_eq!(found_members(&sub), ["Util.spare"]);
+
+    Ok(())
+}
+
+#[test]
 fn scanning_a_folder_without_a_package_says_so() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "lib/main.dart", "void main() {}\n")?;
