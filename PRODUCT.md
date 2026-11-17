@@ -503,7 +503,11 @@ Current implemented parity:
   certificate-validation bypasses, unrestricted or file-backed WebView surfaces,
   shell/dynamic process execution (a call with a fixed executable, no shell and
   separate arguments is safe when each variable argument is attached as
-  `--option=$value` or follows a fixed `--`), dynamic raw SQL, JavaScript password autofill
+  `--option=$value` or follows a fixed `--`; the `--` is not trusted after a
+  command wrapper such as `ssh`, `sudo` or `kubectl` or beside a shell word, and
+  an option that runs a command such as `ProxyCommand`, `--upload-pack`,
+  `--receive-pack`, `--rsh`, `--to-command`, `--exec`, `--command` or
+  `core.sshCommand` stays a finding even when attached), dynamic raw SQL, JavaScript password autofill
   literals, secret-like writes to plain local storage, and direct
   `dart:math Random()` use in security-shaped declarations/calls, with `--top`,
   `--surface`, `--format sarif`, `--sarif-file`, `--ci`, `--fail-on-issues`,
