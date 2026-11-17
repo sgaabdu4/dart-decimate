@@ -2072,6 +2072,33 @@ fn scanning_a_sub_folder_reports_what_a_root_scan_reports_for_it()
 }
 
 #[test]
+fn a_broken_nested_pubspec_keeps_its_parse_error() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(&fixture, "apps/a/pubspec.yaml", "name: a\n")?;
+    write(&fixture, "apps/a/lib/main.dart", "void main() {}\n")?;
+    write(&fixture, "fixtures/bad/pubspec.yaml", "name: [unclosed\n")?;
+    let mut output = Vec::new();
+
+    let error = run_from(
+        [
+            "dart-decimate",
+            "check",
+            fixture.path().to_str().unwrap_or("."),
+            "--format",
+            "json",
+        ],
+        &mut output,
+    )
+    .err()
+    .ok_or("a broken pubspec must stop the check")?;
+
+    let message = error.to_string();
+    assert!(message.contains("failed to parse pubspec"), "{message}");
+
+    Ok(())
+}
+
+#[test]
 fn scanning_a_folder_without_a_package_says_so() -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "lib/main.dart", "void main() {}\n")?;
