@@ -34,7 +34,7 @@ Execution: One builder, three commits: fixtures, comment blocks, migration patte
 
 ## Risks + recovery
 
-The old commits still hold the literal values, so a scan of all history reports them; the push gate scans only the new commits. Recovery: revert the commits.
+The old commits still hold the literal values, so a scan of all history reports them; the push gate scans only the new commits. Recovery: a forward fix in a new patch version; a revert would re-add the allowlist and the literal fixture values, and 0.0.79 is published at merge.
 
 ## ux_reference
 
