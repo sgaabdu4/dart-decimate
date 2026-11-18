@@ -38,7 +38,7 @@ const checks = [
     /dart-dart-decimate|dart_dart_decimate|DART_DART_DECIMATE/,
   ],
   ["old MCP binary", /(?<!dart-)decimate-mcp/],
-  ["old suppression directive", /(?<!dart-)decimate-ignore|fallow-ignore/],
+  ["old suppression directive", /(?<!dart-)decimate-ignore/],
   ["old rule id prefix", /(?<!dart-)decimate\//],
   ["old schema prefix", /(?<!dart-)decimate\./],
   ["old config filename", /\.decimaterc|(?<!dart-)decimate\.toml|\.decimate\b/],
