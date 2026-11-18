@@ -4,7 +4,7 @@ Status: Complete
 
 ## Outcome + scope
 
-The project holds no gitleaks allowlist, no Fallow directive text in the migration check and no multi-line comment block in the listed source files. Non-goals: other rules, other files, any change to `.hooks/` or the Hard Eng skills.
+The project holds no gitleaks allowlist, no Fallow directive text in the migration check and no multi-line comment block in the listed source files. Release as 0.0.79. Non-goals: other rules, other files, any change to `.hooks/` or the Hard Eng skills.
 
 ## Repository context
 
