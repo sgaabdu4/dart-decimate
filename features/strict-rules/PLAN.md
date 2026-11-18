@@ -47,3 +47,5 @@ Evidence: `cargo test` passes 411 library tests and all integration tests; the t
 E2E: N/A — test fixtures, doc comments and a check script only.
 Delivery target: PR
 Delivery: Pending — PR checks and owner review.
+
+Retro: the strict scan stops on an allowlist, a directive text in a check script and multi-line doc blocks → fixed in code in their own commits; the plan fields were found one by one by the check → None — the installed plan check names each missing field.
