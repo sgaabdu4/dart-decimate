@@ -9,6 +9,8 @@ The project holds no gitleaks allowlist, no Fallow directive text in the migrati
 ## Repository context
 
 Owners: `tests/cli_security_issue_18.rs`, `tests/cli_issue_54_false_positives.rs` and `src/security/tests.rs` hold the secret-shaped fixtures. `scripts/check-dart-decimate-migration.mjs` guards old product names; its gate, package script, pull request template and docs still call it, so it stays. `.hooks/comments.py` already bans the Fallow directive in every file. Clippy pedantic needs a `# Errors` heading on public functions that return `Result`, so each doc keeps that heading and one line.
+Same cause: Fixed in every place the scans found it; a `gitleaks dir .` run shows no other secret-shaped value, and the canary list names no other block.
+Single source: N/A — each fixture value lives once in its own test.
 
 ## Decisions + authorization
 
