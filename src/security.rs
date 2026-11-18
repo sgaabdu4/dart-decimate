@@ -278,8 +278,6 @@ impl LibraryImportContext {
     }
 }
 
-/// Detect unverified local security review candidates in Dart and Flutter code.
-///
 /// # Errors
 ///
 /// Returns [`SecurityError`] if a scanned Dart file cannot be read.

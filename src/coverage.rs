@@ -171,12 +171,9 @@ pub fn coverage_analysis_report(runtime_coverage: JsonRuntimeCoverage) -> Covera
     }
 }
 
-/// Build or apply an offline runtime coverage setup report.
-///
 /// # Errors
 ///
-/// Returns an IO error if `apply` is true and the setup config cannot be
-/// written.
+/// Returns an IO error if `apply` is true and the setup config cannot be written.
 pub fn coverage_setup_report(
     project: &ScannedProject,
     apply: bool,
@@ -277,8 +274,6 @@ pub fn coverage_inventory_upload_report(
     })
 }
 
-/// Build a local source-map upload dry-run report.
-///
 /// # Errors
 ///
 /// Returns an IO error when the source-map directory cannot be read.

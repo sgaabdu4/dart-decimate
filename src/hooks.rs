@@ -161,8 +161,6 @@ pub enum HooksError {
     },
 }
 
-/// Inspect hook status.
-///
 /// # Errors
 ///
 /// Returns [`HooksError`] if an existing hook cannot be read.
@@ -184,12 +182,9 @@ pub fn hooks_status(
     Ok(report("hooks status", root, options, files))
 }
 
-/// Install a Dart Decimate hook.
-///
 /// # Errors
 ///
-/// Returns [`HooksError`] when the target is not available, the hook is
-/// unmanaged without `force`, or file writes fail.
+/// Returns [`HooksError`] when the target is not available, the hook is unmanaged without `force`, or file writes fail.
 pub fn install_hooks(
     root: impl AsRef<Path>,
     options: &HookOptions,
@@ -207,12 +202,9 @@ pub fn install_hooks(
     Ok(report("hooks install", root, options, files))
 }
 
-/// Uninstall a Dart Decimate-managed hook.
-///
 /// # Errors
 ///
-/// Returns [`HooksError`] when an unmanaged hook exists without `force`, or when
-/// file removal fails.
+/// Returns [`HooksError`] when an unmanaged hook exists without `force`, or when file removal fails.
 pub fn uninstall_hooks(
     root: impl AsRef<Path>,
     options: &HookOptions,

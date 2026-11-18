@@ -49,12 +49,9 @@ impl RefSuggestions {
     }
 }
 
-/// Return root-normalized files changed since `base`.
-///
 /// # Errors
 ///
-/// Returns [`ChangedScopeError`] if `git diff` cannot be executed or the base
-/// revision is invalid for this repository.
+/// Returns [`ChangedScopeError`] if `git diff` cannot be executed or the base revision is invalid for this repository.
 pub fn changed_files(root: &Path, base: &str) -> Result<Vec<PathBuf>, ChangedScopeError> {
     let output = git_command::for_repository(root)
         .args(["diff", "--name-only", "--diff-filter=ACMRTUXB", base, "--"])
@@ -83,8 +80,6 @@ pub fn changed_files(root: &Path, base: &str) -> Result<Vec<PathBuf>, ChangedSco
     Ok(paths.into_iter().collect())
 }
 
-/// Return changed files plus one resolved graph hop in either direction.
-///
 /// # Errors
 ///
 /// Returns [`ChangedScopeError`] if changed-file discovery fails.

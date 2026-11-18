@@ -194,8 +194,6 @@ struct TraceSymbolSpec {
     symbol: String,
 }
 
-/// Run Dart Decimate from explicit arguments.
-///
 /// # Errors
 ///
 /// Returns [`CliError`] for invalid arguments, scan failures, or output errors.

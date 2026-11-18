@@ -7,12 +7,9 @@ use crate::graph::normalize_against;
 
 use super::{PolicyError, PolicyPack, PolicyRule, PolicyRuleKind, PolicySeverity};
 
-/// Load a policy pack from a JSON, JSONC, or TOML file.
-///
 /// # Errors
 ///
-/// Returns [`PolicyError`] when the file is missing, unreadable, malformed, or
-/// contains a rule without an id, family, or pattern list.
+/// Returns [`PolicyError`] when the file is missing, unreadable, malformed, or contains a rule without an id, family, or pattern list.
 pub fn load_policy_pack(
     root: impl AsRef<Path>,
     path: impl AsRef<Path>,

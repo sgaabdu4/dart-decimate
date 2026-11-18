@@ -60,8 +60,6 @@ struct ComplexityState {
     contributions: Vec<ComplexityContribution>,
 }
 
-/// Analyze Dart function complexity for a scanned project.
-///
 /// # Errors
 ///
 /// Returns [`HealthError`] when a source file cannot be read or parsed.
