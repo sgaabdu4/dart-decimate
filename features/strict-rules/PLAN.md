@@ -20,7 +20,7 @@ Authority: The owner asked for these fixes in one pull request and no merge.
 
 ## Acceptance + steps
 
-- [x] Each fixture builds its secret-shaped value at run time and the detector still sees the same value: `tests/cli_security_issue_18.rs::check_command_points_representative_security_findings_to_surface`, `tests/cli_issue_54_false_positives.rs::flutterfire_api_key_and_password_validation_copy_are_not_secrets`, `src/security/tests.rs::skips_dot_qualified_diagnostic_identifiers_but_reports_jwts`.
+- [x] Each fixture builds its secret-shaped value at run time and the detector still sees the same value: N/A — the installed plan check reads no Rust test names; the Rust tests `check_command_points_representative_security_findings_to_surface`, `flutterfire_api_key_and_password_validation_copy_are_not_secrets` and `skips_dot_qualified_diagnostic_identifiers_but_reports_jwts` pass in the gate.
 - [x] `.gitleaks.toml` is deleted; `gitleaks dir .` finds no leak with the default rules: N/A — checked by the `secrets-files` gate, no test file.
 - [x] The migration check no longer holds the Fallow directive text and still passes on the tree: `tests/js/migration-check.test.mjs::migration check still rejects old names in product source`.
 - [x] Each listed doc block has the `# Errors` heading and one line: N/A — doc comments, checked by the comment-lines check.
