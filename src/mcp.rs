@@ -16,8 +16,6 @@ use tools::tools;
 
 const PROTOCOL_VERSION: &str = "2025-11-25";
 
-/// Run Dart Decimate's MCP stdio server.
-///
 /// # Errors
 ///
 /// Returns an IO error if stdin or stdout cannot be read or written.

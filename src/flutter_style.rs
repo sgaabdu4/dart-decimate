@@ -23,8 +23,6 @@ struct ParsedSourceUnit<'source> {
     parsed: crate::dart_parser::ParsedDart<'source>,
 }
 
-/// Analyze opt-in Flutter theme usage with conservative syntax evidence.
-///
 /// # Errors
 ///
 /// Returns [`HealthError`] when an included source file cannot be read or parsed.

@@ -104,8 +104,6 @@ struct FlagGroup {
     occurrences: Vec<FeatureFlagOccurrence>,
 }
 
-/// Detect Dart and Flutter feature flag patterns.
-///
 /// # Errors
 ///
 /// Returns [`FeatureFlagError`] if a scanned Dart file cannot be read.

@@ -181,12 +181,9 @@ pub enum PolicyError {
     },
 }
 
-/// Detect configured boundary-call violations.
-///
 /// # Errors
 ///
-/// Returns [`PolicyError`] if a checked Dart source file cannot be read or
-/// parsed for call expressions.
+/// Returns [`PolicyError`] if a checked Dart source file cannot be read or parsed for call expressions.
 pub fn detect_boundary_call_violations(
     project: &ScannedProject,
     rules: &[BoundaryCallRule],
@@ -249,12 +246,9 @@ pub fn detect_boundary_call_violations(
     Ok(violations)
 }
 
-/// Detect policy pack violations.
-///
 /// # Errors
 ///
-/// Returns [`PolicyError`] if a checked Dart source file cannot be read or
-/// parsed for call-expression rules.
+/// Returns [`PolicyError`] if a checked Dart source file cannot be read or parsed for call-expression rules.
 pub fn detect_policy_violations(
     project: &ScannedProject,
     packs: &[PolicyPack],

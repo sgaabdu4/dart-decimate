@@ -94,12 +94,9 @@ pub enum InitError {
     },
 }
 
-/// Initialize Dart Decimate config and optional agent guidance under `root`.
-///
 /// # Errors
 ///
-/// Returns [`InitError`] when an initialized file already exists without
-/// `force`, or when directories/files cannot be written.
+/// Returns [`InitError`] when an initialized file already exists without `force`, or when directories/files cannot be written.
 pub fn init_project(root: impl AsRef<Path>, options: InitOptions) -> Result<InitReport, InitError> {
     let root = root.as_ref();
     let files = init_files(options.agents);
