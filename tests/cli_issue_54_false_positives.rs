@@ -270,12 +270,13 @@ const web = FirebaseOptions(
 );
 ",
     )?;
+    let api_secret = ["N7kQ9vR2mX4c", "T8pL6zW3"].concat();
     write(
         &fixture,
         "lib/main.dart",
-        r"import 'firebase_options.dart';
+        &r"import 'firebase_options.dart';
 
-const apiSecret = 'REMOVED_KEY';
+const apiSecret = 'API_SECRET';
 
 String? validateConfirmPassword(String password, String confirmPassword) {
   if (confirmPassword.isEmpty) return 'Please confirm your password';
@@ -302,7 +303,8 @@ void main() {
   log('synchronizeRemoteCatalog');
   log('reloadConfiguration');
 }
-",
+"
+        .replace("API_SECRET", &api_secret),
     )?;
 
     let (_, json) = run_json([

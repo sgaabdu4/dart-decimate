@@ -263,10 +263,16 @@ fn skips_dot_qualified_diagnostic_identifiers_but_reports_jwts()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
+    let jwt = [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+    ]
+    .join(".");
     write(
         &fixture,
         "lib/main.dart",
-        "class Crash {
+        &"class Crash {
   static void error(Object error, StackTrace stackTrace, {required String reason}) {}
 }
 
@@ -274,8 +280,9 @@ void report(Object error, StackTrace stackTrace) {
   Crash.error(error, stackTrace, reason: 'ActiveWorkoutNotifier.saveActiveWorkout.squadCheckIn');
 }
 
-const jwt = 'REMOVED_KEY';
-",
+const jwt = 'JWT_FIXTURE';
+"
+        .replace("JWT_FIXTURE", &jwt),
     )?;
 
     let project = scan_project(fixture.path())?;

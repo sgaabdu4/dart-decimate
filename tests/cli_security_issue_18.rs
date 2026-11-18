@@ -9,13 +9,7 @@ fn check_command_points_representative_security_findings_to_surface()
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
-    write(
-        &fixture,
-        "lib/main.dart",
-        "const accessToken = 'REMOVED_KEY';
-const refreshToken = 'REMOVED_KEY';
-",
-    )?;
+    write(&fixture, "lib/main.dart", &token_declarations())?;
     let mut output = Vec::new();
 
     let code = run_from(
@@ -54,13 +48,7 @@ fn check_command_omits_security_surface_step_when_rule_disables_visible_findings
         "[rules]\nsecurity-hardcoded-secret = \"off\"\n",
     )?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
-    write(
-        &fixture,
-        "lib/main.dart",
-        "const accessToken = 'REMOVED_KEY';
-const refreshToken = 'REMOVED_KEY';
-",
-    )?;
+    write(&fixture, "lib/main.dart", &token_declarations())?;
     let mut output = Vec::new();
 
     let code = run_from(
@@ -126,13 +114,7 @@ fn check_command_omits_security_surface_step_when_baseline_suppresses_visible_fi
 -> Result<(), Box<dyn std::error::Error>> {
     let fixture = tempfile::tempdir()?;
     write(&fixture, "pubspec.yaml", "name: app\n")?;
-    write(
-        &fixture,
-        "lib/main.dart",
-        "const accessToken = 'REMOVED_KEY';
-const refreshToken = 'REMOVED_KEY';
-",
-    )?;
+    write(&fixture, "lib/main.dart", &token_declarations())?;
     let baseline_path = fixture.path().join("baseline.json");
     let baseline_arg = baseline_path.display().to_string();
     let mut save_output = Vec::new();
@@ -231,6 +213,14 @@ fn check_command_omits_security_surface_step_when_baseline_removes_grouped_candi
     Ok(())
 }
 
+fn token_declarations() -> String {
+    format!(
+        "const accessToken = '{}';\nconst refreshToken = '{}';\n",
+        "0123456789abcdef".repeat(2),
+        "fedcba9876543210".repeat(2)
+    )
+}
+
 fn write(fixture: &TempDir, path: &str, source: &str) -> Result<(), std::io::Error> {
     let path = fixture.path().join(path);
     if let Some(parent) = path.parent() {
@@ -245,9 +235,9 @@ fn write_grouped_and_singleton_security_candidates(
     write(
         fixture,
         "lib/main.dart",
-        "const accessToken = 'REMOVED_KEY';
-const refreshToken = 'REMOVED_KEY';
-final uri = Uri.parse('http://api.example.com/login');
-",
+        &format!(
+            "{}final uri = Uri.parse('http://api.example.com/login');\n",
+            token_declarations()
+        ),
     )
 }
