@@ -1,15 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use petgraph::graph::NodeIndex;
 use serde::{Deserialize, Serialize};
 
 use crate::package_map::PackageMap;
 use crate::{DartFile, Location};
 
 use super::{
-    DependencyEdge, DependencyGraph, DependencyKind, DependencyVisibility, UnresolvedDependency,
-    normalize_against, resolve_local_uri,
+    DependencyEdge, DependencyKind, DependencyVisibility, EdgeBuilder, EdgeSource,
+    UnresolvedDependency, normalize_against, resolve_local_uri,
 };
 
 /// A resolved `part` edge whose target file does not point back to its library.
@@ -70,88 +69,79 @@ pub enum InvalidPartReason {
     },
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "part edges need graph insertion plus reciprocal Dart library validation"
-)]
-pub(super) fn add_part_dependency(
-    root: &Path,
-    packages: &PackageMap,
-    known_paths: &BTreeSet<PathBuf>,
-    nodes_by_path: &BTreeMap<PathBuf, NodeIndex>,
-    files_by_path: &BTreeMap<PathBuf, &DartFile>,
-    graph: &mut DependencyGraph,
-    unresolved: &mut Vec<UnresolvedDependency>,
-    invalid_part_relationships: &mut Vec<InvalidPartRelationship>,
-    referenced_part_paths: &mut BTreeSet<PathBuf>,
-    part_owners: &mut BTreeMap<PathBuf, PathBuf>,
-    from_index: NodeIndex,
-    from_path: &Path,
-    library: &DartFile,
-    specifier: &str,
-    location: Location,
-) {
-    let Some(target) = resolve_local_uri(root, packages, from_path, specifier) else {
-        return;
-    };
-    let target_path = target.path;
+impl EdgeBuilder<'_> {
+    pub(super) fn add_part_dependency(
+        &mut self,
+        from: &EdgeSource<'_>,
+        library: &DartFile,
+        specifier: &str,
+        location: Location,
+    ) {
+        let Some(target) = resolve_local_uri(self.root, self.packages, from.path, specifier) else {
+            return;
+        };
+        let target_path = target.path;
 
-    if !known_paths.contains(&target_path) {
-        if target.local {
-            unresolved.push(UnresolvedDependency {
-                from_path: from_path.to_path_buf(),
+        if !self.known_paths.contains(&target_path) {
+            if target.local {
+                self.unresolved.push(UnresolvedDependency {
+                    from_path: from.path.to_path_buf(),
+                    specifier: specifier.to_owned(),
+                    kind: DependencyKind::Part,
+                    location,
+                    attempted_path: target_path,
+                    visibility: DependencyVisibility::default(),
+                });
+            }
+            return;
+        }
+
+        self.referenced_part_paths.insert(target_path.clone());
+        if let Some(existing_library_path) = self.part_owners.get(&target_path) {
+            if existing_library_path == from.path {
+                return;
+            }
+            self.invalid_part_relationships
+                .push(InvalidPartRelationship {
+                    library_path: Some(from.path.to_path_buf()),
+                    part_path: target_path.clone(),
+                    specifier: specifier.to_owned(),
+                    location: self
+                        .files_by_path
+                        .get(&target_path)
+                        .and_then(|part| part.part_of.as_ref().map(|part_of| part_of.location))
+                        .unwrap_or(location),
+                    reason: InvalidPartReason::DuplicatePartOwner {
+                        existing_library_path: existing_library_path.clone(),
+                    },
+                });
+            return;
+        }
+        if let Some(part) = self.files_by_path.get(&target_path).copied()
+            && let Some(relationship) =
+                invalid_part_relationship(self.root, self.packages, library, part, specifier)
+        {
+            self.invalid_part_relationships.push(relationship);
+            return;
+        }
+        self.part_owners
+            .insert(target_path.clone(), from.path.to_path_buf());
+
+        let Some(target_index) = self.nodes_by_path.get(&target_path).copied() else {
+            return;
+        };
+
+        self.graph.add_edge(
+            from.index,
+            target_index,
+            DependencyEdge {
                 specifier: specifier.to_owned(),
                 kind: DependencyKind::Part,
                 location,
-                attempted_path: target_path,
                 visibility: DependencyVisibility::default(),
-            });
-        }
-        return;
-    }
-
-    referenced_part_paths.insert(target_path.clone());
-    if let Some(existing_library_path) = part_owners.get(&target_path) {
-        if existing_library_path == from_path {
-            return;
-        }
-        invalid_part_relationships.push(InvalidPartRelationship {
-            library_path: Some(from_path.to_path_buf()),
-            part_path: target_path.clone(),
-            specifier: specifier.to_owned(),
-            location: files_by_path
-                .get(&target_path)
-                .and_then(|part| part.part_of.as_ref().map(|part_of| part_of.location))
-                .unwrap_or(location),
-            reason: InvalidPartReason::DuplicatePartOwner {
-                existing_library_path: existing_library_path.clone(),
             },
-        });
-        return;
+        );
     }
-    if let Some(part) = files_by_path.get(&target_path).copied()
-        && let Some(relationship) =
-            invalid_part_relationship(root, packages, library, part, specifier)
-    {
-        invalid_part_relationships.push(relationship);
-        return;
-    }
-    part_owners.insert(target_path.clone(), from_path.to_path_buf());
-
-    let Some(target_index) = nodes_by_path.get(&target_path).copied() else {
-        return;
-    };
-
-    graph.add_edge(
-        from_index,
-        target_index,
-        DependencyEdge {
-            specifier: specifier.to_owned(),
-            kind: DependencyKind::Part,
-            location,
-            visibility: DependencyVisibility::default(),
-        },
-    );
 }
 
 pub(super) fn add_orphan_part_relationships(
