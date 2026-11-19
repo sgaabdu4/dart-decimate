@@ -142,6 +142,8 @@
             "fallow",
             "--only",
             "dead-code,dupes,health",
+            "--coverage",
+            "coverage/coverage-final.json",
             "--max-file-size",
             "0",
             "--fail-on-issues",
