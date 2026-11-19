@@ -26,7 +26,7 @@ Single source: N/A — no rule, value or type is added; one builder struct now h
 
 Blockers: None
 Handoff: None
-Authority: Autonomous. The coordinator asked for this repository to pass the release candidate, delivered as a PR that stops before merge for an independent review. The version gates need a version above main because the Rust source changes.
+Authority: Autonomous. The coordinator asked for this repository to pass the release candidate, delivered as a PR that stops before merge for an independent review. The version gates need a version above main because the Rust source changes. Declined review finding: keep the old public Rust field paths of the trace report. The clippy lint cannot be met with five bools in one struct, and no suppression is allowed. The crate has `publish = false`, the README documents only the command line, the JSON field names are unchanged, and nothing in this repository reads the old paths. Rust code that took the repository as a Git dependency would read `report.status.found`; that cost is accepted.
 
 ## Acceptance + steps
 
