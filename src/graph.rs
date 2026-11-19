@@ -13,8 +13,8 @@ mod conditionals;
 mod parts;
 
 use conditionals::{selected_exports, selected_imports};
+use parts::add_orphan_part_relationships;
 pub use parts::{InvalidPartReason, InvalidPartRelationship};
-use parts::{add_orphan_part_relationships, add_part_dependency};
 
 /// A directed dependency graph where nodes are Dart files.
 pub type DependencyGraph = DiGraph<ModuleNode, DependencyEdge>;
@@ -316,27 +316,30 @@ pub fn build_module_graph_with_options(
         .iter()
         .map(|file| (normalize_against(&root, &file.path), file))
         .collect::<BTreeMap<_, _>>();
-    let mut unresolved = Vec::new();
-    let mut invalid_part_relationships = Vec::new();
-    let mut referenced_part_paths = BTreeSet::new();
-    let mut part_owners = BTreeMap::new();
+    let mut builder = EdgeBuilder {
+        root: &root,
+        packages: &packages,
+        known_paths: &known_paths,
+        nodes_by_path: &nodes_by_path,
+        files_by_path: &files_by_path,
+        graph,
+        unresolved: Vec::new(),
+        invalid_part_relationships: Vec::new(),
+        referenced_part_paths: BTreeSet::new(),
+        part_owners: BTreeMap::new(),
+    };
 
     for file in files {
-        add_file_dependencies(
-            &root,
-            &packages,
-            &known_paths,
-            &nodes_by_path,
-            &files_by_path,
-            &mut graph,
-            &mut unresolved,
-            &mut invalid_part_relationships,
-            &mut referenced_part_paths,
-            &mut part_owners,
-            options,
-            file,
-        );
+        builder.add_file_dependencies(options, file);
     }
+
+    let EdgeBuilder {
+        graph,
+        unresolved,
+        mut invalid_part_relationships,
+        referenced_part_paths,
+        ..
+    } = builder;
 
     add_orphan_part_relationships(
         &root,
@@ -370,167 +373,127 @@ pub fn build_module_graph_with_options(
     })
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "keeps per-file edge construction in one owner without hiding graph state"
-)]
-fn add_file_dependencies(
-    root: &Path,
-    packages: &PackageMap,
-    known_paths: &BTreeSet<PathBuf>,
-    nodes_by_path: &BTreeMap<PathBuf, NodeIndex>,
-    files_by_path: &BTreeMap<PathBuf, &DartFile>,
-    graph: &mut DependencyGraph,
-    unresolved: &mut Vec<UnresolvedDependency>,
-    invalid_part_relationships: &mut Vec<InvalidPartRelationship>,
-    referenced_part_paths: &mut BTreeSet<PathBuf>,
-    part_owners: &mut BTreeMap<PathBuf, PathBuf>,
-    options: &GraphOptions,
-    file: &DartFile,
-) {
-    let from_path = normalize_against(root, &file.path);
-    let Some(from_index) = nodes_by_path.get(&from_path).copied() else {
-        return;
-    };
-
-    if let Some(library) = &file.library
-        && let Some(augment_uri) = &library.augment_uri
-    {
-        add_dependency(
-            root,
-            packages,
-            known_paths,
-            nodes_by_path,
-            graph,
-            unresolved,
-            from_index,
-            &from_path,
-            augment_uri,
-            DependencyKind::Augment,
-            library.location,
-            DependencyVisibility::default(),
-        );
-    }
-
-    let imports = selected_imports(&file.imports, &options.conditional_environment);
-    for import in imports {
-        add_dependency(
-            root,
-            packages,
-            known_paths,
-            nodes_by_path,
-            graph,
-            unresolved,
-            from_index,
-            &from_path,
-            &import.uri,
-            DependencyKind::Import,
-            import.location,
-            DependencyVisibility {
-                prefix: import.prefix.clone(),
-                deferred: import.deferred,
-                condition: import.condition.clone(),
-                combinators: import.combinators.clone(),
-            },
-        );
-    }
-
-    let exports = selected_exports(&file.exports, &options.conditional_environment);
-    for export in exports {
-        add_dependency(
-            root,
-            packages,
-            known_paths,
-            nodes_by_path,
-            graph,
-            unresolved,
-            from_index,
-            &from_path,
-            &export.uri,
-            DependencyKind::Export,
-            export.location,
-            DependencyVisibility {
-                condition: export.condition.clone(),
-                combinators: export.combinators.clone(),
-                ..DependencyVisibility::default()
-            },
-        );
-    }
-
-    for part in &file.parts {
-        add_part_dependency(
-            root,
-            packages,
-            known_paths,
-            nodes_by_path,
-            files_by_path,
-            graph,
-            unresolved,
-            invalid_part_relationships,
-            referenced_part_paths,
-            part_owners,
-            from_index,
-            &from_path,
-            file,
-            &part.uri,
-            part.location,
-        );
-    }
+struct EdgeBuilder<'a> {
+    root: &'a Path,
+    packages: &'a PackageMap,
+    known_paths: &'a BTreeSet<PathBuf>,
+    nodes_by_path: &'a BTreeMap<PathBuf, NodeIndex>,
+    files_by_path: &'a BTreeMap<PathBuf, &'a DartFile>,
+    graph: DependencyGraph,
+    unresolved: Vec<UnresolvedDependency>,
+    invalid_part_relationships: Vec<InvalidPartRelationship>,
+    referenced_part_paths: BTreeSet<PathBuf>,
+    part_owners: BTreeMap<PathBuf, PathBuf>,
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "keeps edge construction single-owner without creating a shallow context wrapper"
-)]
-fn add_dependency(
-    root: &Path,
-    packages: &PackageMap,
-    known_paths: &BTreeSet<PathBuf>,
-    nodes_by_path: &BTreeMap<PathBuf, NodeIndex>,
-    graph: &mut DependencyGraph,
-    unresolved: &mut Vec<UnresolvedDependency>,
-    from_index: NodeIndex,
-    from_path: &Path,
-    specifier: &str,
-    kind: DependencyKind,
-    location: Location,
-    visibility: DependencyVisibility,
-) {
-    let Some(target) = resolve_local_uri(root, packages, from_path, specifier) else {
-        return;
-    };
-    let target_path = target.path;
+struct EdgeSource<'a> {
+    index: NodeIndex,
+    path: &'a Path,
+}
 
-    if !known_paths.contains(&target_path) {
-        if !target.local {
+impl EdgeBuilder<'_> {
+    fn add_file_dependencies(&mut self, options: &GraphOptions, file: &DartFile) {
+        let from_path = normalize_against(self.root, &file.path);
+        let Some(index) = self.nodes_by_path.get(&from_path).copied() else {
+            return;
+        };
+        let from = EdgeSource {
+            index,
+            path: &from_path,
+        };
+
+        if let Some(library) = &file.library
+            && let Some(augment_uri) = &library.augment_uri
+        {
+            self.add_dependency(
+                &from,
+                augment_uri,
+                DependencyKind::Augment,
+                library.location,
+                DependencyVisibility::default(),
+            );
+        }
+
+        let imports = selected_imports(&file.imports, &options.conditional_environment);
+        for import in imports {
+            self.add_dependency(
+                &from,
+                &import.uri,
+                DependencyKind::Import,
+                import.location,
+                DependencyVisibility {
+                    prefix: import.prefix.clone(),
+                    deferred: import.deferred,
+                    condition: import.condition.clone(),
+                    combinators: import.combinators.clone(),
+                },
+            );
+        }
+
+        let exports = selected_exports(&file.exports, &options.conditional_environment);
+        for export in exports {
+            self.add_dependency(
+                &from,
+                &export.uri,
+                DependencyKind::Export,
+                export.location,
+                DependencyVisibility {
+                    condition: export.condition.clone(),
+                    combinators: export.combinators.clone(),
+                    ..DependencyVisibility::default()
+                },
+            );
+        }
+
+        for part in &file.parts {
+            self.add_part_dependency(&from, file, &part.uri, part.location);
+        }
+    }
+
+    fn add_dependency(
+        &mut self,
+        from: &EdgeSource<'_>,
+        specifier: &str,
+        kind: DependencyKind,
+        location: Location,
+        visibility: DependencyVisibility,
+    ) {
+        let Some(target) = resolve_local_uri(self.root, self.packages, from.path, specifier) else {
+            return;
+        };
+        let target_path = target.path;
+
+        if !self.known_paths.contains(&target_path) {
+            if !target.local {
+                return;
+            }
+
+            self.unresolved.push(UnresolvedDependency {
+                from_path: from.path.to_path_buf(),
+                specifier: specifier.to_owned(),
+                kind,
+                location,
+                attempted_path: target_path,
+                visibility,
+            });
             return;
         }
 
-        unresolved.push(UnresolvedDependency {
-            from_path: from_path.to_path_buf(),
-            specifier: specifier.to_owned(),
-            kind,
-            location,
-            attempted_path: target_path,
-            visibility,
-        });
-        return;
+        let Some(target_index) = self.nodes_by_path.get(&target_path).copied() else {
+            return;
+        };
+
+        self.graph.add_edge(
+            from.index,
+            target_index,
+            DependencyEdge {
+                specifier: specifier.to_owned(),
+                kind,
+                location,
+                visibility,
+            },
+        );
     }
-
-    let Some(target_index) = nodes_by_path.get(&target_path).copied() else {
-        return;
-    };
-
-    graph.add_edge(
-        from_index,
-        target_index,
-        DependencyEdge {
-            specifier: specifier.to_owned(),
-            kind,
-            location,
-            visibility,
-        },
-    );
 }
 
 pub(super) struct ResolvedTarget {
