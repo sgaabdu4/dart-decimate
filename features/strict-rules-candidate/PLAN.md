@@ -34,7 +34,7 @@ Authority: Autonomous. The coordinator asked for this repository to pass the rel
 - [x] The dependency trace JSON keeps every field name → `tests/cli_dependencies.rs::tooling_config_usage_counts_as_dependency_usage` reads `used_in_scripts` and `used_in_codegen` from the JSON and passes unchanged.
 - [x] The theme extension test checks the same findings → `tests/cli_flutter_style_usage.rs::theme_extension_aliases_and_proven_factories_mark_owned_fields_used` passes with its sources held in constants.
 - [x] The Fallow scan keeps its dead-code, duplicate and health checks → N/A — the `dead-code-duplicates` gate of `python3 .hooks/hard-eng.py check` is the proof.
-- [x] Version 0.0.80 is the same in every owner → `scripts/check-version-sync.mjs`, run by the `version-sync` gate.
+- [x] Version 0.0.80 is the same in every owner → N/A — a version is not a behavior; the `version-sync`, `version-bump` and `release-version` gates are the proof.
 
 ## Baseline + execution
 
