@@ -4,7 +4,7 @@ Status: Complete
 
 ## Outcome + scope
 
-The repository passes the Hard Eng release candidate. The `fallow-audit` gate that wrapped Fallow in `sh -c` is gone because the `dead-code-duplicates` gate already runs the same scan on the whole project. Five Rust lint suppressions are fixed at their cause. The Fallow settings drop the switched-off rules and the entry globs. Release as 0.0.80. Non-goals: other rules, other files, new features.
+The repository passes the Hard Eng release candidate. The `fallow-audit` gate that wrapped Fallow in `sh -c` is gone. The `dead-code-duplicates` gate now runs dead code, duplicates and health on the whole project, which covers what the audit checked. Five Rust lint suppressions are fixed at their cause. The Fallow settings drop the switched-off rules and the entry globs. Release as 0.0.80. Non-goals: other rules, other files, new features.
 
 ## Sources + coverage
 
@@ -33,7 +33,7 @@ Authority: Autonomous. The coordinator asked for this repository to pass the rel
 - [x] The dependency graph keeps its edges, unresolved imports and part checks → N/A — the installed plan check reads no Rust test names; the Rust tests `builds_edges_for_part_directives`, `reports_missing_part_of_for_resolved_part` and `records_unresolved_known_package_import_target` in `src/graph/tests.rs` pass unchanged in the gate.
 - [x] The dependency trace JSON keeps every field name → N/A — the installed plan check reads no Rust test names; the Rust test `tooling_config_usage_counts_as_dependency_usage` in `tests/cli_dependencies.rs` reads `used_in_scripts` and `used_in_codegen` from the JSON and passes unchanged in the gate.
 - [x] The theme extension test checks the same findings → N/A — the installed plan check reads no Rust test names; the Rust test `theme_extension_aliases_and_proven_factories_mark_owned_fields_used` in `tests/cli_flutter_style_usage.rs` passes with its sources held in constants.
-- [x] The Fallow scan keeps its dead-code, duplicate and health checks → N/A — the `dead-code-duplicates` gate of `python3 .hooks/hard-eng.py check` is the proof.
+- [x] The Fallow scan checks dead code, duplicates and health on the whole project → N/A — the `dead-code-duplicates` gate of `python3 .hooks/hard-eng.py check` is the proof.
 - [x] Version 0.0.80 is the same in every owner → N/A — a version is not a behavior; the `version-sync`, `version-bump` and `release-version` gates are the proof.
 
 ## Baseline + execution
@@ -44,7 +44,7 @@ Execution: One agent; one commit per cause.
 
 ## Risks + recovery
 
-The trace report moves its found, declared and used flags into two flattened structs. The JSON field names stay the same and only their order changes. A Rust user of the library reads `report.status.found` where it read `report.found`. Merging to main starts the Release workflow, which publishes 0.0.80. Recovery: a forward fix in a new patch version.
+The trace report moves its found, declared and used flags into two flattened structs. The JSON field names stay the same and only their order changes. A Rust user of the library reads `report.status.found` where it read `report.found`; the crate has `publish = false` and the README documents only the command line, so no published Rust interface changes. Merging to main starts the Release workflow, which publishes 0.0.80. Recovery: a forward fix in a new patch version.
 
 ## ux_reference
 
