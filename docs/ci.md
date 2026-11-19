@@ -47,7 +47,7 @@ This repository already runs:
   unpublished version, except native-verified canonical scaffold-only updates
 - release guards that reject reused npm versions or tags on different commits
 - migration checks that block previous package, command, schema, and MCP names
-- Fallow audit against the base branch
+- Fallow dead-code, duplicate and health scan of the whole project
 - Dependabot and weekly dependency/security audits
 
 Hard Eng owns the full local gate in `hard-eng.gates.json`. The checked-in

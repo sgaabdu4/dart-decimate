@@ -271,19 +271,6 @@
       "command": ["node", "scripts/check-release-version.mjs"]
     },
     {
-      "name": "fallow-audit",
-      "parallel": true,
-      "command": [
-        "sh",
-        "-c",
-        "exec fallow audit --base \"${BASE_SHA:-origin/main}\" --gate all --format json --output-file coverage/fallow-audit.json"
-      ],
-      "report": {
-        "type": "fallow",
-        "path": "coverage/fallow-audit.json"
-      }
-    },
-    {
       "name": "pack",
       "parallel": true,
       "command": ["bun", "pm", "pack", "--dry-run"]
