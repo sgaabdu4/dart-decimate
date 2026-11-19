@@ -1,8 +1,3 @@
 {
-  "entry": ["tests/js/*.test.mjs", "tests/performance/*.test.mjs"],
-  "ignorePatterns": [".hooks/**"],
-  "rules": {
-    "boundary-violation": "off",
-    "policy-violation": "off"
-  }
+  "ignorePatterns": [".hooks/**"]
 }
