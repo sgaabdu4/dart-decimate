@@ -159,10 +159,10 @@ void main() {}\n",
 
     let report = trace_dependency(&project, "collection")?;
 
-    assert!(report.found);
-    assert!(report.declared);
-    assert!(report.is_used);
-    assert!(!report.used_in_scripts);
+    assert!(report.status.found);
+    assert!(report.status.declared);
+    assert!(report.status.is_used);
+    assert!(!report.tooling.used_in_scripts);
     assert_eq!(report.total_import_count, 2);
     assert_eq!(report.type_only_importers, []);
     assert_eq!(report.declared_in[0].pubspec_path, "pubspec.yaml");
@@ -189,9 +189,9 @@ fn traces_missing_pub_dependency_without_failing() -> Result<(), Box<dyn std::er
 
     let report = trace_dependency(&project, "missing_package")?;
 
-    assert!(!report.found);
-    assert!(!report.declared);
-    assert!(!report.is_used);
+    assert!(!report.status.found);
+    assert!(!report.status.declared);
+    assert!(!report.status.is_used);
     assert_eq!(report.total_import_count, 0);
     assert_eq!(report.declared_in, []);
     assert_eq!(report.importing_files, []);

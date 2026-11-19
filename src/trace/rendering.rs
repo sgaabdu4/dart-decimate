@@ -47,7 +47,11 @@ pub fn render_dependency_trace(report: &DependencyTraceReport) -> String {
     let _ = writeln!(
         rendered,
         "trace-dependency {}: found={} declared={} used={} imports={}",
-        report.dependency, report.found, report.declared, report.is_used, report.total_import_count
+        report.dependency,
+        report.status.found,
+        report.status.declared,
+        report.status.is_used,
+        report.total_import_count
     );
     let _ = writeln!(rendered, "{}", report.reason);
     rendered

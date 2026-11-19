@@ -198,10 +198,11 @@ pub use symbols::{
     analyze_symbols_with_options, analyze_unused_exports,
 };
 pub use trace::{
-    DependencyTraceReport, FileTraceReport, SymbolTraceReport, TraceDeclaration, TraceDependency,
-    TraceDependencyDirective, TraceImpactPath, TracePubspecDependency, TraceReference,
-    TraceSemanticCompleteness, TraceTestSuggestion, render_dependency_trace, render_file_trace,
-    render_symbol_trace, trace_dependency, trace_file, trace_symbol,
+    DependencyToolingUse, DependencyTraceReport, DependencyTraceStatus, FileTraceReport,
+    SymbolTraceReport, TraceDeclaration, TraceDependency, TraceDependencyDirective,
+    TraceImpactPath, TracePubspecDependency, TraceReference, TraceSemanticCompleteness,
+    TraceTestSuggestion, render_dependency_trace, render_file_trace, render_symbol_trace,
+    trace_dependency, trace_file, trace_symbol,
 };
 pub use widgets::{
     MissingContextMountedAfterAwait, PrivateWidgetClass, UnrenderedWidgetClass, UnusedWidgetParam,
