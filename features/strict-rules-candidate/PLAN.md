@@ -1,6 +1,6 @@
 # Pass the Hard Eng release candidate
 
-Status: Ready
+Status: Complete
 
 ## Outcome + scope
 
@@ -52,10 +52,10 @@ N/A — no user interface changes.
 
 ## Verification
 
-Result: Pending
-Evidence: Pending
+Result: Passed
+Evidence: `cargo test --all-targets` passes 1108 tests and `cargo clippy --all-targets -- -D warnings` is clean. `python3 .hooks/hard-eng.py check --base origin/main --plan-stage Complete` exits 0 with every gate PASS. The same check in a sealed copy updated to Hard Eng develop a7909cdb, with the main tip as base, exits 0 with every gate PASS.
 E2E: N/A — no user journey changes.
 Real service: N/A — no changed code calls an outside service.
-Retro: Pending
+Retro: Failed check: the shell-wrapped Fallow gate, five Rust suppressions and the switched-off Fallow rules → each fixed at its cause and the candidate check stays the prevention.
 Delivery target: Merge
 Delivery: Pending — PR, then merge after review, then confirm the Release workflow.
