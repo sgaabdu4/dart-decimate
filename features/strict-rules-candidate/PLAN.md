@@ -30,9 +30,9 @@ Authority: Autonomous. The coordinator asked for this repository to pass the rel
 
 ## Acceptance + steps
 
-- [x] The dependency graph keeps its edges, unresolved imports and part checks → `src/graph/tests.rs::builds_edges_for_part_directives`, `src/graph/tests.rs::reports_missing_part_of_for_resolved_part` and `src/graph/tests.rs::records_unresolved_known_package_import_target` pass unchanged.
-- [x] The dependency trace JSON keeps every field name → `tests/cli_dependencies.rs::tooling_config_usage_counts_as_dependency_usage` reads `used_in_scripts` and `used_in_codegen` from the JSON and passes unchanged.
-- [x] The theme extension test checks the same findings → `tests/cli_flutter_style_usage.rs::theme_extension_aliases_and_proven_factories_mark_owned_fields_used` passes with its sources held in constants.
+- [x] The dependency graph keeps its edges, unresolved imports and part checks → N/A — the installed plan check reads no Rust test names; the Rust tests `builds_edges_for_part_directives`, `reports_missing_part_of_for_resolved_part` and `records_unresolved_known_package_import_target` in `src/graph/tests.rs` pass unchanged in the gate.
+- [x] The dependency trace JSON keeps every field name → N/A — the installed plan check reads no Rust test names; the Rust test `tooling_config_usage_counts_as_dependency_usage` in `tests/cli_dependencies.rs` reads `used_in_scripts` and `used_in_codegen` from the JSON and passes unchanged in the gate.
+- [x] The theme extension test checks the same findings → N/A — the installed plan check reads no Rust test names; the Rust test `theme_extension_aliases_and_proven_factories_mark_owned_fields_used` in `tests/cli_flutter_style_usage.rs` passes with its sources held in constants.
 - [x] The Fallow scan keeps its dead-code, duplicate and health checks → N/A — the `dead-code-duplicates` gate of `python3 .hooks/hard-eng.py check` is the proof.
 - [x] Version 0.0.80 is the same in every owner → N/A — a version is not a behavior; the `version-sync`, `version-bump` and `release-version` gates are the proof.
 
