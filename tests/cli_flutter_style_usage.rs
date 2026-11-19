@@ -4,20 +4,7 @@ use dart_decimate::cli::run_from;
 use serde_json::Value;
 use tempfile::TempDir;
 
-#[test]
-#[allow(clippy::too_many_lines)]
-fn theme_extension_aliases_and_proven_factories_mark_owned_fields_used()
--> Result<(), Box<dyn std::error::Error>> {
-    let fixture = tempfile::tempdir()?;
-    write(
-        &fixture,
-        "pubspec.yaml",
-        "name: app\ndependencies:\n  flutter:\n    sdk: flutter\n",
-    )?;
-    write(
-        &fixture,
-        "lib/theme.dart",
-        r"
+const THEME_SOURCE: &str = r"
 import 'package:flutter/material.dart';
 
 class AppTokens extends ThemeExtension<AppTokens> {
@@ -51,12 +38,9 @@ class CollisionFactory {
   static AppTokens colors(BuildContext context) =>
       Theme.of(context).extension<AppTokens>()!;
 }
-",
-    )?;
-    write(
-        &fixture,
-        "lib/collision.dart",
-        r"
+";
+
+const COLLISION_SOURCE: &str = r"
 import 'package:flutter/material.dart';
 
 class Model {
@@ -66,12 +50,9 @@ class Model {
 class CollisionFactory {
   static Model colors(BuildContext context) => Model();
 }
-",
-    )?;
-    write(
-        &fixture,
-        "lib/main.dart",
-        r"
+";
+
+const MAIN_SOURCE: &str = r"
 import 'package:flutter/material.dart';
 import 'collision.dart' as collision;
 import 'theme.dart';
@@ -124,8 +105,20 @@ Widget buildCard(BuildContext context) {
     ),
   );
 }
-",
+";
+
+#[test]
+fn theme_extension_aliases_and_proven_factories_mark_owned_fields_used()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    write(
+        &fixture,
+        "pubspec.yaml",
+        "name: app\ndependencies:\n  flutter:\n    sdk: flutter\n",
     )?;
+    write(&fixture, "lib/theme.dart", THEME_SOURCE)?;
+    write(&fixture, "lib/collision.dart", COLLISION_SOURCE)?;
+    write(&fixture, "lib/main.dart", MAIN_SOURCE)?;
 
     let json = flutter_style_json(&fixture)?;
     let unused = json["flutter_style"]
