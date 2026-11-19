@@ -96,9 +96,29 @@ pub struct SymbolTraceReport {
     pub reason: String,
 }
 
+/// Dependency trace verdict flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyTraceStatus {
+    /// Whether the dependency was found as either a declaration or usage evidence.
+    pub found: bool,
+    /// Whether the dependency is declared in at least one local pubspec.
+    pub declared: bool,
+    /// Whether Dart or tooling evidence references the package.
+    pub is_used: bool,
+}
+
+/// Non-import evidence that a dependency is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyToolingUse {
+    /// Whether non-Dart tooling files reference the package.
+    pub used_in_scripts: bool,
+    /// Whether Dart source uses the package through a recognized code generator.
+    #[serde(default)]
+    pub used_in_codegen: bool,
+}
+
 /// Dependency trace JSON envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct DependencyTraceReport {
     /// Schema identifier.
     pub schema_version: String,
@@ -110,10 +130,9 @@ pub struct DependencyTraceReport {
     pub command: String,
     /// Dependency package being traced.
     pub dependency: String,
-    /// Whether the dependency was found as either a declaration or usage evidence.
-    pub found: bool,
-    /// Whether the dependency is declared in at least one local pubspec.
-    pub declared: bool,
+    /// Found, declared and used flags, flattened into the envelope.
+    #[serde(flatten)]
+    pub status: DependencyTraceStatus,
     /// Local pubspec declarations for this dependency.
     pub declared_in: Vec<TracePubspecDependency>,
     /// Dart import/export directives that reference the package.
@@ -122,13 +141,9 @@ pub struct DependencyTraceReport {
     pub type_only_importers: Vec<TraceDependencyDirective>,
     /// Number of Dart import/export directives referencing the package.
     pub total_import_count: usize,
-    /// Whether non-Dart tooling files reference the package.
-    pub used_in_scripts: bool,
-    /// Whether Dart source uses the package through a recognized code generator.
-    #[serde(default)]
-    pub used_in_codegen: bool,
-    /// Whether Dart or tooling evidence references the package.
-    pub is_used: bool,
+    /// Script and code generator evidence, flattened into the envelope.
+    #[serde(flatten)]
+    pub tooling: DependencyToolingUse,
     /// Short trace interpretation.
     pub reason: String,
 }
@@ -383,15 +398,19 @@ pub fn trace_dependency(
         tool: "dart-decimate".to_owned(),
         command: "trace-dependency".to_owned(),
         dependency: dependency.to_owned(),
-        found: declared || is_used,
-        declared,
+        status: DependencyTraceStatus {
+            found: declared || is_used,
+            declared,
+            is_used,
+        },
         declared_in,
         importing_files,
         type_only_importers: Vec::new(),
         total_import_count,
-        used_in_scripts,
-        used_in_codegen,
-        is_used,
+        tooling: DependencyToolingUse {
+            used_in_scripts,
+            used_in_codegen,
+        },
         reason: dependency_reason(declared, is_used, used_in_codegen),
     })
 }
