@@ -10062,3 +10062,184 @@ rules:
             - metavariable-regex:
                 metavariable: $REASON
                 regex: (?s)^["'](?=(?:(?:["']\s*\+\s*["'])*(?:\\.|[^"'$\\])){20})(?!.*\\\()(?=.*(?:[^\s"'$+]\s+[^\s"'$+]|[^\s"'$+]\s*["']\s*\+\s*["']\s+[^\s"'$+]|[^\s"'$+]\s+["']\s*\+\s*["'][^\s"'$+]))(?:\\.|[^"'$\\]|["']\s*\+\s*["'])*["']$
+  - id: next-frame-call-javascript
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      Zero-delay or next-frame call. Fix the order of events at its cause: run the work from the event, ref
+      callback, layout effect or animation that owns it. A delay of 17 ms or more is no fix for an order fault.
+    paths: *paths
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: setTimeout($F)
+              - pattern: setTimeout($F, 0)
+              - patterns:
+                  - pattern: setTimeout($F, $D, ...)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+          - pattern-not-inside: |
+              import { ..., setTimeout, ... } from "node:timers/promises"
+              ...
+          - pattern-not-inside: |
+              import { ..., setTimeout, ... } from "timers/promises"
+              ...
+          - pattern-not-inside: |
+              const { ..., setTimeout, ... } = require("node:timers/promises")
+              ...
+          - pattern-not-inside: |
+              const { ..., setTimeout, ... } = require("timers/promises")
+              ...
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import { ..., setTimeout as $S, ... } from "node:timers/promises"
+                  ...
+              - pattern-inside: |
+                  import { ..., setTimeout as $S, ... } from "timers/promises"
+                  ...
+              - pattern-inside: |
+                  const { ..., setTimeout: $S, ... } = require("node:timers/promises")
+                  ...
+              - pattern-inside: |
+                  const { ..., setTimeout: $S, ... } = require("timers/promises")
+                  ...
+          - metavariable-regex:
+              metavariable: $S
+              regex: ^(?!setTimeout$)[A-Za-z_$][A-Za-z0-9_$]*$
+          - pattern-either:
+              - pattern: setTimeout($F)
+              - pattern: setTimeout($F, 0)
+              - patterns:
+                  - pattern: setTimeout($F, $D, ...)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import { ..., setTimeout, ... } from "node:timers/promises"
+                  ...
+              - pattern-inside: |
+                  import { ..., setTimeout, ... } from "timers/promises"
+                  ...
+              - pattern-inside: |
+                  const { ..., setTimeout, ... } = require("node:timers/promises")
+                  ...
+              - pattern-inside: |
+                  const { ..., setTimeout, ... } = require("timers/promises")
+                  ...
+          - pattern-not-inside: |
+              import { ..., setTimeout as $S, ... } from "node:timers/promises"
+              ...
+          - pattern-not-inside: |
+              import { ..., setTimeout as $S, ... } from "timers/promises"
+              ...
+          - pattern-not-inside: |
+              const { ..., setTimeout: $S, ... } = require("node:timers/promises")
+              ...
+          - pattern-not-inside: |
+              const { ..., setTimeout: $S, ... } = require("timers/promises")
+              ...
+          - pattern-either:
+              - pattern: setTimeout()
+              - pattern: setTimeout(0)
+              - pattern: setTimeout(0, ...)
+              - pattern: setTimeout(undefined)
+              - pattern: setTimeout(undefined, ...)
+              - patterns:
+                  - pattern: setTimeout($D)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+              - patterns:
+                  - pattern: setTimeout($D, ...)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  import { ..., setTimeout as $S, ... } from "node:timers/promises"
+                  ...
+              - pattern-inside: |
+                  import { ..., setTimeout as $S, ... } from "timers/promises"
+                  ...
+              - pattern-inside: |
+                  const { ..., setTimeout: $S, ... } = require("node:timers/promises")
+                  ...
+              - pattern-inside: |
+                  const { ..., setTimeout: $S, ... } = require("timers/promises")
+                  ...
+          - pattern-either:
+              - pattern: $S()
+              - pattern: $S(0)
+              - pattern: $S(0, ...)
+              - pattern: $S(undefined)
+              - pattern: $S(undefined, ...)
+              - patterns:
+                  - pattern: $S($D)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+              - patterns:
+                  - pattern: $S($D, ...)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+      - patterns:
+          - pattern-either:
+              - pattern: $G.setTimeout($F)
+              - pattern: $G.setTimeout($F, 0)
+              - patterns:
+                  - pattern: $G.setTimeout($F, $D, ...)
+                  - metavariable-comparison:
+                      metavariable: $D
+                      comparison: $D < 17
+              - pattern: $G.setImmediate(...)
+              - pattern: $G.requestAnimationFrame(...)
+              - pattern: $G.requestIdleCallback(...)
+              - pattern: $G.queueMicrotask(...)
+          - metavariable-regex:
+              metavariable: $G
+              regex: ^(window|globalThis|self|global)$
+      - pattern: setImmediate(...)
+      - pattern: requestAnimationFrame(...)
+      - pattern: requestIdleCallback(...)
+      - pattern: queueMicrotask(...)
+      - pattern: process.nextTick(...)
+      - pattern: Promise.resolve().then(...)
+      - pattern: await Promise.resolve()
+      - pattern: await null
+  - id: next-frame-call-dart
+    languages: [dart]
+    severity: ERROR
+    message: >-
+      Zero-delay or next-frame call. Fix the order of events at its cause: run the work from the event,
+      listener, provider or animation that owns it. A delay of 17 ms or more is no fix for an order fault.
+    paths: *paths
+    pattern-either:
+      - pattern: scheduleMicrotask(...)
+      - pattern: Timer.run(...)
+      - pattern: Future(...)
+      - pattern: Future<$T>(...)
+      - pattern: await null
+      - patterns:
+          - pattern: $C(...)
+          - metavariable-regex:
+              metavariable: $C
+              regex: ^Future\s*(<[^()]*>)?\s*\.\s*microtask$
+      - patterns:
+          - pattern: $C($A, ...)
+          - metavariable-regex:
+              metavariable: $C
+              regex: ^(Future\s*(<[^()]*>)?)?\s*\.\s*delayed$
+          - metavariable-regex:
+              metavariable: $A
+              regex: ^(const\s+)?Duration\s*(\.\s*zero|\(\s*\)|\(\s*(milliseconds|microseconds)\s*:\s*(\d|1[0-6])\s*\))$
+      - patterns:
+          - pattern: Timer($A, ...)
+          - metavariable-regex:
+              metavariable: $A
+              regex: ^(const\s+)?Duration\s*(\.\s*zero|\(\s*\)|\(\s*(milliseconds|microseconds)\s*:\s*(\d|1[0-6])\s*\))$
